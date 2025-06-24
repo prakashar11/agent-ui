@@ -63,6 +63,7 @@ interface PlaygroundStore {
   setShowToolCalls: (show: boolean) => void
   agentFiles: FileList | null
   setAgentFiles: (files: FileList | null) => void
+  resetAgentFileInput?: () => void
 }
 
 export const usePlaygroundStore = create<PlaygroundStore>()(

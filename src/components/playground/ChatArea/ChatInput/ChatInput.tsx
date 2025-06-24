@@ -9,7 +9,7 @@ import { useQueryState } from 'nuqs'
 import Icon from '@/components/ui/icon'
 
 const ChatInput = () => {
-  const { chatInputRef, agentFiles, setAgentFiles } = usePlaygroundStore()
+  const { chatInputRef, agentFiles, setAgentFiles, resetAgentFileInput } = usePlaygroundStore()
 
   const { handleStreamResponse } = useAIChatStreamHandler()
   const [selectedAgent] = useQueryState('agent')
@@ -29,6 +29,7 @@ const ChatInput = () => {
         formData.append('message', inputMessage)
         result = await handleStreamResponse(formData)
         setAgentFiles(null)
+        if (resetAgentFileInput) resetAgentFileInput()
       } else {
         result = await handleStreamResponse(inputMessage)
       }

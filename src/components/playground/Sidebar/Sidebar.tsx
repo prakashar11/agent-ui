@@ -4,7 +4,7 @@ import { AgentSelector } from '@/components/playground/Sidebar/AgentSelector'
 import useChatActions from '@/hooks/useChatActions'
 import { usePlaygroundStore } from '@/store'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Icon from '@/components/ui/icon'
 import { getProviderIcon } from '@/lib/modelProvider'
 import Sessions from './Sessions'
@@ -217,23 +217,30 @@ const Sidebar = () => {
   const [agentId] = useQueryState('agent')
   const [agentUploadProgress, setAgentUploadProgress] = useState<number | null>(null)
   const [agentUploadError, setAgentUploadError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setIsMounted(true)
     if (hydrated) initializePlayground()
   }, [selectedEndpoint, initializePlayground, hydrated])
+
   const handleNewChat = () => {
     clearChat()
     focusChatInput()
   }
 
-  // Only store files in global state, do not upload
   const handleAgentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     setAgentFiles(files)
     setAgentUploadProgress(null)
     setAgentUploadError(null)
   }
+
+  useEffect(() => {
+    usePlaygroundStore.setState({ resetAgentFileInput: () => {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    } })
+  }, [])
 
   return (
     <motion.aside
@@ -305,6 +312,7 @@ const Sidebar = () => {
                           id="agent-file-upload"
                           type="file"
                           multiple
+                          ref={fileInputRef}
                           onChange={handleAgentFileChange}
                           className="hidden"
                           accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*"
