@@ -61,6 +61,8 @@ interface PlaygroundStore {
   setIsSessionsLoading: (isSessionsLoading: boolean) => void
   showToolCalls: boolean
   setShowToolCalls: (show: boolean) => void
+  agentFiles: FileList | null
+  setAgentFiles: (files: FileList | null) => void
 }
 
 export const usePlaygroundStore = create<PlaygroundStore>()(
@@ -114,6 +116,8 @@ export const usePlaygroundStore = create<PlaygroundStore>()(
           ...state, // preserve other state
           showToolCalls: show
         })),
+      agentFiles: null,
+      setAgentFiles: (files) => set(() => ({ agentFiles: files })),
     }),
     {
       name: 'endpoint-storage',

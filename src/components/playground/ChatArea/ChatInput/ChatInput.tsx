@@ -9,20 +9,30 @@ import { useQueryState } from 'nuqs'
 import Icon from '@/components/ui/icon'
 
 const ChatInput = () => {
-  const { chatInputRef } = usePlaygroundStore()
+  const { chatInputRef, agentFiles, setAgentFiles } = usePlaygroundStore()
 
   const { handleStreamResponse } = useAIChatStreamHandler()
   const [selectedAgent] = useQueryState('agent')
   const [inputMessage, setInputMessage] = useState('')
   const isStreaming = usePlaygroundStore((state) => state.isStreaming)
+
   const handleSubmit = async () => {
     if (!inputMessage.trim()) return
 
-    const currentMessage = inputMessage
-    setInputMessage('')
-
     try {
-      await handleStreamResponse(currentMessage)
+      let result
+      if (agentFiles && agentFiles.length > 0) {
+        const formData = new FormData()
+        Array.from(agentFiles).forEach((file) => {
+          formData.append('files', file)
+        })
+        formData.append('message', inputMessage)
+        result = await handleStreamResponse(formData)
+        setAgentFiles(null)
+      } else {
+        result = await handleStreamResponse(inputMessage)
+      }
+      setInputMessage('')
     } catch (error) {
       toast.error(
         `Error in handleSubmit: ${

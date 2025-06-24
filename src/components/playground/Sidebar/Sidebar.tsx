@@ -209,10 +209,15 @@ const Sidebar = () => {
     isEndpointActive,
     selectedModel,
     hydrated,
-    isEndpointLoading
+    isEndpointLoading,
+    agentFiles,
+    setAgentFiles
   } = usePlaygroundStore()
   const [isMounted, setIsMounted] = useState(false)
   const [agentId] = useQueryState('agent')
+  const [agentUploadProgress, setAgentUploadProgress] = useState<number | null>(null)
+  const [agentUploadError, setAgentUploadError] = useState<string | null>(null)
+
   useEffect(() => {
     setIsMounted(true)
     if (hydrated) initializePlayground()
@@ -221,6 +226,15 @@ const Sidebar = () => {
     clearChat()
     focusChatInput()
   }
+
+  // Only store files in global state, do not upload
+  const handleAgentFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    setAgentFiles(files)
+    setAgentUploadProgress(null)
+    setAgentUploadError(null)
+  }
+
   return (
     <motion.aside
       className="relative flex h-screen shrink-0 grow-0 flex-col overflow-hidden px-2 py-3 font-dmmono"
@@ -281,6 +295,29 @@ const Sidebar = () => {
                   ) : (
                     <>
                       <AgentSelector />
+                      {/* File upload for agent configuration */}
+                      <div className="flex w-full items-center gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
+                        <Icon type="plus-icon" size="xs" aria-hidden="true" />
+                        <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer">
+                          Choose File(s)
+                        </label>
+                        <input
+                          id="agent-file-upload"
+                          type="file"
+                          multiple
+                          onChange={handleAgentFileChange}
+                          className="hidden"
+                          accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*"
+                          disabled={!agentId}
+                        />
+                        {agentFiles && agentFiles.length > 0 && (
+                          <div className="ml-2 flex flex-col text-xs text-primary">
+                            {Array.from(agentFiles).map((file) => (
+                              <div key={file.name}>{file.name}</div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {selectedModel && agentId && (
                         <ModelDisplay model={selectedModel} />
                       )}
