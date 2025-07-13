@@ -315,7 +315,7 @@ const Sidebar = () => {
                           ref={fileInputRef}
                           onChange={handleAgentFileChange}
                           className="hidden"
-                          accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*"
+                          accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*,*.eml"
                           disabled={!agentId}
                         />
                         {agentFiles && agentFiles.length > 0 && (
