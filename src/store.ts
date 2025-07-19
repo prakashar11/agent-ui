@@ -3,17 +3,9 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 
 import {
   type PlaygroundChatMessage,
-  type SessionEntry
+  type SessionEntry,
+  type ComboboxAgent
 } from '@/types/playground'
-
-interface Agent {
-  value: string
-  label: string
-  model: {
-    provider: string
-  }
-  storage?: boolean
-}
 
 interface PlaygroundStore {
   hydrated: boolean
@@ -47,8 +39,8 @@ interface PlaygroundStore {
   chatInputRef: React.RefObject<HTMLTextAreaElement | null>
   selectedEndpoint: string
   setSelectedEndpoint: (selectedEndpoint: string) => void
-  agents: Agent[]
-  setAgents: (agents: Agent[]) => void
+  agents: ComboboxAgent[]
+  setAgents: (agents: ComboboxAgent[]) => void
   selectedModel: string
   setSelectedModel: (model: string) => void
   sessionsData: SessionEntry[] | null

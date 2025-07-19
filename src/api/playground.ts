@@ -20,7 +20,8 @@ export const getPlaygroundAgentsAPI = async (
       value: item.agent_id || '',
       label: item.name || '',
       model: item.model || '',
-      storage: item.storage || false
+      storage: item.storage || false,
+      category: item.category || 'Uncategorized'  // Default category if not provided
     }))
     return agents
   } catch {

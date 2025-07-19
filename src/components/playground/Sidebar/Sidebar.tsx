@@ -1,6 +1,6 @@
 'use client'
 import { Button } from '@/components/ui/button'
-import { AgentSelector } from '@/components/playground/Sidebar/AgentSelector'
+import { GroupedAgentSelector } from '@/components/playground/Sidebar/GroupedAgentSelector'
 import useChatActions from '@/hooks/useChatActions'
 import { usePlaygroundStore } from '@/store'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -42,12 +42,14 @@ const NewChatButton = ({
 )
 
 const ModelDisplay = ({ model }: { model: string }) => (
-  <div className="flex h-9 w-full items-center gap-3 rounded-xl border border-primary/15 bg-accent p-3 text-xs font-medium uppercase text-muted">
+  <div className="flex h-auto min-h-9 w-full items-start gap-3 rounded-xl border border-primary/15 bg-accent p-3 text-xs font-medium uppercase text-muted">
     {(() => {
       const icon = getProviderIcon(model)
-      return icon ? <Icon type={icon} className="shrink-0" size="xs" /> : null
+      return icon ? <Icon type={icon} className="shrink-0 mt-0.5" size="xs" /> : null
     })()}
-    {model}
+    <span className="break-words leading-relaxed">
+      {model}
+    </span>
   </div>
 )
 
@@ -301,11 +303,11 @@ const Sidebar = () => {
                     </div>
                   ) : (
                     <>
-                      <AgentSelector />
+                      <GroupedAgentSelector />
                       {/* File upload for agent configuration */}
-                      <div className="flex w-full items-center gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
-                        <Icon type="plus-icon" size="xs" aria-hidden="true" />
-                        <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer">
+                      <div className="flex w-full items-start gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
+                        <Icon type="plus-icon" size="xs" aria-hidden="true" className="flex-shrink-0 mt-0.5" />
+                        <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer flex-shrink-0">
                           Choose File(s)
                         </label>
                         <input
@@ -319,9 +321,11 @@ const Sidebar = () => {
                           disabled={!agentId}
                         />
                         {agentFiles && agentFiles.length > 0 && (
-                          <div className="ml-2 flex flex-col text-xs text-primary">
+                          <div className="ml-2 flex flex-col text-xs text-primary flex-1 min-w-0">
                             {Array.from(agentFiles).map((file) => (
-                              <div key={file.name}>{file.name}</div>
+                              <div key={file.name} className="break-words leading-relaxed">
+                                {file.name}
+                              </div>
                             ))}
                           </div>
                         )}

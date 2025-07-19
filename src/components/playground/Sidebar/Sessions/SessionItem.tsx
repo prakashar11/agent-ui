@@ -65,24 +65,24 @@ const SessionItem = ({
     <>
       <div
         className={cn(
-          'group flex h-11 w-full cursor-pointer items-center justify-between rounded-lg px-3 py-2 transition-colors duration-200',
+          'group flex h-auto min-h-11 w-full cursor-pointer items-start justify-between rounded-lg px-3 py-2 transition-colors duration-200',
           isSelected
             ? 'cursor-default bg-primary/10'
             : 'bg-background-secondary hover:bg-background-secondary/80'
         )}
         onClick={handleGetSession}
       >
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 flex-1 min-w-0">
           <h4
-            className={cn('text-sm font-medium', isSelected && 'text-primary')}
+            className={cn('text-sm font-medium break-words leading-relaxed', isSelected && 'text-primary')}
           >
-            {truncateText(title, 20)}
+            {title}
           </h4>
         </div>
         <Button
           variant="ghost"
           size="icon"
-          className="transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+          className="transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100 flex-shrink-0 ml-2"
           onClick={(e) => {
             e.stopPropagation()
             setIsDeleteModalOpen(true)
