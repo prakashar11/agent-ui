@@ -1,58 +1,22 @@
 import { ComboboxAgent } from '@/types/playground'
 
-// Predefined categories for common agent types
-export const AGENT_CATEGORIES = {
-  SECURITY: 'Security & Compliance',
-  DATA_ANALYSIS: 'Data Analysis',
-  AUTOMATION: 'Automation & Workflow',
-  COMMUNICATION: 'Communication',
-  RESEARCH: 'Research & Knowledge',
-  DEVELOPMENT: 'Development & Code',
-  BUSINESS: 'Business & Operations',
-  UNCATEGORIZED: 'Uncategorized'
-} as const
-
-export type AgentCategory = typeof AGENT_CATEGORIES[keyof typeof AGENT_CATEGORIES]
-
-// Category icons (you can extend this based on your icon system)
-export const CATEGORY_ICONS: Record<AgentCategory, string> = {
-  [AGENT_CATEGORIES.SECURITY]: 'shield',
-  [AGENT_CATEGORIES.DATA_ANALYSIS]: 'chart',
-  [AGENT_CATEGORIES.AUTOMATION]: 'zap',
-  [AGENT_CATEGORIES.COMMUNICATION]: 'message',
-  [AGENT_CATEGORIES.RESEARCH]: 'search',
-  [AGENT_CATEGORIES.DEVELOPMENT]: 'code',
-  [AGENT_CATEGORIES.BUSINESS]: 'briefcase',
-  [AGENT_CATEGORIES.UNCATEGORIZED]: 'help-circle'
-}
-
 // Helper function to group agents by category
 export function groupAgentsByCategory(agents: ComboboxAgent[]) {
   const groups: Record<string, ComboboxAgent[]> = {}
   
   agents.forEach((agent) => {
-    const category = agent.category || AGENT_CATEGORIES.UNCATEGORIZED
+    const category = agent.category || 'Uncategorized'
     if (!groups[category]) {
       groups[category] = []
     }
     groups[category].push(agent)
   })
   
-  // Sort categories: predefined categories first, then alphabetical
+  // Sort categories alphabetically
   const sortedCategories = Object.keys(groups).sort((a, b) => {
-    const aIndex = Object.values(AGENT_CATEGORIES).indexOf(a as AgentCategory)
-    const bIndex = Object.values(AGENT_CATEGORIES).indexOf(b as AgentCategory)
-    
-    // If both are predefined categories, sort by their order
-    if (aIndex !== -1 && bIndex !== -1) {
-      return aIndex - bIndex
-    }
-    
-    // If only one is predefined, put it first
-    if (aIndex !== -1) return -1
-    if (bIndex !== -1) return 1
-    
-    // If neither is predefined, sort alphabetically
+    // Put "Uncategorized" at the end
+    if (a === 'Uncategorized') return 1
+    if (b === 'Uncategorized') return -1
     return a.localeCompare(b)
   })
   
@@ -64,51 +28,63 @@ export function groupAgentsByCategory(agents: ComboboxAgent[]) {
 
 // Helper function to get category color (for future styling)
 export function getCategoryColor(category: string): string {
-  const colors: Record<string, string> = {
-    [AGENT_CATEGORIES.SECURITY]: 'text-red-500',
-    [AGENT_CATEGORIES.DATA_ANALYSIS]: 'text-blue-500',
-    [AGENT_CATEGORIES.AUTOMATION]: 'text-green-500',
-    [AGENT_CATEGORIES.COMMUNICATION]: 'text-purple-500',
-    [AGENT_CATEGORIES.RESEARCH]: 'text-orange-500',
-    [AGENT_CATEGORIES.DEVELOPMENT]: 'text-indigo-500',
-    [AGENT_CATEGORIES.BUSINESS]: 'text-teal-500',
-    [AGENT_CATEGORIES.UNCATEGORIZED]: 'text-gray-500'
+  // Generate a consistent color based on the category name
+  const colors = [
+    'text-red-500',
+    'text-blue-500', 
+    'text-green-500',
+    'text-purple-500',
+    'text-orange-500',
+    'text-indigo-500',
+    'text-teal-500',
+    'text-pink-500',
+    'text-yellow-500',
+    'text-cyan-500'
+  ]
+  
+  // Use a simple hash function to get consistent colors for the same category
+  let hash = 0
+  for (let i = 0; i < category.length; i++) {
+    const char = category.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash // Convert to 32-bit integer
   }
   
-  return colors[category] || colors[AGENT_CATEGORIES.UNCATEGORIZED]
+  const colorIndex = Math.abs(hash) % colors.length
+  return category === 'Uncategorized' ? 'text-gray-500' : colors[colorIndex]
 }
 
 // Helper function to suggest category based on agent name/description
-export function suggestCategory(agentName: string, description?: string): AgentCategory {
+export function suggestCategory(agentName: string, description?: string): string {
   const text = `${agentName} ${description || ''}`.toLowerCase()
   
   if (text.includes('security') || text.includes('compliance') || text.includes('audit') || text.includes('vulnerability')) {
-    return AGENT_CATEGORIES.SECURITY
+    return 'Security & Compliance'
   }
   
   if (text.includes('data') || text.includes('analysis') || text.includes('analytics') || text.includes('report')) {
-    return AGENT_CATEGORIES.DATA_ANALYSIS
+    return 'Data Analysis'
   }
   
   if (text.includes('automation') || text.includes('workflow') || text.includes('pipeline') || text.includes('orchestration')) {
-    return AGENT_CATEGORIES.AUTOMATION
+    return 'Automation & Workflow'
   }
   
   if (text.includes('communication') || text.includes('chat') || text.includes('email') || text.includes('notification')) {
-    return AGENT_CATEGORIES.COMMUNICATION
+    return 'Communication'
   }
   
   if (text.includes('research') || text.includes('knowledge') || text.includes('search') || text.includes('query')) {
-    return AGENT_CATEGORIES.RESEARCH
+    return 'Research & Knowledge'
   }
   
   if (text.includes('development') || text.includes('code') || text.includes('programming') || text.includes('debug')) {
-    return AGENT_CATEGORIES.DEVELOPMENT
+    return 'Development & Code'
   }
   
   if (text.includes('business') || text.includes('operation') || text.includes('process') || text.includes('management')) {
-    return AGENT_CATEGORIES.BUSINESS
+    return 'Business & Operations'
   }
   
-  return AGENT_CATEGORIES.UNCATEGORIZED
+  return 'Uncategorized'
 } 

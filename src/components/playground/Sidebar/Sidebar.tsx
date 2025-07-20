@@ -42,12 +42,12 @@ const NewChatButton = ({
 )
 
 const ModelDisplay = ({ model }: { model: string }) => (
-  <div className="flex h-auto min-h-9 w-full items-start gap-3 rounded-xl border border-primary/15 bg-accent p-3 text-xs font-medium uppercase text-muted">
+  <div className="flex h-auto min-h-9 w-full items-center gap-3 rounded-xl border border-primary/15 bg-accent p-3 text-xs font-medium uppercase text-muted">
     {(() => {
       const icon = getProviderIcon(model)
-      return icon ? <Icon type={icon} className="shrink-0 mt-0.5" size="xs" /> : null
+      return icon ? <Icon type={icon} className="shrink-0" size="xs" /> : null
     })()}
-    <span className="break-words leading-relaxed">
+    <span className="break-words leading-relaxed flex-1 min-w-0">
       {model}
     </span>
   </div>
@@ -305,23 +305,25 @@ const Sidebar = () => {
                     <>
                       <GroupedAgentSelector />
                       {/* File upload for agent configuration */}
-                      <div className="flex w-full items-start gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
-                        <Icon type="plus-icon" size="xs" aria-hidden="true" className="flex-shrink-0 mt-0.5" />
-                        <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer flex-shrink-0">
-                          Choose File(s)
-                        </label>
-                        <input
-                          id="agent-file-upload"
-                          type="file"
-                          multiple
-                          ref={fileInputRef}
-                          onChange={handleAgentFileChange}
-                          className="hidden"
-                          accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*,.eml"
-                          disabled={!agentId}
-                        />
+                      <div className="flex w-full flex-col gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
+                        <div className="flex items-center gap-2">
+                          <Icon type="plus-icon" size="xs" aria-hidden="true" className="flex-shrink-0" />
+                          <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer flex-shrink-0">
+                            Choose File(s)
+                          </label>
+                          <input
+                            id="agent-file-upload"
+                            type="file"
+                            multiple
+                            ref={fileInputRef}
+                            onChange={handleAgentFileChange}
+                            className="hidden"
+                            accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*,.eml"
+                            disabled={!agentId}
+                          />
+                        </div>
                         {agentFiles && agentFiles.length > 0 && (
-                          <div className="ml-2 flex flex-col text-xs text-primary flex-1 min-w-0">
+                          <div className="flex flex-col text-xs text-primary gap-1">
                             {Array.from(agentFiles).map((file) => (
                               <div key={file.name} className="break-words leading-relaxed">
                                 {file.name}
