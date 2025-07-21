@@ -4,7 +4,7 @@ This document explains the agent categorization feature that allows grouping age
 
 ## Overview
 
-The agent categorization feature provides a hierarchical view of agents organized by categories, making it easier for users to find and select the appropriate agent for their needs.
+The agent categorization feature provides a hierarchical view of agents organized by categories, making it easier for users to find and select the appropriate agent for their needs. Categories are defined by the backend and can be customized by users.
 
 ## Changes Made
 
@@ -27,25 +27,21 @@ The agent categorization feature provides a hierarchical view of agents organize
 ### 5. UI Integration
 - Updated `Sidebar.tsx` to use `GroupedAgentSelector` instead of `AgentSelector`
 
-## Predefined Categories
+## Dynamic Categories
 
-The system includes predefined categories for common agent types:
+The system now supports dynamic categories defined by the backend:
 
-- **Security & Compliance**: Security, audit, vulnerability assessment agents
-- **Data Analysis**: Analytics, reporting, data processing agents
-- **Automation & Workflow**: Pipeline, orchestration, automation agents
-- **Communication**: Chat, email, notification agents
-- **Research & Knowledge**: Search, query, knowledge base agents
-- **Development & Code**: Programming, debugging, code analysis agents
-- **Business & Operations**: Process management, business operations agents
-- **Uncategorized**: Default category for agents without explicit categorization
+- **Backend-Defined**: Categories are created and managed by the backend
+- **User-Customizable**: Users can create custom categories through the backend
+- **Flexible**: No hardcoded category limitations
+- **Default Fallback**: Agents without a category are assigned to "Uncategorized"
 
 ## How It Works
 
 ### Agent Grouping
 1. Agents are fetched from the API with their category information
 2. The `groupAgentsByCategory` utility function organizes agents by category
-3. Categories are sorted with predefined categories first, then alphabetically
+3. Categories are sorted alphabetically (with "Uncategorized" at the end)
 4. Agents within each category are sorted alphabetically by name
 
 ### UI Display
@@ -53,13 +49,20 @@ The system includes predefined categories for common agent types:
 2. Each category is shown as a group label with colored text
 3. Agents are listed under their respective categories
 4. Visual separators distinguish between different categories
+5. **Collapsible Categories**: Users can expand/collapse individual categories
+6. **Expand/Collapse All**: Buttons to control all categories at once
+7. **Persistent State**: Collapsed state is saved in localStorage
 
-### Category Suggestions
-The `suggestCategory` function can automatically suggest categories based on agent names and descriptions, using keyword matching.
+### Dynamic Color Assignment
+The `getCategoryColor` function automatically assigns consistent colors to categories:
+- Uses a hash function to ensure the same category always gets the same color
+- Provides a palette of 10 different colors
+- "Uncategorized" always gets gray color
+- Colors are consistent across sessions
 
 ## Usage
 
-### For Agent Developers
+### For Backend Developers
 To add category support to your agents, ensure your Agno agent includes a `category` field:
 
 ```python
@@ -74,40 +77,36 @@ class Agent:
 ### For Frontend Developers
 The categorization is handled automatically by the UI components. No additional configuration is required.
 
-## Customization
+## Backend Category Management
 
-### Adding New Categories
-To add new categories, update the `AGENT_CATEGORIES` object in `src/lib/agentCategories.ts`:
+### Creating Categories
+Categories are managed entirely by the backend:
+- No frontend hardcoded categories
+- Users can create custom categories through backend APIs
+- Categories are stored and retrieved from the backend
 
-```typescript
-export const AGENT_CATEGORIES = {
-  // ... existing categories
-  NEW_CATEGORY: 'New Category Name'
-} as const
-```
+### Category Assignment
+- Agents can be assigned to any category created in the backend
+- If no category is specified, agents default to "Uncategorized"
+- Categories are case-sensitive and should be consistent
 
-### Category Colors
-Update the `getCategoryColor` function to add colors for new categories:
+## UI Features
 
-```typescript
-export function getCategoryColor(category: string): string {
-  const colors: Record<string, string> = {
-    // ... existing colors
-    [AGENT_CATEGORIES.NEW_CATEGORY]: 'text-pink-500'
-  }
-  // ...
-}
-```
+### Collapsible Interface
+- **Individual Toggle**: Click category headers to expand/collapse
+- **Expand All**: Button to expand all categories at once
+- **Collapse All**: Button to collapse all categories at once
+- **Auto-Expand**: Selected agent's category is automatically expanded
 
-### Category Icons
-Add icons for new categories in the `CATEGORY_ICONS` object:
+### Persistent State
+- Collapsed/expanded state is saved in localStorage
+- User preferences persist across browser sessions
+- State is restored when the page is reloaded
 
-```typescript
-export const CATEGORY_ICONS: Record<AgentCategory, string> = {
-  // ... existing icons
-  [AGENT_CATEGORIES.NEW_CATEGORY]: 'star'
-}
-```
+### Text Wrapping
+- Agent names wrap properly when they're too long
+- Button height adjusts automatically to accommodate wrapped text
+- Maintains consistent font size and styling
 
 ## Backward Compatibility
 
@@ -119,10 +118,12 @@ export const CATEGORY_ICONS: Record<AgentCategory, string> = {
 
 Potential improvements for the categorization feature:
 
-1. **Category Management UI**: Allow users to create custom categories
+1. **Category Management UI**: Allow users to create custom categories from the frontend
 2. **Category Filtering**: Add filters to show only specific categories
 3. **Category Search**: Search within specific categories
 4. **Category Statistics**: Show agent counts per category
-5. **Category Icons**: Add visual icons for each category
+5. **Category Icons**: Add visual icons for each category (backend-defined)
 6. **Category Descriptions**: Add descriptions for each category
-7. **Category Permissions**: Restrict access to certain categories based on user roles 
+7. **Category Permissions**: Restrict access to certain categories based on user roles
+8. **Category Sorting**: Allow custom category ordering
+9. **Category Themes**: Different color themes for different category types 
