@@ -52,39 +52,4 @@ export function getCategoryColor(category: string): string {
   
   const colorIndex = Math.abs(hash) % colors.length
   return category === 'Uncategorized' ? 'text-gray-500' : colors[colorIndex]
-}
-
-// Helper function to suggest category based on agent name/description
-export function suggestCategory(agentName: string, description?: string): string {
-  const text = `${agentName} ${description || ''}`.toLowerCase()
-  
-  if (text.includes('security') || text.includes('compliance') || text.includes('audit') || text.includes('vulnerability')) {
-    return 'Security & Compliance'
-  }
-  
-  if (text.includes('data') || text.includes('analysis') || text.includes('analytics') || text.includes('report')) {
-    return 'Data Analysis'
-  }
-  
-  if (text.includes('automation') || text.includes('workflow') || text.includes('pipeline') || text.includes('orchestration')) {
-    return 'Automation & Workflow'
-  }
-  
-  if (text.includes('communication') || text.includes('chat') || text.includes('email') || text.includes('notification')) {
-    return 'Communication'
-  }
-  
-  if (text.includes('research') || text.includes('knowledge') || text.includes('search') || text.includes('query')) {
-    return 'Research & Knowledge'
-  }
-  
-  if (text.includes('development') || text.includes('code') || text.includes('programming') || text.includes('debug')) {
-    return 'Development & Code'
-  }
-  
-  if (text.includes('business') || text.includes('operation') || text.includes('process') || text.includes('management')) {
-    return 'Business & Operations'
-  }
-  
-  return 'Uncategorized'
 } 
