@@ -19,6 +19,7 @@ import {
   ShadcnTag,
   TailwindTag,
   AgnoTag,
+  AgentUITag,
   ReasoningIcon,
   ReferencesIcon
 } from './custom-icons'
@@ -62,6 +63,7 @@ export const ICONS: IconTypeMap = {
   tailwind: TailwindTag,
   reasoning: ReasoningIcon,
   'agno-tag': AgnoTag,
+  'agent-ui': AgentUITag,
   refresh: RefreshCw,
   edit: Edit,
   save: Save,

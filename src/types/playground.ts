@@ -68,6 +68,7 @@ export interface Agent {
   model: Model
   storage?: boolean
   category?: string  // New field for agent categorization
+  agent_tip?: string  // New field for agent tooltip/helpful text
 }
 
 interface MessageContext {
@@ -194,6 +195,7 @@ export interface ComboboxAgent {
   }
   storage?: boolean
   category?: string  // New field for agent categorization
+  agent_tip?: string  // New field for agent tooltip/helpful text
 }
 export interface ImageData {
   revised_prompt: string

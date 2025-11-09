@@ -22,6 +22,7 @@ export type IconType =
   | 'tailwind'
   | 'reasoning'
   | 'agno-tag'
+  | 'agent-ui'
   | 'refresh'
   | 'edit'
   | 'save'

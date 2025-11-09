@@ -5,6 +5,9 @@ import { motion, Variants } from 'framer-motion'
 import Icon from '@/components/ui/icon'
 import { IconType } from '@/components/ui/icon/types'
 import React, { useState } from 'react'
+import { usePlaygroundStore } from '@/store'
+import { useQueryState } from 'nuqs'
+import { InfoIcon } from 'lucide-react'
 
 const EXTERNAL_LINKS = {
   documentation: 'https://agno.link/agent-ui',
@@ -14,25 +17,39 @@ const EXTERNAL_LINKS = {
 
 const TECH_ICONS = [
   {
-    type: 'nextjs' as IconType,
+    type: 'agno' as IconType,
     position: 'left-0',
-    link: 'https://nextjs.org',
-    name: 'Next.js',
+    link: 'https://agno.com',
+    name: 'Agno',
     zIndex: 10
   },
   {
-    type: 'shadcn' as IconType,
+    type: 'agent-ui' as IconType,
     position: 'left-[15px]',
-    link: 'https://ui.shadcn.com',
-    name: 'shadcn/ui',
+    link: 'https://agno.link/agent-ui',
+    name: 'Agent UI',
     zIndex: 20
   },
   {
-    type: 'tailwind' as IconType,
+    type: 'nextjs' as IconType,
     position: 'left-[30px]',
+    link: 'https://nextjs.org',
+    name: 'Next.js',
+    zIndex: 30
+  },
+  {
+    type: 'shadcn' as IconType,
+    position: 'left-[45px]',
+    link: 'https://ui.shadcn.com',
+    name: 'shadcn/ui',
+    zIndex: 40
+  },
+  {
+    type: 'tailwind' as IconType,
+    position: 'left-[60px]',
     link: 'https://tailwindcss.com',
     name: 'Tailwind CSS',
-    zIndex: 30
+    zIndex: 50
   }
 ]
 
@@ -62,6 +79,13 @@ const ActionButton = ({ href, variant, text }: ActionButtonProps) => {
 
 const ChatBlankState = () => {
   const [hoveredIcon, setHoveredIcon] = useState<string | null>(null)
+  const [showAgentTip, setShowAgentTip] = useState(false)
+  const { agents } = usePlaygroundStore()
+  const [agentId] = useQueryState('agent')
+
+  // Find the currently selected agent
+  const selectedAgent = agents.find((agent) => agent.value === agentId)
+  const agentTip = selectedAgent?.agent_tip
 
   // Animation variants for the icon
   const iconVariants: Variants = {
@@ -118,9 +142,9 @@ const ChatBlankState = () => {
         >
           <div className="flex items-center justify-center gap-x-2 whitespace-nowrap font-medium">
             <span className="flex items-center font-[600]">
-              This is an open-source
+              This is a Cybersecurity Workbench
             </span>
-            <span className="inline-flex translate-y-[10px] scale-125 items-center transition-transform duration-200 hover:rotate-6">
+            {/* <span className="inline-flex translate-y-[10px] scale-125 items-center transition-transform duration-200 hover:rotate-6">
               <Link
                 href={EXTERNAL_LINKS.agno}
                 target="_blank"
@@ -129,7 +153,7 @@ const ChatBlankState = () => {
               >
                 <Icon type="agno-tag" size="default" />
               </Link>
-            </span>
+            </span> */}
             <span className="flex items-center font-[600]">
               Agent UI, built with
             </span>
@@ -172,7 +196,41 @@ const ChatBlankState = () => {
               </div>
             </span>
           </div>
-          <p>For the full experience, visit the Agent Playground.</p>
+          {/* <p>For the full experience, visit the Agent Playground.</p> */}
+          {agentTip && (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, delay: 0.6 }}
+              className="mt-6 flex items-start justify-center gap-2 text-base"
+            >
+              <div className="relative inline-flex items-center">
+                <motion.div
+                  className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primaryAccent/50 px-4 py-3 text-sm"
+                  onHoverStart={() => setShowAgentTip(true)}
+                  onHoverEnd={() => setShowAgentTip(false)}
+                  whileHover={{ scale: 1.02 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <InfoIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                  <span className="text-muted-foreground">
+                    {agentTip}
+                  </span>
+                </motion.div>
+                {showAgentTip && (
+                  <motion.div
+                    className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 transform whitespace-nowrap rounded bg-neutral-800 px-2 py-1 text-xs text-primary"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    Agent Tip
+                  </motion.div>
+                )}
+              </div>
+            </motion.div>
+          )}
         </motion.h1>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
@@ -185,10 +243,10 @@ const ChatBlankState = () => {
             variant="primary"
             text="GO TO DOCS"
           />
-          <ActionButton
+          {/* <ActionButton
             href={EXTERNAL_LINKS.playground}
             text="VISIT AGENT PLAYGROUND"
-          />
+          /> */}
         </motion.div>
       </div>
     </section>

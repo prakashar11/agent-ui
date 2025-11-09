@@ -8,6 +8,12 @@ import {
   SelectContent,
   SelectItem
 } from '@/components/ui/select'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@/components/ui/tooltip'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
 import Icon from '@/components/ui/icon'
@@ -55,35 +61,50 @@ export function AgentSelector() {
   }
 
   return (
-    <Select
-      value={agentId || ''}
-      onValueChange={(value) => handleOnValueChange(value)}
-    >
-      <SelectTrigger className="h-9 w-full rounded-xl border border-primary/15 bg-primaryAccent text-xs font-medium uppercase">
-        <SelectValue placeholder="Select Agent" />
-      </SelectTrigger>
-      <SelectContent className="border-none bg-primaryAccent font-dmmono shadow-lg">
-        {agents.map((agent, index) => (
-          <SelectItem
-            className="cursor-pointer"
-            key={`${agent.value}-${index}`}
-            value={agent.value}
-          >
-            <div className="flex items-center gap-3 text-xs font-medium uppercase">
-              <Icon type={'agent'} size="xs" />
-              {agent.label}
-            </div>
-          </SelectItem>
-        ))}
-        {agents.length === 0 && (
-          <SelectItem
-            value="no-agents"
-            className="cursor-not-allowed select-none text-center"
-          >
-            No agents found
-          </SelectItem>
-        )}
-      </SelectContent>
-    </Select>
+    <TooltipProvider delayDuration={300}>
+      <Select
+        value={agentId || ''}
+        onValueChange={(value) => handleOnValueChange(value)}
+      >
+        <SelectTrigger className="h-9 w-full rounded-xl border border-primary/15 bg-primaryAccent text-xs font-medium uppercase">
+          <SelectValue placeholder="Select Agent" />
+        </SelectTrigger>
+        <SelectContent className="border-none bg-primaryAccent font-dmmono shadow-lg">
+          {agents.map((agent, index) => (
+            <Tooltip key={`${agent.value}-${index}`}>
+              <TooltipTrigger asChild>
+                <SelectItem
+                  className="cursor-pointer"
+                  value={agent.value}
+                >
+                  <div className="flex items-center gap-3 text-xs font-medium uppercase">
+                    <Icon type={'agent'} size="xs" />
+                    {agent.label}
+                  </div>
+                </SelectItem>
+              </TooltipTrigger>
+              {agent.agent_tip && (
+                <TooltipContent 
+                  side="right" 
+                  align="center"
+                  className="max-w-xs text-xs z-[100]"
+                  sideOffset={5}
+                >
+                  {agent.agent_tip}
+                </TooltipContent>
+              )}
+            </Tooltip>
+          ))}
+          {agents.length === 0 && (
+            <SelectItem
+              value="no-agents"
+              className="cursor-not-allowed select-none text-center"
+            >
+              No agents found
+            </SelectItem>
+          )}
+        </SelectContent>
+      </Select>
+    </TooltipProvider>
   )
 }

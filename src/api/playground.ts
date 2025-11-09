@@ -21,7 +21,8 @@ export const getPlaygroundAgentsAPI = async (
       label: item.name || '',
       model: item.model || '',
       storage: item.storage || false,
-      category: item.category || 'Uncategorized'  // Default category if not provided
+      category: item.category || 'Uncategorized',  // Default category if not provided
+      agent_tip: item.agent_tip || undefined  // Optional tooltip/helpful text
     }))
     return agents
   } catch {

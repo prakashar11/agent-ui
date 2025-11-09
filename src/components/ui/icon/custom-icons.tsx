@@ -457,6 +457,112 @@ export const OpenAILogo: FC = ({ ...props }) => (
   </svg>
 )
 
+export const AgentUITag: FC = ({ ...props }) => (
+  <svg
+    width="29"
+    height="30"
+    viewBox="12 0 29 30"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    {...props}
+  >
+    <g filter="url(#filter0_dd_agentui)">
+      <rect
+        x="12.1167"
+        y="2"
+        width="28"
+        height="28"
+        rx="8"
+        fill="#FF4017"
+        shapeRendering="crispEdges"
+      />
+      <g clipPath="url(#clip0_agentui)">
+        <path
+          fillRule="evenodd"
+          clipRule="evenodd"
+          d="M33.7469 11.842C34.0957 12.5265 34.0957 13.4226 34.0957 15.2147V20.9752C34.0957 22.7674 34.0957 23.6634 33.7469 24.348C33.4401 24.9501 32.9506 25.4396 32.3485 25.7464C31.6639 26.0952 30.7679 26.0952 28.9757 26.0952H23.2152C21.4231 26.0952 20.527 26.0952 19.8425 25.7464C19.2403 25.4396 18.7508 24.9501 18.444 24.348C18.0952 23.6634 18.0952 22.7674 18.0952 20.9752V15.2147C18.0952 13.4226 18.0952 12.5265 18.444 11.842C18.7508 11.2398 19.2403 10.7503 19.8425 10.4435C20.527 10.0947 21.4231 10.0947 23.2152 10.0947H28.9757C30.7678 10.0947 31.6639 10.0947 32.3485 10.4435C32.9506 10.7503 33.4401 11.2398 33.7469 11.842ZM23.274 13.7752H27.3046L30.594 22.0905H28.9168L26.3206 15.1897H23.274V13.7752ZM20.994 20.676H25.1211V22.0905H20.994V20.676Z"
+          fill="white"
+        />
+      </g>
+    </g>
+    <defs>
+      <filter
+        id="filter0_dd_agentui"
+        x="0.116699"
+        y="0"
+        width="52"
+        height="52"
+        filterUnits="userSpaceOnUse"
+        colorInterpolationFilters="sRGB"
+      >
+        <feFlood floodOpacity="0" result="BackgroundImageFix" />
+        <feColorMatrix
+          in="SourceAlpha"
+          type="matrix"
+          values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+          result="hardAlpha"
+        />
+        <feMorphology
+          radius="3"
+          operator="erode"
+          in="SourceAlpha"
+          result="effect1_dropShadow_agentui"
+        />
+        <feOffset dy="10" />
+        <feGaussianBlur stdDeviation="7.5" />
+        <feComposite in2="hardAlpha" operator="out" />
+        <feColorMatrix
+          type="matrix"
+          values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.1 0"
+        />
+        <feBlend
+          mode="normal"
+          in2="BackgroundImageFix"
+          result="effect1_dropShadow_agentui"
+        />
+        <feColorMatrix
+          in="SourceAlpha"
+          type="matrix"
+          values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0"
+          result="hardAlpha"
+        />
+        <feMorphology
+          radius="4"
+          operator="erode"
+          in="SourceAlpha"
+          result="effect2_dropShadow_agentui"
+        />
+        <feOffset dy="4" />
+        <feGaussianBlur stdDeviation="3" />
+        <feComposite in2="hardAlpha" operator="out" />
+        <feColorMatrix
+          type="matrix"
+          values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.05 0"
+        />
+        <feBlend
+          mode="normal"
+          in2="effect1_dropShadow_agentui"
+          result="effect2_dropShadow_agentui"
+        />
+        <feBlend
+          mode="normal"
+          in="SourceGraphic"
+          in2="effect2_dropShadow_agentui"
+          result="shape"
+        />
+      </filter>
+      <clipPath id="clip0_agentui">
+        <rect
+          width="20"
+          height="20"
+          fill="white"
+          transform="translate(16.1167 6)"
+        />
+      </clipPath>
+    </defs>
+  </svg>
+)
+
 export const SheetIcon: FC = ({ ...props }) => (
   <svg
     width="16"
