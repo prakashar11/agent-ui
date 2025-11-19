@@ -199,6 +199,18 @@ const useAIChatStreamHandler = () => {
                 }
                 return newMessages
               })
+            } else if (chunk.event === RunEvent.ToolCallCompleted) {
+              setMessages((prevMessages) => {
+                const newMessages = [...prevMessages]
+                const lastMessage = newMessages[newMessages.length - 1]
+                if (lastMessage && lastMessage.role === 'agent') {
+                  lastMessage.tool_calls = processChunkToolCalls(
+                    chunk,
+                    lastMessage.tool_calls
+                  )
+                }
+                return newMessages
+              })
             } else if (
               chunk.event === RunEvent.RunResponse ||
               chunk.event === RunEvent.RunResponseContent

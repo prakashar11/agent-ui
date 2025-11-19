@@ -5,6 +5,7 @@ export interface ToolCall {
   tool_name: string
   tool_args: Record<string, string>
   tool_call_error: boolean
+  result?: string | null
   metrics: {
     time: number
   }
