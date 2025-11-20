@@ -3,6 +3,7 @@
 import { usePlaygroundStore } from '@/store'
 import Messages from './Messages'
 import ScrollToBottom from '@/components/playground/ChatArea/ScrollToBottom'
+import ScrollToTop from '@/components/playground/ChatArea/ScrollToTop'
 import { StickToBottom } from 'use-stick-to-bottom'
 
 const MessageArea = () => {
@@ -19,6 +20,7 @@ const MessageArea = () => {
           <Messages messages={messages} />
         </div>
       </StickToBottom.Content>
+      <ScrollToTop />
       <ScrollToBottom />
     </StickToBottom>
   )

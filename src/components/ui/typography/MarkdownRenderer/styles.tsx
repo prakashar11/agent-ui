@@ -27,7 +27,9 @@ import type {
   TableBodyProps,
   TableRowProps,
   TableCellProps,
-  PreparedTextProps
+  PreparedTextProps,
+  DetailsProps,
+  SummaryProps
 } from './types'
 
 import { HEADING_SIZES } from '../Heading/constants'
@@ -251,6 +253,40 @@ const TableCell = ({ className, ...props }: TableCellProps) => (
   />
 )
 
+// Custom Details component that preserves open state during streaming
+const Details: FC<DetailsProps & { open?: boolean }> = ({ children, ...props }) => {
+  const { open: openProp, ...restProps } = props as DetailsProps & { open?: boolean }
+  const [isOpen, setIsOpen] = useState(openProp ?? true)
+
+  // If open attribute is explicitly set to true in HTML, keep it open (for streaming updates)
+  // Otherwise, allow user to toggle
+  const shouldStayOpen = openProp === true
+
+  return (
+    <details
+      open={shouldStayOpen || isOpen}
+      onToggle={(e) => {
+        if (!shouldStayOpen) {
+          setIsOpen(e.currentTarget.open)
+        }
+      }}
+      {...filterProps(restProps)}
+      className="mb-2 mt-0 rounded-md border border-border bg-background-secondary/30"
+    >
+      {children}
+    </details>
+  )
+}
+
+const Summary: FC<SummaryProps> = ({ children, ...props }) => (
+  <summary
+    {...filterProps(props)}
+    className="cursor-pointer p-2 font-semibold text-primary hover:bg-background-secondary/50"
+  >
+    {children}
+  </summary>
+)
+
 export const components = {
   h1: Heading1,
   h2: Heading2,
@@ -277,5 +313,7 @@ export const components = {
   th: TableHeadCell,
   tbody: TableBody,
   tr: TableRow,
-  td: TableCell
+  td: TableCell,
+  details: Details,
+  summary: Summary
 }

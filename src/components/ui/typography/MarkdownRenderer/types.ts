@@ -107,6 +107,16 @@ type TableCellProps = DetailedHTMLProps<
   HTMLTableCellElement
 >
 
+type DetailsProps = DetailedHTMLProps<
+  HTMLAttributes<HTMLDetailsElement>,
+  HTMLDetailsElement
+>
+
+type SummaryProps = DetailedHTMLProps<
+  HTMLAttributes<HTMLElement>,
+  HTMLElement
+>
+
 export type {
   MarkdownRendererProps,
   UnorderedListProps,
@@ -129,5 +139,7 @@ export type {
   TableHeaderCellProps,
   TableBodyProps,
   TableRowProps,
-  TableCellProps
+  TableCellProps,
+  DetailsProps,
+  SummaryProps
 }

@@ -28,6 +28,7 @@ export type IconType =
   | 'save'
   | 'x'
   | 'arrow-down'
+  | 'arrow-up'
   | 'send'
   | 'download'
   | 'hammer'
