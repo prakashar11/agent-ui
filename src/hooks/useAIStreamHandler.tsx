@@ -294,6 +294,24 @@ const useAIChatStreamHandler = () => {
                 }
                 return newMessages
               })
+            } else if (chunk.event === RunEvent.RunCancelled) {
+              // Handle cancellation - preserve existing messages, just mark as cancelled
+              setMessages((prevMessages) => {
+                const newMessages = [...prevMessages]
+                const lastMessage = newMessages[newMessages.length - 1]
+                if (lastMessage && lastMessage.role === 'agent') {
+                  // Mark as cancelled but preserve content
+                  lastMessage.cancelled = true
+                  // Add cancellation notice if content exists
+                  if (lastMessage.content) {
+                    lastMessage.content += '\n\n*Operation cancelled by user*'
+                  } else {
+                    lastMessage.content = '*Operation cancelled by user*'
+                  }
+                }
+                return newMessages
+              })
+              setIsStreaming(false)
             } else if (chunk.event === RunEvent.RunError) {
               updateMessagesWithErrorState()
               const errorContent = chunk.content as string

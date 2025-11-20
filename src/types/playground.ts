@@ -84,6 +84,7 @@ export enum RunEvent {
   RunResponseContent = 'RunResponseContent',
   RunCompleted = 'RunCompleted',
   RunError = 'RunError',
+  RunCancelled = 'RunCancelled',
   ToolCallStarted = 'ToolCallStarted',
   ToolCallCompleted = 'ToolCallCompleted',
   UpdatingMemory = 'UpdatingMemory',
@@ -175,6 +176,7 @@ export interface PlaygroundChatMessage {
   role: 'user' | 'agent' | 'system' | 'tool'
   content: string
   streamingError?: boolean
+  cancelled?: boolean
   created_at: number
   tool_calls?: ToolCall[]
   extra_data?: {
