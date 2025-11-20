@@ -256,10 +256,10 @@ const TableCell = ({ className, ...props }: TableCellProps) => (
 // Custom Details component that preserves open state during streaming
 const Details: FC<DetailsProps & { open?: boolean }> = ({ children, ...props }) => {
   const { open: openProp, ...restProps } = props as DetailsProps & { open?: boolean }
-  const [isOpen, setIsOpen] = useState(openProp ?? true)
+  const [isOpen, setIsOpen] = useState(openProp ?? false)
 
   // If open attribute is explicitly set to true in HTML, keep it open (for streaming updates)
-  // Otherwise, allow user to toggle
+  // Otherwise, allow user to toggle (defaults to collapsed)
   const shouldStayOpen = openProp === true
 
   return (
@@ -281,7 +281,7 @@ const Details: FC<DetailsProps & { open?: boolean }> = ({ children, ...props }) 
 const Summary: FC<SummaryProps> = ({ children, ...props }) => (
   <summary
     {...filterProps(props)}
-    className="cursor-pointer p-2 font-semibold text-primary hover:bg-background-secondary/50"
+    className="cursor-pointer p-2 text-xs uppercase hover:bg-background-secondary/50 [&_strong]:text-xs [&_strong]:uppercase [&_strong]:font-normal"
   >
     {children}
   </summary>
