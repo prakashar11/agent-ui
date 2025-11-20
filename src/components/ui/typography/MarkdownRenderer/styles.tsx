@@ -271,7 +271,7 @@ const Details: FC<DetailsProps & { open?: boolean }> = ({ children, ...props }) 
         }
       }}
       {...filterProps(restProps)}
-      className="mb-2 mt-0 rounded-md border border-border bg-background-secondary/30"
+      className="mb-2 mt-0 w-fit max-w-full rounded-md border-none bg-background-secondary/30"
     >
       {children}
     </details>
