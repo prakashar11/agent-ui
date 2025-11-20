@@ -1,102 +1,45 @@
 'use client'
 
 import type React from 'react'
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 
 import { motion, AnimatePresence } from 'framer-motion'
+import { useStickToBottomContext } from 'use-stick-to-bottom'
 
 import { Button } from '@/components/ui/button'
 import Icon from '@/components/ui/icon'
 
 const ScrollToTop: React.FC = () => {
+  const { scrollRef } = useStickToBottomContext()
   const [isAtTop, setIsAtTop] = useState(true)
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const containerRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
-    // Find the scrollable container - it's the StickToBottom wrapper with max-h class
-    const findScrollableContainer = (): HTMLElement | null => {
-      // The StickToBottom component creates a scrollable container
-      // Look for the element with max-h-[calc(100vh-64px)] which is the MessageArea container
-      const elements = document.querySelectorAll('[class*="max-h"]')
-      for (const el of Array.from(elements)) {
-        const styles = window.getComputedStyle(el)
-        if (
-          (styles.overflowY === 'auto' || styles.overflowY === 'scroll' || styles.overflow === 'auto') &&
-          el.scrollHeight > el.clientHeight
-        ) {
-          // This is likely our scrollable container
-          return el as HTMLElement
-        }
-      }
-      return null
-    }
-
-    const setupScrollListener = (container: HTMLElement) => {
-      const handleScroll = () => {
-        // Clear any existing timeout
-        if (scrollTimeoutRef.current) {
-          clearTimeout(scrollTimeoutRef.current)
-        }
-
-        // Debounce scroll check
-        scrollTimeoutRef.current = setTimeout(() => {
-          const scrollTop = container.scrollTop
-          // Consider at top if within 10px of the top
-          setIsAtTop(scrollTop <= 10)
-        }, 50)
-      }
-
-      // Initial check
-      handleScroll()
-
-      container.addEventListener('scroll', handleScroll, { passive: true })
-
-      return () => {
-        container.removeEventListener('scroll', handleScroll)
-        if (scrollTimeoutRef.current) {
-          clearTimeout(scrollTimeoutRef.current)
-        }
-      }
-    }
-
-    // Try to find container, with retry logic in case DOM isn't ready
-    let container = findScrollableContainer()
-    let cleanup: (() => void) | undefined
-
+    const container = scrollRef.current
     if (!container) {
-      // Retry after a short delay
-      const timeout = setTimeout(() => {
-        container = findScrollableContainer()
-        containerRef.current = container
-        if (container) {
-          cleanup = setupScrollListener(container)
-        }
-      }, 100)
-      return () => {
-        clearTimeout(timeout)
-        cleanup?.()
-      }
+      return
     }
-    
-    containerRef.current = container
-    cleanup = setupScrollListener(container)
+
+    const checkScrollPosition = () => {
+      const scrollTop = container.scrollTop || 0
+      // Consider at top if within 10px of the top
+      setIsAtTop(scrollTop <= 10)
+    }
+
+    // Initial check
+    checkScrollPosition()
+
+    // Listen to scroll events
+    container.addEventListener('scroll', checkScrollPosition, { passive: true })
 
     return () => {
-      cleanup?.()
+      container.removeEventListener('scroll', checkScrollPosition)
     }
-  }, [])
+  }, [scrollRef])
 
   const scrollToTop = () => {
-    const container = containerRef.current
+    const container = scrollRef.current
     if (container) {
       container.scrollTo({
-        top: 0,
-        behavior: 'smooth'
-      })
-    } else {
-      // Fallback: scroll window to top
-      window.scrollTo({
         top: 0,
         behavior: 'smooth'
       })
@@ -129,4 +72,3 @@ const ScrollToTop: React.FC = () => {
 }
 
 export default ScrollToTop
-
