@@ -108,20 +108,43 @@ interface CardContentProps {
 
 const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScrollPosition, onScrollChange }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const rafRef = useRef<number | null>(null)
+  const lastSavedPositionRef = useRef<number>(0)
 
   // Save scroll position when scrolling (only for current card)
+  // Use requestAnimationFrame with throttling to keep scrolling smooth
   useEffect(() => {
     const container = scrollContainerRef.current
     if (!container || !isCurrent) return
 
     const handleScroll = () => {
-      const position = container.scrollTop
-      // Notify parent to save to localStorage (only for current card)
-      onScrollChange(position)
+      // Cancel any pending animation frame
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+      }
+      
+      // Schedule update on next animation frame to keep scrolling smooth
+      rafRef.current = requestAnimationFrame(() => {
+        const position = container.scrollTop
+        // Only notify parent if position changed significantly (avoid micro-updates)
+        // This reduces unnecessary state updates and localStorage writes
+        if (Math.abs(position - lastSavedPositionRef.current) > 10) {
+          lastSavedPositionRef.current = position
+          // Notify parent to save to localStorage (only for current card)
+          // This is already debounced in the parent component
+          onScrollChange(position)
+        }
+        rafRef.current = null
+      })
     }
 
     container.addEventListener('scroll', handleScroll, { passive: true })
-    return () => container.removeEventListener('scroll', handleScroll)
+    return () => {
+      container.removeEventListener('scroll', handleScroll)
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current)
+      }
+    }
   }, [isCurrent, onScrollChange])
 
   // Restore scroll position when content updates (only for current card)
@@ -196,17 +219,37 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   const currentIndexRef = useRef<number>(initialIndex) // Track currentIndex in ref for stable access
   const hasInitializedRef = useRef<boolean>(false) // Track if we've done initial restoration
 
-  // Handle scroll position changes and save to localStorage
+  // Handle scroll position changes and save to localStorage (debounced)
+  // Don't update state during scrolling - only save to localStorage when scrolling stops
+  const scrollSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const handleScrollChange = useMemo(() => {
     return (position: number) => {
-      setScrollPosition(position)
-      // Save to localStorage alongside currentIndex
-      setStoredState(articleKey, {
-        currentIndex: currentIndexRef.current,
-        scrollPosition: position
-      })
+      // Don't update state during scrolling to avoid re-renders
+      // Only save to localStorage when scrolling stops (debounced)
+      // Clear any pending save
+      if (scrollSaveTimeoutRef.current) {
+        clearTimeout(scrollSaveTimeoutRef.current)
+      }
+      // Schedule a save after scroll stops (1500ms delay for smooth scrolling)
+      scrollSaveTimeoutRef.current = setTimeout(() => {
+        setScrollPosition(position)
+        setStoredState(articleKey, {
+          currentIndex: currentIndexRef.current,
+          scrollPosition: position
+        })
+        scrollSaveTimeoutRef.current = null
+      }, 1500)
     }
   }, [articleKey])
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollSaveTimeoutRef.current) {
+        clearTimeout(scrollSaveTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const SWIPE_THRESHOLD = 50 // Minimum distance to trigger swipe
 
@@ -342,15 +385,23 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   }
 
   const goToPrevious = () => {
-    if (currentIndex > 0) {
-      handleUserNavigation(currentIndex - 1)
-    }
+    if (stableArticles.length <= 1) return
+    
+    // Circular navigation: if at first card, go to last card
+    const newIndex = currentIndex > 0 
+      ? currentIndex - 1 
+      : stableArticles.length - 1
+    handleUserNavigation(newIndex)
   }
 
   const goToNext = () => {
-    if (currentIndex < stableArticles.length - 1) {
-      handleUserNavigation(currentIndex + 1)
-    }
+    if (stableArticles.length <= 1) return
+    
+    // Circular navigation: if at last card, go to first card
+    const newIndex = currentIndex < stableArticles.length - 1
+      ? currentIndex + 1
+      : 0
+    handleUserNavigation(newIndex)
   }
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -371,14 +422,20 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
 
     setIsDragging(false)
 
-    // Determine swipe direction
-    if (Math.abs(offsetX) > SWIPE_THRESHOLD) {
-      if (offsetX > 0 && currentIndex > 0) {
-        // Swipe right - go to previous
-        handleUserNavigation(currentIndex - 1)
-      } else if (offsetX < 0 && currentIndex < stableArticles.length - 1) {
-        // Swipe left - go to next
-        handleUserNavigation(currentIndex + 1)
+    // Determine swipe direction (circular navigation)
+    if (Math.abs(offsetX) > SWIPE_THRESHOLD && stableArticles.length > 1) {
+      if (offsetX > 0) {
+        // Swipe right - go to previous (or last if at first)
+        const newIndex = currentIndex > 0 
+          ? currentIndex - 1 
+          : stableArticles.length - 1
+        handleUserNavigation(newIndex)
+      } else if (offsetX < 0) {
+        // Swipe left - go to next (or first if at last)
+        const newIndex = currentIndex < stableArticles.length - 1
+          ? currentIndex + 1
+          : 0
+        handleUserNavigation(newIndex)
       }
     }
 
@@ -403,14 +460,20 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
 
     setIsDragging(false)
 
-    // Determine swipe direction
-    if (Math.abs(offsetX) > SWIPE_THRESHOLD) {
-      if (offsetX > 0 && currentIndex > 0) {
-        // Swipe right - go to previous
-        handleUserNavigation(currentIndex - 1)
-      } else if (offsetX < 0 && currentIndex < stableArticles.length - 1) {
-        // Swipe left - go to next
-        handleUserNavigation(currentIndex + 1)
+    // Determine swipe direction (circular navigation)
+    if (Math.abs(offsetX) > SWIPE_THRESHOLD && stableArticles.length > 1) {
+      if (offsetX > 0) {
+        // Swipe right - go to previous (or last if at first)
+        const newIndex = currentIndex > 0 
+          ? currentIndex - 1 
+          : stableArticles.length - 1
+        handleUserNavigation(newIndex)
+      } else if (offsetX < 0) {
+        // Swipe left - go to next (or first if at last)
+        const newIndex = currentIndex < stableArticles.length - 1
+          ? currentIndex + 1
+          : 0
+        handleUserNavigation(newIndex)
       }
     }
 
@@ -452,11 +515,19 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
         {/* Stack of cards with current card on top */}
         {stableArticles.map((article, index) => {
           const isCurrent = index === safeCurrentIndex
-          const isNext = index === safeCurrentIndex + 1
-          const isPrevious = index === safeCurrentIndex - 1
+          
+          // Calculate next and previous with circular navigation
+          const nextIndex = safeCurrentIndex === stableArticles.length - 1 ? 0 : safeCurrentIndex + 1
+          const prevIndex = safeCurrentIndex === 0 ? stableArticles.length - 1 : safeCurrentIndex - 1
+          const isNext = index === nextIndex
+          const isPrevious = index === prevIndex
 
           // Calculate z-index and positioning
-          let zIndex = stableArticles.length - Math.abs(index - safeCurrentIndex)
+          // For circular navigation, calculate distance considering wrap-around
+          let distance = Math.abs(index - safeCurrentIndex)
+          const wrapDistance = Math.min(distance, stableArticles.length - distance)
+          let zIndex = stableArticles.length - wrapDistance
+          
           let translateX = 0
           let translateY = 0
           let scale = 1
@@ -490,7 +561,7 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
               key={article.id}
               ref={isCurrent ? cardRef : null}
               className={cn(
-                'absolute inset-0 transition-all duration-300 ease-out',
+                'absolute inset-0 transition-all duration-500 ease-in-out',
                 isCurrent && 'cursor-grab active:cursor-grabbing'
               )}
               style={{
@@ -522,14 +593,10 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       {/* Navigation Controls */}
       {stableArticles.length > 1 && (
         <div className="mt-4 flex items-center justify-center gap-4">
-          {/* Left Arrow Button */}
+          {/* Left Arrow Button - always enabled with circular navigation */}
           <button
             onClick={goToPrevious}
-            disabled={safeCurrentIndex === 0}
-            className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed',
-              safeCurrentIndex === 0 && 'opacity-30'
-            )}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent"
             aria-label="Previous article"
           >
             <span className="text-lg">←</span>
@@ -554,14 +621,10 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
             ))}
           </div>
 
-          {/* Right Arrow Button */}
+          {/* Right Arrow Button - always enabled with circular navigation */}
           <button
             onClick={goToNext}
-            disabled={safeCurrentIndex === stableArticles.length - 1}
-              className={cn(
-              'flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed',
-              safeCurrentIndex === stableArticles.length - 1 && 'opacity-30'
-            )}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent"
             aria-label="Next article"
           >
             <span className="text-lg">→</span>
