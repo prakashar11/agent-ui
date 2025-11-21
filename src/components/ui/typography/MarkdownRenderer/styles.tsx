@@ -1,6 +1,6 @@
 'use client'
 
-import { FC, useState } from 'react'
+import { FC, useState, useRef, useEffect, useLayoutEffect } from 'react'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -253,21 +253,53 @@ const TableCell = ({ className, ...props }: TableCellProps) => (
   />
 )
 
+// Module-level map to preserve details open state across component recreations
+// Keyed by summary text to identify the same details element
+const detailsStateMap = new Map<string, boolean>()
+
 // Custom Details component that preserves open state during streaming
 const Details: FC<DetailsProps & { open?: boolean }> = ({ children, ...props }) => {
   const { open: openProp, ...restProps } = props as DetailsProps & { open?: boolean }
+  const detailsRef = useRef<HTMLDetailsElement>(null)
+  const summaryTextRef = useRef<string>('')
+  
+  // Initialize state from prop (defaults to false)
   const [isOpen, setIsOpen] = useState(openProp ?? false)
 
   // If open attribute is explicitly set to true in HTML, keep it open (for streaming updates)
-  // Otherwise, allow user to toggle (defaults to collapsed)
   const shouldStayOpen = openProp === true
+
+  // Extract summary text and sync with stored state synchronously after render
+  useLayoutEffect(() => {
+    if (detailsRef.current && !shouldStayOpen) {
+      const summaryElement = detailsRef.current.querySelector('summary')
+      if (summaryElement) {
+        const text = summaryElement.textContent?.trim() || ''
+        summaryTextRef.current = text
+
+        // If we have stored state for this summary, use it
+        if (text && detailsStateMap.has(text)) {
+          const storedState = detailsStateMap.get(text)
+          if (storedState !== undefined && storedState !== isOpen) {
+            setIsOpen(storedState)
+          }
+        }
+      }
+    }
+  })
 
   return (
     <details
+      ref={detailsRef}
       open={shouldStayOpen || isOpen}
       onToggle={(e) => {
         if (!shouldStayOpen) {
-          setIsOpen(e.currentTarget.open)
+          const newState = e.currentTarget.open
+          setIsOpen(newState)
+          // Persist state across re-renders using summary text as key
+          if (summaryTextRef.current) {
+            detailsStateMap.set(summaryTextRef.current, newState)
+          }
         }
       }}
       {...filterProps(restProps)}
