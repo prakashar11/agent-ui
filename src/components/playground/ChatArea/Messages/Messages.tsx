@@ -3,6 +3,8 @@ import type { PlaygroundChatMessage } from '@/types/playground'
 import { AgentMessage, UserMessage } from './MessageItem'
 import Tooltip from '@/components/ui/tooltip/index'
 import { memo } from 'react'
+import { parseArticles } from '@/utils/articleParser'
+import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import {
   ToolCallProps,
   ReasoningStepProps,
@@ -61,6 +63,14 @@ const References: FC<ReferenceProps> = ({ references }) => (
 
 const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
   const showToolCalls = usePlaygroundStore((state) => state.showToolCalls)
+  
+  // Extract agent status from message content if it exists
+  let agentStatusContent: string | undefined
+  if (message.content) {
+    const parsed = parseArticles(message.content)
+    agentStatusContent = parsed.agentStatusContent
+  }
+  
   return (
     <div className="flex flex-col gap-y-9">
       {message.extra_data?.reasoning_steps &&
@@ -119,6 +129,25 @@ const AgentMessageWrapper = ({ message }: MessageWrapperProps) => {
                 tools={toolCall}
               />
             ))}
+          </div>
+        </div>
+      )}
+      {agentStatusContent && (
+        <div className="flex items-start gap-3">
+          <Tooltip
+            delayDuration={0}
+            content={<p className="text-accent">Agent Status</p>}
+            side="top"
+          >
+            <Icon
+              type="hammer"
+              className="rounded-lg bg-background-secondary p-1"
+              size="sm"
+              color="secondary"
+            />
+          </Tooltip>
+          <div className="flex-1">
+            <MarkdownRenderer>{agentStatusContent}</MarkdownRenderer>
           </div>
         </div>
       )}

@@ -53,6 +53,8 @@ interface PlaygroundStore {
   setIsSessionsLoading: (isSessionsLoading: boolean) => void
   showToolCalls: boolean
   setShowToolCalls: (show: boolean) => void
+  useArticleCardView: boolean
+  setUseArticleCardView: (useCardView: boolean) => void
   agentFiles: FileList | null
   setAgentFiles: (files: FileList | null) => void
   resetAgentFileInput?: () => void
@@ -109,6 +111,12 @@ export const usePlaygroundStore = create<PlaygroundStore>()(
           ...state, // preserve other state
           showToolCalls: show
         })),
+      useArticleCardView: true, // default to card stack view
+      setUseArticleCardView: (useCardView: boolean) => 
+        set((state) => ({
+          ...state, // preserve other state
+          useArticleCardView: useCardView
+        })),
       agentFiles: null,
       setAgentFiles: (files) => set(() => ({ agentFiles: files })),
     }),
@@ -118,6 +126,7 @@ export const usePlaygroundStore = create<PlaygroundStore>()(
       partialize: (state) => ({
         selectedEndpoint: state.selectedEndpoint,
         showToolCalls: state.showToolCalls,
+        useArticleCardView: state.useArticleCardView,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated?.()

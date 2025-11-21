@@ -1,5 +1,6 @@
 import Icon from '@/components/ui/icon'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
+import SwipeableCardStack from '@/components/ui/SwipeableCardStack'
 import { usePlaygroundStore } from '@/store'
 import type { PlaygroundChatMessage } from '@/types/playground'
 import Videos from './Multimedia/Videos'
@@ -7,13 +8,14 @@ import Images from './Multimedia/Images'
 import Audios from './Multimedia/Audios'
 import { memo } from 'react'
 import AgentThinkingLoader from './AgentThinkingLoader'
+import { containsArticles, parseArticles } from '@/utils/articleParser'
 
 interface MessageProps {
   message: PlaygroundChatMessage
 }
 
 const AgentMessage = ({ message }: MessageProps) => {
-  const { streamingErrorMessage } = usePlaygroundStore()
+  const { streamingErrorMessage, useArticleCardView } = usePlaygroundStore()
   let messageContent
   if (message.streamingError) {
     messageContent = (
@@ -27,20 +29,71 @@ const AgentMessage = ({ message }: MessageProps) => {
       </p>
     )
   } else if (message.content) {
-    messageContent = (
-      <div className="flex w-full flex-col gap-4">
-        <MarkdownRenderer>{message.content}</MarkdownRenderer>
-        {message.videos && message.videos.length > 0 && (
-          <Videos videos={message.videos} />
-        )}
-        {message.images && message.images.length > 0 && (
-          <Images images={message.images} />
-        )}
-        {message.audio && message.audio.length > 0 && (
-          <Audios audio={message.audio} />
-        )}
-      </div>
-    )
+    // Check if content contains articles that should be displayed as swipeable cards
+    const hasArticles = containsArticles(message.content)
+    
+    if (hasArticles && useArticleCardView) {
+      // Card stack view
+      const { articles, nonArticleContent } = parseArticles(message.content)
+      
+      // Debug logging
+      console.log('MessageItem: Article detection', {
+        hasArticles,
+        useArticleCardView,
+        articlesCount: articles.length,
+        hasNonArticleContent: !!nonArticleContent,
+        contentPreview: message.content.substring(0, 200)
+      })
+      
+      messageContent = (
+        <div className="flex w-full flex-col gap-4">
+          {/* Non-article content (metadata, etc.) - excluding agent status which is shown separately */}
+          {nonArticleContent && (
+            <div>
+              <MarkdownRenderer>{nonArticleContent}</MarkdownRenderer>
+            </div>
+          )}
+          
+          {/* Swipeable article cards */}
+          {articles.length > 0 ? (
+            <SwipeableCardStack 
+              articles={articles} 
+              messageId={`${message.role}-${message.created_at}`}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              No articles found in content. Falling back to scrollable view.
+            </div>
+          )}
+          
+          {message.videos && message.videos.length > 0 && (
+            <Videos videos={message.videos} />
+          )}
+          {message.images && message.images.length > 0 && (
+            <Images images={message.images} />
+          )}
+          {message.audio && message.audio.length > 0 && (
+            <Audios audio={message.audio} />
+          )}
+        </div>
+      )
+    } else {
+      // Scrollable list view (default or when toggle is off)
+      messageContent = (
+        <div className="flex w-full flex-col gap-4">
+          <MarkdownRenderer>{message.content}</MarkdownRenderer>
+          {message.videos && message.videos.length > 0 && (
+            <Videos videos={message.videos} />
+          )}
+          {message.images && message.images.length > 0 && (
+            <Images images={message.images} />
+          )}
+          {message.audio && message.audio.length > 0 && (
+            <Audios audio={message.audio} />
+          )}
+        </div>
+      )
+    }
   } else if (message.response_audio) {
     if (!message.response_audio.transcript) {
       messageContent = (

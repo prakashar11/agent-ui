@@ -14,6 +14,7 @@ import { useQueryState } from 'nuqs'
 import { truncateText } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import ToolCallsToggle from './ToolCallsToggle'
+import ArticleViewToggle from './ArticleViewToggle'
 
 const ENDPOINT_PLACEHOLDER = 'NO ENDPOINT ADDED'
 const SidebarHeader = () => (
@@ -345,6 +346,7 @@ const Sidebar = () => {
                   transition={{ duration: 0.2 }}
                   >
                     <ToolCallsToggle />
+                    <ArticleViewToggle />
                 </motion.div>
                 <Sessions />
               </>
