@@ -28,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${dmMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${dmMono.variable}`}>
         <NuqsAdapter>{children}</NuqsAdapter>
         <Toaster />
       </body>

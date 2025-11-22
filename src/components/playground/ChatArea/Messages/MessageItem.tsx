@@ -79,20 +79,20 @@ const AgentMessage = ({ message }: MessageProps) => {
       )
     } else {
       // Scrollable list view (default or when toggle is off)
-      messageContent = (
-        <div className="flex w-full flex-col gap-4">
-          <MarkdownRenderer>{message.content}</MarkdownRenderer>
-          {message.videos && message.videos.length > 0 && (
-            <Videos videos={message.videos} />
-          )}
-          {message.images && message.images.length > 0 && (
-            <Images images={message.images} />
-          )}
-          {message.audio && message.audio.length > 0 && (
-            <Audios audio={message.audio} />
-          )}
-        </div>
-      )
+    messageContent = (
+      <div className="flex w-full flex-col gap-4">
+        <MarkdownRenderer>{message.content}</MarkdownRenderer>
+        {message.videos && message.videos.length > 0 && (
+          <Videos videos={message.videos} />
+        )}
+        {message.images && message.images.length > 0 && (
+          <Images images={message.images} />
+        )}
+        {message.audio && message.audio.length > 0 && (
+          <Audios audio={message.audio} />
+        )}
+      </div>
+    )
     }
   } else if (message.response_audio) {
     if (!message.response_audio.transcript) {
