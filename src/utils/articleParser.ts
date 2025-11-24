@@ -16,6 +16,8 @@ export interface ParsedContent {
 }
 
 const ARTICLE_SEPARATOR = '---ARTICLE_SEPARATOR---'
+const CARD_CONTENT_START = '---CARD_CONTENT_START---'
+const CARD_CONTENT_STOP = '---CARD_CONTENT_STOP---'
 
 /**
  * Detects if content contains article summaries that should be displayed as cards.
@@ -103,7 +105,29 @@ export function parseArticles(content: string): ParsedContent {
     agentStatusContent: statusContent || undefined
   }
   // Use remaining content after extracting agent status
-  const contentToParse = statusContent ? remainingContent : content
+  let contentToParse = statusContent ? remainingContent : content
+  
+  // Check for CARD_CONTENT_START and CARD_CONTENT_STOP markers
+  // Everything before START is non-article content
+  // Everything between START and STOP is card content (articles)
+  // Everything after STOP is non-article content
+  let nonArticlePrefix = ''
+  let nonArticleSuffix = ''
+  
+  if (contentToParse.includes(CARD_CONTENT_START)) {
+    const startParts = contentToParse.split(CARD_CONTENT_START)
+    nonArticlePrefix = startParts[0].trim()
+    let cardContent = startParts.slice(1).join(CARD_CONTENT_START).trim()
+    
+    // Check for CARD_CONTENT_STOP within the card content
+    if (cardContent.includes(CARD_CONTENT_STOP)) {
+      const stopParts = cardContent.split(CARD_CONTENT_STOP)
+      contentToParse = stopParts[0].trim() // Content between START and STOP
+      nonArticleSuffix = stopParts.slice(1).join(CARD_CONTENT_STOP).trim() // Content after STOP
+    } else {
+      contentToParse = cardContent // No STOP marker, use all content after START
+    }
+  }
   
   // First, check for explicit separators
   if (contentToParse.includes(ARTICLE_SEPARATOR)) {
@@ -163,7 +187,11 @@ export function parseArticles(content: string): ParsedContent {
     })
 
     result.articles = articles
-    result.nonArticleContent = nonArticleContent.trim()
+    // Combine non-article prefix (before CARD_CONTENT_START), parsing results, and suffix (after CARD_CONTENT_STOP)
+    const nonArticleParts = [nonArticlePrefix]
+    if (nonArticleContent) nonArticleParts.push(nonArticleContent)
+    if (nonArticleSuffix) nonArticleParts.push(nonArticleSuffix)
+    result.nonArticleContent = nonArticleParts.filter(p => p).join('\n\n').trim()
     return result
   }
 
@@ -240,7 +268,12 @@ export function parseArticles(content: string): ParsedContent {
   }
 
   result.articles = articles
-  result.nonArticleContent = nonArticleContent.join('\n').trim()
+  // Combine non-article prefix (before CARD_CONTENT_START), parsing results, and suffix (after CARD_CONTENT_STOP)
+  const parsedNonArticleContent = nonArticleContent.join('\n').trim()
+  const nonArticleParts = [nonArticlePrefix]
+  if (parsedNonArticleContent) nonArticleParts.push(parsedNonArticleContent)
+  if (nonArticleSuffix) nonArticleParts.push(nonArticleSuffix)
+  result.nonArticleContent = nonArticleParts.filter(p => p).join('\n\n').trim()
   
   return result
 }
