@@ -4,6 +4,7 @@ import { FC, useState, useRef, useEffect, useMemo } from 'react'
 import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import type { Article } from '@/utils/articleParser'
+import { useStickToBottomContext } from 'use-stick-to-bottom'
 
 interface SwipeableCardStackProps {
   articles: Article[]
@@ -192,6 +193,9 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   className,
   messageId,
 }) => {
+  // Get scroll context to scroll to helper text position after cards render
+  const { scrollRef } = useStickToBottomContext()
+  
   // Memoize articles to prevent unnecessary re-renders
   const stableArticles = useMemo(() => articles, [articles.map(a => a.id).join(',')])
   
@@ -212,6 +216,7 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   const [startX, setStartX] = useState(0)
   const [offsetX, setOffsetX] = useState(0)
   const cardRef = useRef<HTMLDivElement>(null)
+  const helperTextRef = useRef<HTMLDivElement>(null) // Ref for helper text below cards
   
   // Track previous state to detect when articles are appended vs replaced
   const previousArticlesLengthRef = useRef<number>(stableArticles.length)
@@ -374,6 +379,54 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     // Save currentIndex and scrollPosition to localStorage
     setStoredState(articleKey, { currentIndex: currentIndexRef.current, scrollPosition })
   }, [stableArticles.length, stableArticles.map(a => a.id).join(','), articleKey])
+  
+  // Scroll to helper text (below cards) after cards finish rendering to show metadata
+  // Track previous article count to only scroll when articles are added/changed
+  const previousArticleCountRef = useRef<number>(0)
+  useEffect(() => {
+    const currentCount = stableArticles.length
+    const previousCount = previousArticleCountRef.current
+    
+    // Only scroll if articles exist and count changed (new articles added or articles changed)
+    if (currentCount > 0 && (currentCount !== previousCount || previousCount === 0)) {
+      // Wait for cards and helper text to fully render, then scroll to helper text
+      // This positions the view so metadata (which is rendered below cards) is visible
+      const scrollTimeout = setTimeout(() => {
+        const scrollContainer = scrollRef?.current
+        const helperElement = helperTextRef.current
+        
+        if (scrollContainer && helperElement) {
+          // Calculate the position of the helper text relative to the scroll container
+          const containerRect = scrollContainer.getBoundingClientRect()
+          const elementRect = helperElement.getBoundingClientRect()
+          
+          // Calculate scroll position to show helper text at the bottom of viewport
+          // This ensures metadata below it is visible
+          const scrollTop = scrollContainer.scrollTop + (elementRect.top - containerRect.top) + (elementRect.height / 2)
+          
+          scrollContainer.scrollTo({
+            top: scrollTop,
+            behavior: 'smooth'
+          })
+        } else if (helperElement) {
+          // Fallback: use scrollIntoView if scrollRef not available
+          helperElement.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'end',
+            inline: 'nearest'
+          })
+        }
+      }, 800) // Increased delay to ensure cards and helper text are fully rendered
+      
+      previousArticleCountRef.current = currentCount
+      
+      return () => {
+        clearTimeout(scrollTimeout)
+      }
+    } else {
+      previousArticleCountRef.current = currentCount
+    }
+  }, [stableArticles.length, stableArticles.map(a => a.id).join(','), scrollRef])
   
   // Mark when user manually navigates
   const handleUserNavigation = (newIndex: number) => {
@@ -639,9 +692,12 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
         </div>
       )}
 
-      {/* Swipe Hints */}
+      {/* Swipe Hints - ref used to scroll to this position to show metadata below */}
       {stableArticles.length > 1 && (
-        <div className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground">
+        <div 
+          ref={helperTextRef}
+          className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground"
+        >
           {safeCurrentIndex > 0 && (
             <span className="flex items-center gap-1">
               <span>←</span> Swipe right or click arrow for previous
@@ -653,6 +709,10 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
             </span>
           )}
         </div>
+      )}
+      {/* If only one article, still add ref for scrolling */}
+      {stableArticles.length === 1 && (
+        <div ref={helperTextRef} className="mt-4" />
       )}
     </div>
   )

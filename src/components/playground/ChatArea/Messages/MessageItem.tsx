@@ -34,23 +34,25 @@ const AgentMessage = ({ message }: MessageProps) => {
     
     if (hasArticles && useArticleCardView) {
       // Card stack view
-      const { articles, nonArticleContent } = parseArticles(message.content)
+      const parsed = parseArticles(message.content)
+      const { articles, nonArticlePrefix, nonArticleSuffix } = parsed
       
       // Debug logging
       console.log('MessageItem: Article detection', {
         hasArticles,
         useArticleCardView,
         articlesCount: articles.length,
-        hasNonArticleContent: !!nonArticleContent,
+        hasNonArticlePrefix: !!nonArticlePrefix,
+        hasNonArticleSuffix: !!nonArticleSuffix,
         contentPreview: message.content.substring(0, 200)
       })
       
       messageContent = (
         <div className="flex w-full flex-col gap-4">
-          {/* Non-article content (metadata, etc.) - excluding agent status which is shown separately */}
-          {nonArticleContent && (
+          {/* Non-article content BEFORE cards (e.g., collapsible status section) */}
+          {nonArticlePrefix && (
             <div>
-              <MarkdownRenderer>{nonArticleContent}</MarkdownRenderer>
+              <MarkdownRenderer>{nonArticlePrefix}</MarkdownRenderer>
             </div>
           )}
           
@@ -63,6 +65,13 @@ const AgentMessage = ({ message }: MessageProps) => {
           ) : (
             <div className="text-sm text-muted-foreground">
               No articles found in content. Falling back to scrollable view.
+            </div>
+          )}
+          
+          {/* Non-article content AFTER cards (e.g., metadata with completion message) */}
+          {nonArticleSuffix && (
+            <div className="mt-4 pt-4 border-t border-border/50">
+              <MarkdownRenderer>{nonArticleSuffix}</MarkdownRenderer>
             </div>
           )}
           

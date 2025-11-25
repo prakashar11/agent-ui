@@ -11,7 +11,9 @@ export interface Article {
 
 export interface ParsedContent {
   articles: Article[]
-  nonArticleContent: string
+  nonArticleContent: string  // Deprecated: use nonArticlePrefix and nonArticleSuffix instead
+  nonArticlePrefix?: string  // Content before CARD_CONTENT_START (e.g., collapsible status)
+  nonArticleSuffix?: string  // Content after CARD_CONTENT_STOP (e.g., metadata)
   agentStatusContent?: string
 }
 
@@ -187,7 +189,10 @@ export function parseArticles(content: string): ParsedContent {
     })
 
     result.articles = articles
-    // Combine non-article prefix (before CARD_CONTENT_START), parsing results, and suffix (after CARD_CONTENT_STOP)
+    // Keep prefix and suffix separate for proper rendering order
+    result.nonArticlePrefix = nonArticlePrefix.trim() || undefined
+    result.nonArticleSuffix = nonArticleSuffix.trim() || undefined
+    // Also set nonArticleContent for backward compatibility (combines prefix and suffix)
     const nonArticleParts = [nonArticlePrefix]
     if (nonArticleContent) nonArticleParts.push(nonArticleContent)
     if (nonArticleSuffix) nonArticleParts.push(nonArticleSuffix)
