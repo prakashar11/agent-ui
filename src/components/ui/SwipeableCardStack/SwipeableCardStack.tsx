@@ -129,7 +129,8 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
         const position = container.scrollTop
         // Only notify parent if position changed significantly (avoid micro-updates)
         // This reduces unnecessary state updates and localStorage writes
-        if (Math.abs(position - lastSavedPositionRef.current) > 10) {
+        // Increased threshold from 10 to 20px for better performance
+        if (Math.abs(position - lastSavedPositionRef.current) > 20) {
           lastSavedPositionRef.current = position
           // Notify parent to save to localStorage (only for current card)
           // This is already debounced in the parent component
@@ -154,13 +155,19 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
     if (!container || !isCurrent) return
 
     if (savedScrollPosition > 0) {
-      // Use a small delay to ensure DOM is fully updated after content change
-      const timeoutId = setTimeout(() => {
-        if (container) {
-          container.scrollTop = savedScrollPosition
+      // Use requestAnimationFrame for smoother restoration
+      // This ensures the DOM is ready and avoids conflict with scroll events
+      const rafId = requestAnimationFrame(() => {
+        if (container && isCurrent) {
+          // Only restore if current scroll position is significantly different
+          // This prevents fighting with user scrolling
+          const currentScroll = container.scrollTop
+          if (Math.abs(currentScroll - savedScrollPosition) > 50) {
+            container.scrollTop = savedScrollPosition
+          }
         }
-      }, 0)
-      return () => clearTimeout(timeoutId)
+      })
+      return () => cancelAnimationFrame(rafId)
     }
   }, [index, article.content, isCurrent, savedScrollPosition])
 
@@ -227,23 +234,33 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   // Handle scroll position changes and save to localStorage (debounced)
   // Don't update state during scrolling - only save to localStorage when scrolling stops
   const scrollSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSavedScrollPositionRef = useRef<number>(0) // Track last saved position to avoid redundant saves
   const handleScrollChange = useMemo(() => {
     return (position: number) => {
       // Don't update state during scrolling to avoid re-renders
       // Only save to localStorage when scrolling stops (debounced)
+      
+      // Skip if position hasn't changed significantly from last save
+      if (Math.abs(position - lastSavedScrollPositionRef.current) < 5) {
+        return
+      }
+      
       // Clear any pending save
       if (scrollSaveTimeoutRef.current) {
         clearTimeout(scrollSaveTimeoutRef.current)
       }
-      // Schedule a save after scroll stops (1500ms delay for smooth scrolling)
+      
+      // Schedule a save after scroll stops (300ms delay - faster response, better UX)
+      // Reduced from 1500ms to 300ms for more responsive scroll position saving
       scrollSaveTimeoutRef.current = setTimeout(() => {
+        lastSavedScrollPositionRef.current = position
         setScrollPosition(position)
         setStoredState(articleKey, {
           currentIndex: currentIndexRef.current,
           scrollPosition: position
         })
         scrollSaveTimeoutRef.current = null
-      }, 1500)
+      }, 300) // Changed from 1500ms to 300ms
     }
   }, [articleKey])
 
