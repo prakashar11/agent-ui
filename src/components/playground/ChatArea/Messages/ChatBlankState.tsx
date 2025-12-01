@@ -213,7 +213,7 @@ const ChatBlankState = () => {
                   transition={{ duration: 0.2 }}
                 >
                   <InfoIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                  <span className="text-muted-foreground">
+                  <span className="text-muted-foreground whitespace-pre-line">
                     {agentTip}
                   </span>
                 </motion.div>

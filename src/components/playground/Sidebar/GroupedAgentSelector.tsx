@@ -218,7 +218,7 @@ export function GroupedAgentSelector() {
                           <TooltipContent 
                             side="right" 
                             align="center"
-                            className="max-w-xs text-xs z-[100]"
+                            className="max-w-xs text-xs z-[100] whitespace-pre-line"
                             sideOffset={5}
                           >
                             {agent.agent_tip}
