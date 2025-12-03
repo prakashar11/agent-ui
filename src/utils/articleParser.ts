@@ -1,6 +1,7 @@
 /**
  * Utility to parse articles from markdown content.
- * Detects article boundaries based on markdown headers.
+ * Uses explicit markers (CARD_CONTENT_START, CARD_CONTENT_STOP, ARTICLE_SEPARATOR)
+ * for robust article detection and separation, avoiding brittle Markdown pattern matching.
  */
 
 export interface Article {
@@ -23,47 +24,21 @@ const CARD_CONTENT_STOP = '---CARD_CONTENT_STOP---'
 
 /**
  * Detects if content contains article summaries that should be displayed as cards.
- * Articles are typically separated by:
- * - Explicit separators (---ARTICLE_SEPARATOR---)
- * - Headers like "# {title}" or "## {title}" followed by article content
- * - Multiple article headers indicating multiple articles
+ * Uses explicit markers for robust detection, avoiding brittle Markdown pattern matching.
  */
 export function containsArticles(content: string): boolean {
-  // First check for explicit separator (most reliable indicator)
+  // Most reliable: check for explicit separator
   if (content.includes(ARTICLE_SEPARATOR)) {
     return true
   }
 
-  // Check for article-like patterns:
-  // 1. Headers that look like article titles (followed by Source, Date, etc.)
-  // 2. Multiple headers indicating multiple articles
-  // 3. Common article patterns from backend
-  
-  // Count how many article-like headers we have
-  // Articles typically have: # Title, then - **Source:**, - **Date:**
-  const articleHeaderPattern = /^#+\s+.+$/m
-  const headers = content.match(new RegExp(articleHeaderPattern, 'gm')) || []
-  
-  // If we have multiple headers, likely multiple articles
-  if (headers.length > 1) {
+  // Check for CARD_CONTENT_START marker - content between START and STOP is article content
+  if (content.includes(CARD_CONTENT_START)) {
     return true
   }
-  
-  // For single article, check if it has article-like structure
-  // Look for patterns like: # Title, then - **Source:**, - **Date:**
-  if (headers.length === 1) {
-    // Check if content after header has article-like structure
-    const hasSource = /- \*\*Source:\*\*/.test(content)
-    const hasDate = /- \*\*Date:\*\*/.test(content)
-    const hasSummary = /- \*\*Overall Summary:\*\*|## Summary|# Summary/.test(content)
-    
-    // If it has article-like structure, treat as article
-    if (hasSource && (hasDate || hasSummary)) {
-      return true
-    }
-  }
-  
-  // Also check for legacy patterns (for backward compatibility)
+
+  // Legacy support: check for legacy patterns (for backward compatibility with old content)
+  // This is a fallback only for content that doesn't use explicit markers
   const legacyPatterns = [
     /^#\s+Summary\s+\d+/m, // # Summary 1, # Summary 2, etc.
     /^##\s+Article\s+\d+/m, // ## Article 1, ## Article 2, etc.
@@ -74,19 +49,23 @@ export function containsArticles(content: string): boolean {
 }
 
 /**
- * Extracts agent status section from content (the <details> section with "Agent Status")
+ * Extracts agent status section from content (any <details> section)
+ * ROBUST: Detects any <details> section, not just "Agent Status"
+ * This allows agents to use any summary text without breaking rendering
  */
 function extractAgentStatus(content: string): { statusContent: string; remainingContent: string } {
-  // Match <details> section with "Agent Status" in the summary
+  // Match any <details> section (robust - not dependent on specific text)
   // Pattern handles newlines and whitespace variations
-  const statusPattern = /<details[^>]*>\s*<summary[^>]*>\s*Agent Status\s*<\/summary>[\s\S]*?<\/details>/i
+  // This will match the first <details> section found
+  const statusPattern = /<details[^>]*>[\s\S]*?<\/details>/i
   const match = content.match(statusPattern)
   
   if (match) {
     const statusContent = match[0]
-    // Remove the status section from content, including surrounding whitespace
-    const remainingContent = content.replace(statusPattern, '').replace(/\n{3,}/g, '\n\n').trim()
-    return { statusContent, remainingContent }
+    // Return both the status content and the full content
+    // The status will naturally be in nonArticlePrefix if it's before CARD_CONTENT_START
+    // We extract it separately for agentStatusContent rendering, but don't remove it
+    return { statusContent, remainingContent: content }
   }
   
   return { statusContent: '', remainingContent: content }
@@ -94,20 +73,22 @@ function extractAgentStatus(content: string): { statusContent: string; remaining
 
 /**
  * Splits markdown content into individual articles.
- * Articles are separated by headers starting with "# Summary" or "## Article"
- * or by explicit separators.
+ * Uses explicit markers (CARD_CONTENT_START, CARD_CONTENT_STOP, ARTICLE_SEPARATOR)
+ * for robust parsing, avoiding brittle Markdown structure pattern matching.
  */
 export function parseArticles(content: string): ParsedContent {
-  // First, extract agent status section if present
-  const { statusContent, remainingContent } = extractAgentStatus(content)
+  // Extract agent status section if present (for separate rendering if needed)
+  // ROBUST: Status section is kept in content so it naturally appears in nonArticlePrefix
+  // if it's before CARD_CONTENT_START
+  const { statusContent } = extractAgentStatus(content)
   
   const result: ParsedContent = {
     articles: [],
     nonArticleContent: '',
     agentStatusContent: statusContent || undefined
   }
-  // Use remaining content after extracting agent status
-  let contentToParse = statusContent ? remainingContent : content
+  // Use full content (status section is kept in content for natural placement)
+  let contentToParse = content
   
   // Check for CARD_CONTENT_START and CARD_CONTENT_STOP markers
   // Everything before START is non-article content
@@ -131,152 +112,85 @@ export function parseArticles(content: string): ParsedContent {
     }
   }
   
-  // First, check for explicit separators
+  // ROBUST PARSING: Rely on explicit markers, not Markdown structure patterns
+  // If content is between CARD_CONTENT_START and CARD_CONTENT_STOP, it's article content
+  // Split only by explicit ARTICLE_SEPARATOR, not by content structure
+  
   if (contentToParse.includes(ARTICLE_SEPARATOR)) {
-    // Split by separator and clean up whitespace
+    // Split by explicit separator (most reliable method)
     const parts = contentToParse.split(ARTICLE_SEPARATOR)
     const articles: Article[] = []
-    let nonArticleContent = ''
 
     parts.forEach((part, index) => {
-      // Trim each part to remove leading/trailing whitespace
       const trimmed = part.trim()
       if (!trimmed) return
 
-      // Check if this part contains an article (starts with article header pattern)
-      const hasArticleHeader = trimmed.match(/^#+\s+(?:Summary|Article)\s+\d+/m)
-      
-      if (hasArticleHeader) {
-        // This is an article - extract title from first header
-        const titleMatch = trimmed.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
-        const title = titleMatch ? titleMatch[1].trim() : undefined
+      // All parts separated by ARTICLE_SEPARATOR are articles
+      // Extract title from first header if present, otherwise use default
+      const titleMatch = trimmed.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
+      const title = titleMatch ? titleMatch[1].trim() : undefined
 
-        articles.push({
-          id: `article-${articles.length}`,
-          content: trimmed,
-          title,
-        })
-      } else if (index === 0) {
-        // First part without article header - treat as non-article content
-        // But check if it might be article content that just doesn't start with header
-        // If it's substantial content, it might be the first article
-        if (trimmed.length > 100 || trimmed.includes('##') || trimmed.includes('**')) {
-          // Likely article content - treat as article
-          const titleMatch = trimmed.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
-          const title = titleMatch ? titleMatch[1].trim() : undefined
-
-          articles.push({
-            id: `article-${articles.length}`,
-            content: trimmed,
-            title,
-          })
-        } else {
-          // Small content - treat as non-article (status, metadata, etc.)
-          nonArticleContent += trimmed + '\n\n'
-        }
-      } else {
-        // Subsequent parts without article header - treat as article anyway
-        // (might be continuation or malformed)
-        const titleMatch = trimmed.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
-        const title = titleMatch ? titleMatch[1].trim() : undefined
-
-        articles.push({
-          id: `article-${articles.length}`,
-          content: trimmed,
-          title,
-        })
-      }
+      articles.push({
+        id: `article-${articles.length}`,
+        content: trimmed,
+        title,
+      })
     })
 
     result.articles = articles
-    // Keep prefix and suffix separate for proper rendering order
     result.nonArticlePrefix = nonArticlePrefix.trim() || undefined
     result.nonArticleSuffix = nonArticleSuffix.trim() || undefined
-    // Also set nonArticleContent for backward compatibility (combines prefix and suffix)
+    
+    // Prevent duplication: Only set agentStatusContent if status is NOT in nonArticlePrefix
+    if (statusContent) {
+      const statusInPrefix = result.nonArticlePrefix?.includes(statusContent) || false
+      if (statusInPrefix) {
+        result.agentStatusContent = undefined
+      } else {
+        result.agentStatusContent = statusContent
+      }
+    }
+    
     const nonArticleParts = [nonArticlePrefix]
-    if (nonArticleContent) nonArticleParts.push(nonArticleContent)
     if (nonArticleSuffix) nonArticleParts.push(nonArticleSuffix)
     result.nonArticleContent = nonArticleParts.filter(p => p).join('\n\n').trim()
     return result
   }
 
-  // Otherwise, try to split by article headers
-  // Pattern: Any # or ## header that looks like an article title
-  // Articles typically start with # Title or ## Title, followed by - **Source:**, - **Date:**
-  const articleHeaderPattern = /^#+\s+.+$/m
-  const lines = contentToParse.split('\n')
-  const articles: Article[] = []
-  let currentArticle: string[] = []
-  let nonArticleContent: string[] = []
-  let inArticle = false
-  let articleStartIndex = -1
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-
-    // Check if this line starts a new article header
-    // Look for # or ## followed by text, and check if next few lines have article structure
-    if (articleHeaderPattern.test(line)) {
-      // Check if this looks like an article by checking next few lines for article structure
-      const nextLines = lines.slice(i, Math.min(i + 5, lines.length)).join('\n')
-      const hasArticleStructure = /- \*\*Source:\*\*|## Summary|# Summary/.test(nextLines)
-      
-      if (hasArticleStructure) {
-        // Save previous article if exists
-        if (currentArticle.length > 0) {
-          const articleContent = currentArticle.join('\n')
-          const titleMatch = articleContent.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
-          const title = titleMatch ? titleMatch[1].trim() : undefined
-
-          articles.push({
-            id: `article-${articles.length}`,
-            content: articleContent,
-            title,
-          })
-          currentArticle = []
-        }
-
-        // Start new article
-        currentArticle.push(line)
-        inArticle = true
-        articleStartIndex = i
-      } else if (!inArticle) {
-        // Header but not article-like - treat as non-article content
-        nonArticleContent.push(line)
-      } else {
-        // Continue current article
-        currentArticle.push(line)
-      }
-    } else if (inArticle) {
-      // Continue current article
-      currentArticle.push(line)
-      
-      // Check if we've reached the end of this article (next header or end of content)
-      // For now, we'll continue until we hit another header or end
-    } else {
-      // Non-article content (status, metadata, etc.)
-      nonArticleContent.push(line)
-    }
-  }
-
-  // Add last article if exists
-  if (currentArticle.length > 0) {
-    const articleContent = currentArticle.join('\n')
-    const titleMatch = articleContent.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
+  // No ARTICLE_SEPARATOR found - treat entire content as single article
+  // This is robust: content between CARD_CONTENT_START and CARD_CONTENT_STOP is always an article
+  // regardless of internal structure (no brittle pattern matching)
+  const trimmed = contentToParse.trim()
+  if (trimmed) {
+    // Extract title from first header if present
+    const titleMatch = trimmed.match(/^(?:#+\s+)(.+?)(?:\n|$)/m)
     const title = titleMatch ? titleMatch[1].trim() : undefined
 
-    articles.push({
-      id: `article-${articles.length}`,
-      content: articleContent,
+    result.articles = [{
+      id: 'article-0',
+      content: trimmed,
       title,
-    })
+    }]
   }
 
-  result.articles = articles
-  // Combine non-article prefix (before CARD_CONTENT_START), parsing results, and suffix (after CARD_CONTENT_STOP)
-  const parsedNonArticleContent = nonArticleContent.join('\n').trim()
+  result.nonArticlePrefix = nonArticlePrefix.trim() || undefined
+  result.nonArticleSuffix = nonArticleSuffix.trim() || undefined
+  
+  // Prevent duplication: Only set agentStatusContent if status is NOT in nonArticlePrefix
+  // If status is in nonArticlePrefix, it will be rendered there (card stack view)
+  // If status is NOT in nonArticlePrefix, set agentStatusContent for separate rendering (scrollable view)
+  if (statusContent) {
+    const statusInPrefix = result.nonArticlePrefix?.includes(statusContent) || false
+    if (statusInPrefix) {
+      // Status is already in nonArticlePrefix, don't duplicate
+      result.agentStatusContent = undefined
+    } else {
+      // Status is not in nonArticlePrefix, keep it for separate rendering
+      result.agentStatusContent = statusContent
+    }
+  }
+  
   const nonArticleParts = [nonArticlePrefix]
-  if (parsedNonArticleContent) nonArticleParts.push(parsedNonArticleContent)
   if (nonArticleSuffix) nonArticleParts.push(nonArticleSuffix)
   result.nonArticleContent = nonArticleParts.filter(p => p).join('\n\n').trim()
   

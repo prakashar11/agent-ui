@@ -44,6 +44,8 @@ const AgentMessage = ({ message }: MessageProps) => {
         articlesCount: articles.length,
         hasNonArticlePrefix: !!nonArticlePrefix,
         hasNonArticleSuffix: !!nonArticleSuffix,
+        nonArticleSuffixLength: nonArticleSuffix?.length || 0,
+        nonArticleSuffixPreview: nonArticleSuffix?.substring(0, 100) || 'N/A',
         contentPreview: message.content.substring(0, 200)
       })
       
