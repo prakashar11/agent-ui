@@ -1,10 +1,11 @@
 'use client'
 
-import { FC, useState, useRef, useEffect, useMemo } from 'react'
+import { FC, useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import type { Article } from '@/utils/articleParser'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
+import { GripVertical } from 'lucide-react'
 
 interface SwipeableCardStackProps {
   articles: Article[]
@@ -20,10 +21,15 @@ interface SwipeableCardStackProps {
 // This key remains stable when new articles are appended, allowing us to preserve
 // currentIndex and scrollPosition across article additions.
 const CURRENT_INDEX_STORAGE_PREFIX = 'card-stack-index-'
+const CARD_HEIGHT_STORAGE_PREFIX = 'card-stack-height-'
 
 interface CardStackState {
   currentIndex: number  // The index of the currently displayed card (0-based)
   scrollPosition: number  // The scroll position of the current card
+}
+
+interface CardHeightState {
+  height: number  // The height of the card in pixels
 }
 
 /**
@@ -98,6 +104,43 @@ const setStoredState = (articleKey: string, state: CardStackState) => {
   }
 }
 
+/**
+ * Retrieve stored card height from localStorage
+ * 
+ * @param articleKey - The first article's ID (e.g., "article-0")
+ * @returns CardHeightState with height, or null if not found
+ */
+const getStoredCardHeight = (articleKey: string): CardHeightState | null => {
+  try {
+    const storageKey = `${CARD_HEIGHT_STORAGE_PREFIX}${articleKey}`
+    const stored = localStorage.getItem(storageKey)
+    if (stored) {
+      const parsed = JSON.parse(stored) as CardHeightState
+      if (parsed && typeof parsed.height === 'number' && parsed.height >= 400 && parsed.height <= 1200) {
+        return parsed
+      }
+    }
+  } catch (e) {
+    // Silently fail - localStorage might be disabled or quota exceeded
+  }
+  return null
+}
+
+/**
+ * Save card height to localStorage
+ * 
+ * @param articleKey - The first article's ID (e.g., "article-0")
+ * @param state - The state to store (height)
+ */
+const setStoredCardHeight = (articleKey: string, state: CardHeightState) => {
+  try {
+    const storageKey = `${CARD_HEIGHT_STORAGE_PREFIX}${articleKey}`
+    localStorage.setItem(storageKey, JSON.stringify(state))
+  } catch (e) {
+    // Silently fail - localStorage might be disabled or quota exceeded
+  }
+}
+
 // Card content component that preserves scroll position
 interface CardContentProps {
   article: Article
@@ -105,9 +148,10 @@ interface CardContentProps {
   isCurrent: boolean
   savedScrollPosition: number
   onScrollChange: (position: number) => void
+  cardHeight: number  // Dynamic card height
 }
 
-const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScrollPosition, onScrollChange }) => {
+const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScrollPosition, onScrollChange, cardHeight }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
   const lastSavedPositionRef = useRef<number>(0)
@@ -174,7 +218,8 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
   return (
     <div
       ref={scrollContainerRef}
-      className="h-full w-full rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto max-h-[800px]"
+      className="h-full w-full rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto"
+      style={{ maxHeight: `${cardHeight}px` }}
     >
       {/* Article Separator */}
       {index > 0 && (
@@ -224,6 +269,14 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   const [offsetX, setOffsetX] = useState(0)
   const cardRef = useRef<HTMLDivElement>(null)
   const helperTextRef = useRef<HTMLDivElement>(null) // Ref for helper text below cards
+  
+  // Card height state with localStorage persistence
+  const cachedHeight = getStoredCardHeight(articleKey)
+  const initialHeight = cachedHeight?.height ?? 800 // Default 800px
+  const [cardHeight, setCardHeight] = useState(initialHeight)
+  const [isResizing, setIsResizing] = useState(false)
+  const resizeStartYRef = useRef<number>(0)
+  const resizeStartHeightRef = useRef<number>(800)
   
   // Track previous state to detect when articles are appended vs replaced
   const previousArticlesLengthRef = useRef<number>(stableArticles.length)
@@ -566,6 +619,81 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     }
   }, [currentIndex, stableArticles.length])
 
+  // Save card height to localStorage when it changes
+  useEffect(() => {
+    setStoredCardHeight(articleKey, { height: cardHeight })
+  }, [cardHeight, articleKey])
+
+  // Handle resize mouse events
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(true)
+    resizeStartYRef.current = e.clientY
+    resizeStartHeightRef.current = cardHeight
+  }, [cardHeight])
+
+  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return
+    
+    const deltaY = e.clientY - resizeStartYRef.current
+    const newHeight = Math.max(400, Math.min(1200, resizeStartHeightRef.current + deltaY))
+    setCardHeight(newHeight)
+  }, [isResizing])
+
+  const handleResizeMouseUp = useCallback(() => {
+    setIsResizing(false)
+  }, [])
+
+  // Handle resize touch events
+  const handleResizeTouchStart = useCallback((e: React.TouchEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsResizing(true)
+    resizeStartYRef.current = e.touches[0].clientY
+    resizeStartHeightRef.current = cardHeight
+  }, [cardHeight])
+
+  const handleResizeTouchMove = useCallback((e: TouchEvent) => {
+    if (!isResizing) return
+    
+    const deltaY = e.touches[0].clientY - resizeStartYRef.current
+    const newHeight = Math.max(400, Math.min(1200, resizeStartHeightRef.current + deltaY))
+    setCardHeight(newHeight)
+  }, [isResizing])
+
+  const handleResizeTouchEnd = useCallback(() => {
+    setIsResizing(false)
+  }, [])
+
+  // Add global event listeners for resize
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleResizeMouseMove)
+      document.addEventListener('mouseup', handleResizeMouseUp)
+      document.addEventListener('touchmove', handleResizeTouchMove, { passive: false })
+      document.addEventListener('touchend', handleResizeTouchEnd)
+      document.body.style.cursor = 'ns-resize'
+      document.body.style.userSelect = 'none'
+    } else {
+      document.removeEventListener('mousemove', handleResizeMouseMove)
+      document.removeEventListener('mouseup', handleResizeMouseUp)
+      document.removeEventListener('touchmove', handleResizeTouchMove)
+      document.removeEventListener('touchend', handleResizeTouchEnd)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleResizeMouseMove)
+      document.removeEventListener('mouseup', handleResizeMouseUp)
+      document.removeEventListener('touchmove', handleResizeTouchMove)
+      document.removeEventListener('touchend', handleResizeTouchEnd)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizing, handleResizeMouseMove, handleResizeMouseUp, handleResizeTouchMove, handleResizeTouchEnd])
+
   if (stableArticles.length === 0) {
     console.warn('SwipeableCardStack: No articles provided')
     return null
@@ -581,7 +709,14 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   return (
     <div className={cn('relative w-full my-4', className)}>
       {/* Card Stack Container */}
-      <div className="relative w-full min-h-[400px] max-h-[800px]">
+      <div 
+        className="relative w-full"
+        style={{ 
+          minHeight: '400px',
+          height: `${cardHeight}px`,
+          maxHeight: '1200px'
+        }}
+      >
         {/* Stack of cards with current card on top */}
         {stableArticles.map((article, index) => {
           const isCurrent = index === safeCurrentIndex
@@ -654,10 +789,28 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
                 isCurrent={isCurrent}
                 savedScrollPosition={index === safeCurrentIndex ? scrollPosition : 0}
                 onScrollChange={handleScrollChange}
+                cardHeight={cardHeight}
               />
             </div>
           )
         })}
+      </div>
+
+      {/* Resize Handle - positioned below card container */}
+      <div className="relative w-full flex justify-center -mt-3 mb-1">
+        <div
+          className={cn(
+            "flex items-center justify-center gap-2 px-4 py-2 rounded-lg border-2 border-border bg-background cursor-ns-resize",
+            "hover:bg-accent hover:border-primary transition-all shadow-md z-50",
+            isResizing && "bg-accent border-primary shadow-lg"
+          )}
+          onMouseDown={handleResizeMouseDown}
+          onTouchStart={handleResizeTouchStart}
+          title="Drag to resize card height"
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Resize</span>
+        </div>
       </div>
 
       {/* Navigation Controls */}
