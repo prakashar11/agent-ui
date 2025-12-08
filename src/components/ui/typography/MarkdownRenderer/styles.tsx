@@ -69,7 +69,7 @@ const OrderedList = ({ className, ...props }: OrderedListProps) => (
 
 const Paragraph = ({ className, ...props }: ParagraphProps) => (
   <div
-    className={cn(className, PARAGRAPH_SIZES.body)}
+    className={cn(className, PARAGRAPH_SIZES.body, 'break-words [overflow-wrap:anywhere]')}
     {...filterProps(props)}
   />
 )
@@ -130,7 +130,8 @@ const CodeBlock: FC<PreparedTextProps> = ({ children, className, ...props }) => 
       className={cn(
         className,
         'relative overflow-x-auto rounded-lg bg-background-secondary/70 p-4 text-sm font-mono',
-        'border border-border/50'
+        'border border-border/50',
+        'whitespace-pre-wrap break-words'
       )}
       {...filterProps(props)}
     >
@@ -147,16 +148,17 @@ const CodeBlockCode: FC<PreparedTextProps & { inline?: boolean }> = ({ children,
   
   if (isInline) {
     return (
-      <code className="relative whitespace-pre-wrap rounded-sm bg-background-secondary/50 px-1.5 py-0.5 text-sm font-mono">
+      <code className="relative whitespace-pre-wrap break-words rounded-sm bg-background-secondary/50 px-1.5 py-0.5 text-sm font-mono">
         {children}
       </code>
     )
   }
   
   // Code block code - minimal styling since <pre> handles the block styling
+  // Use whitespace-pre-wrap to allow long lines to wrap
   return (
     <code 
-      className={cn(className, 'block whitespace-pre text-sm font-mono')}
+      className={cn(className, 'block whitespace-pre-wrap break-words text-sm font-mono')}
       {...filterProps(props)}
     >
       {children}
@@ -244,9 +246,9 @@ const Img = ({ src, alt }: ImgProps) => {
 }
 
 const Table = ({ className, ...props }: TableProps) => (
-  <div className="w-full max-w-[560px] overflow-hidden rounded-md border border-border">
+  <div className="w-full overflow-hidden rounded-md border border-border">
     <div className="w-full overflow-x-auto">
-      <table className={cn(className, 'w-full')} {...filterProps(props)} />
+      <table className={cn(className, 'w-full table-auto')} {...filterProps(props)} />
     </div>
   </div>
 )
@@ -281,7 +283,7 @@ const TableRow = ({ className, ...props }: TableRowProps) => (
 
 const TableCell = ({ className, ...props }: TableCellProps) => (
   <td
-    className={cn(className, 'whitespace-nowrap p-2 font-[400]')}
+    className={cn(className, 'p-2 font-[400] break-words')}
     {...filterProps(props)}
   />
 )
