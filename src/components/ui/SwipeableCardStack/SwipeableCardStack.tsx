@@ -233,7 +233,7 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
       )}
 
       {/* Article Content - title is already included in the markdown */}
-      <div className="prose prose-sm dark:prose-invert max-w-none break-words [overflow-wrap:anywhere]">
+      <div className="prose prose-sm dark:prose-invert max-w-none">
         <MarkdownRenderer>{article.content}</MarkdownRenderer>
       </div>
     </div>

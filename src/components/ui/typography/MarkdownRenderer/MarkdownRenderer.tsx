@@ -17,8 +17,9 @@ const MarkdownRenderer: FC<MarkdownRendererProps> = ({
 }) => (
   <ReactMarkdown
     className={cn(
-      'prose prose-h1:text-xl dark:prose-invert flex w-full flex-col gap-y-5 rounded-lg',
-      'break-words [word-break:break-word] [overflow-wrap:anywhere]',
+      'prose prose-h1:text-xl dark:prose-invert flex w-full flex-col gap-y-5 rounded-lg max-w-none',
+      // Text wrapping for paragraphs, lists, tables
+      'prose-p:break-words prose-li:break-words prose-td:break-words',
       classname
     )}
     components={{ ...(inline ? inlineComponents : components) }}

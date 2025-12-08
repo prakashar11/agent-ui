@@ -10,6 +10,49 @@ import { memo } from 'react'
 import AgentThinkingLoader from './AgentThinkingLoader'
 import { containsArticles, parseArticles } from '@/utils/articleParser'
 
+/**
+ * Strips markdown code block wrapper from content.
+ * Some LLMs wrap their markdown responses in ```markdown ... ``` which breaks rendering.
+ */
+function stripMarkdownWrapper(content: string): string {
+  if (!content) return content
+  
+  const trimmed = content.trim()
+  
+  // Check for ```markdown or ```md wrapper
+  if (trimmed.startsWith('```markdown')) {
+    let stripped = trimmed.slice('```markdown'.length).trim()
+    if (stripped.endsWith('```')) {
+      stripped = stripped.slice(0, -3).trim()
+    }
+    return stripped
+  }
+  
+  if (trimmed.startsWith('```md')) {
+    let stripped = trimmed.slice('```md'.length).trim()
+    if (stripped.endsWith('```')) {
+      stripped = stripped.slice(0, -3).trim()
+    }
+    return stripped
+  }
+  
+  // Check for plain ``` wrapper with markdown content
+  if (trimmed.startsWith('```\n') || trimmed.startsWith('```\r\n')) {
+    const firstNewline = trimmed.indexOf('\n')
+    const afterFence = trimmed.slice(firstNewline + 1).trim()
+    // If content looks like markdown, strip the wrapper
+    if (afterFence.startsWith('#') || afterFence.startsWith('-') || afterFence.startsWith('*')) {
+      let stripped = afterFence
+      if (stripped.endsWith('```')) {
+        stripped = stripped.slice(0, -3).trim()
+      }
+      return stripped
+    }
+  }
+  
+  return content
+}
+
 interface MessageProps {
   message: PlaygroundChatMessage
 }
@@ -29,12 +72,15 @@ const AgentMessage = ({ message }: MessageProps) => {
       </p>
     )
   } else if (message.content) {
+    // Strip any markdown code block wrapper from LLM output
+    const cleanContent = stripMarkdownWrapper(message.content)
+    
     // Check if content contains articles that should be displayed as swipeable cards
-    const hasArticles = containsArticles(message.content)
+    const hasArticles = containsArticles(cleanContent)
     
     if (hasArticles && useArticleCardView) {
       // Card stack view
-      const parsed = parseArticles(message.content)
+      const parsed = parseArticles(cleanContent)
       const { articles, nonArticlePrefix, nonArticleSuffix } = parsed
       
       // Debug logging
@@ -46,7 +92,7 @@ const AgentMessage = ({ message }: MessageProps) => {
         hasNonArticleSuffix: !!nonArticleSuffix,
         nonArticleSuffixLength: nonArticleSuffix?.length || 0,
         nonArticleSuffixPreview: nonArticleSuffix?.substring(0, 100) || 'N/A',
-        contentPreview: message.content.substring(0, 200)
+        contentPreview: cleanContent.substring(0, 200)
       })
       
       messageContent = (
@@ -92,7 +138,7 @@ const AgentMessage = ({ message }: MessageProps) => {
       // Scrollable list view (default or when toggle is off)
     messageContent = (
       <div className="flex w-full flex-col gap-4">
-        <MarkdownRenderer>{message.content}</MarkdownRenderer>
+        <MarkdownRenderer>{cleanContent}</MarkdownRenderer>
         {message.videos && message.videos.length > 0 && (
           <Videos videos={message.videos} />
         )}

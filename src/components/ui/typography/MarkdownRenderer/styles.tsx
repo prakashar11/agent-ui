@@ -69,7 +69,7 @@ const OrderedList = ({ className, ...props }: OrderedListProps) => (
 
 const Paragraph = ({ className, ...props }: ParagraphProps) => (
   <div
-    className={cn(className, PARAGRAPH_SIZES.body, 'break-words [overflow-wrap:anywhere]')}
+    className={cn(className, PARAGRAPH_SIZES.body, 'break-words')}
     {...filterProps(props)}
   />
 )
@@ -129,9 +129,10 @@ const CodeBlock: FC<PreparedTextProps> = ({ children, className, ...props }) => 
     <pre 
       className={cn(
         className,
+        'not-prose', // Prevent prose styles from affecting code blocks
         'relative overflow-x-auto rounded-lg bg-background-secondary/70 p-4 text-sm font-mono',
         'border border-border/50',
-        'whitespace-pre-wrap break-words'
+        'whitespace-pre'
       )}
       {...filterProps(props)}
     >
@@ -147,18 +148,18 @@ const CodeBlockCode: FC<PreparedTextProps & { inline?: boolean }> = ({ children,
   const isInline = inline === true || !className
   
   if (isInline) {
+    // Inline code - allow wrapping within text flow, use sans-serif font to match surrounding text
     return (
-      <code className="relative whitespace-pre-wrap break-words rounded-sm bg-background-secondary/50 px-1.5 py-0.5 text-sm font-mono">
+      <code className="relative whitespace-pre-wrap break-words rounded-sm bg-background-secondary/50 px-1.5 py-0.5 text-sm font-mono not-prose">
         {children}
       </code>
     )
   }
   
-  // Code block code - minimal styling since <pre> handles the block styling
-  // Use whitespace-pre-wrap to allow long lines to wrap
+  // Code block code - preserve formatting, use horizontal scroll for long lines
   return (
     <code 
-      className={cn(className, 'block whitespace-pre-wrap break-words text-sm font-mono')}
+      className={cn(className, 'block whitespace-pre text-sm font-mono')}
       {...filterProps(props)}
     >
       {children}
