@@ -1,6 +1,6 @@
 'use client'
 
-import { FC, useState, useRef, useEffect, useLayoutEffect } from 'react'
+import { FC, useState, useRef, useLayoutEffect } from 'react'
 
 import Image from 'next/image'
 import Link from 'next/link'
@@ -123,9 +123,42 @@ const HorizontalRule = ({ className, ...props }: HorizontalRuleProps) => (
   />
 )
 
-const InlineCode: FC<PreparedTextProps> = ({ children }) => {
+// Code block wrapper (for fenced code blocks like ```code```)
+const CodeBlock: FC<PreparedTextProps> = ({ children, className, ...props }) => {
   return (
-    <code className="relative whitespace-pre-wrap rounded-sm bg-background-secondary/50 p-1">
+    <pre 
+      className={cn(
+        className,
+        'relative overflow-x-auto rounded-lg bg-background-secondary/70 p-4 text-sm font-mono',
+        'border border-border/50'
+      )}
+      {...filterProps(props)}
+    >
+      {children}
+    </pre>
+  )
+}
+
+// Code element inside code blocks (different styling from inline code)
+const CodeBlockCode: FC<PreparedTextProps & { inline?: boolean }> = ({ children, inline, className, ...props }) => {
+  // Check if this is inline code or code block code
+  // react-markdown passes className with language info for code blocks
+  const isInline = inline === true || !className
+  
+  if (isInline) {
+    return (
+      <code className="relative whitespace-pre-wrap rounded-sm bg-background-secondary/50 px-1.5 py-0.5 text-sm font-mono">
+        {children}
+      </code>
+    )
+  }
+  
+  // Code block code - minimal styling since <pre> handles the block styling
+  return (
+    <code 
+      className={cn(className, 'block whitespace-pre text-sm font-mono')}
+      {...filterProps(props)}
+    >
       {children}
     </code>
   )
@@ -336,7 +369,8 @@ export const components = {
   del: DeletedText,
   hr: HorizontalRule,
   blockquote: Blockquote,
-  code: InlineCode,
+  pre: CodeBlock,
+  code: CodeBlockCode,
   a: AnchorLink,
   img: Img,
   p: Paragraph,

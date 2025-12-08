@@ -100,7 +100,7 @@ export function parseArticles(content: string): ParsedContent {
   if (contentToParse.includes(CARD_CONTENT_START)) {
     const startParts = contentToParse.split(CARD_CONTENT_START)
     nonArticlePrefix = startParts[0].trim()
-    let cardContent = startParts.slice(1).join(CARD_CONTENT_START).trim()
+    const cardContent = startParts.slice(1).join(CARD_CONTENT_START).trim()
     
     // Check for CARD_CONTENT_STOP within the card content
     if (cardContent.includes(CARD_CONTENT_STOP)) {
@@ -121,7 +121,7 @@ export function parseArticles(content: string): ParsedContent {
     const parts = contentToParse.split(ARTICLE_SEPARATOR)
     const articles: Article[] = []
 
-    parts.forEach((part, index) => {
+    parts.forEach((part) => {
       const trimmed = part.trim()
       if (!trimmed) return
 

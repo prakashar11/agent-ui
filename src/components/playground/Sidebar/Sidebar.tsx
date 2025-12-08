@@ -218,7 +218,9 @@ const Sidebar = () => {
   } = usePlaygroundStore()
   const [isMounted, setIsMounted] = useState(false)
   const [agentId] = useQueryState('agent')
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [agentUploadProgress, setAgentUploadProgress] = useState<number | null>(null)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [agentUploadError, setAgentUploadError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 

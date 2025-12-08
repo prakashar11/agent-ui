@@ -1,10 +1,7 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  devIndicators: false
-}
-
-const nextConfig = {
+  devIndicators: false,
   async headers() {
     // Only apply in `npm run dev` (NODE_ENV will be "development")
     if (process.env.NODE_ENV === 'development') {
@@ -25,6 +22,6 @@ const nextConfig = {
     // In production, no extra headers
     return [];
   },
-};
+}
 
 export default nextConfig

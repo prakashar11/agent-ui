@@ -9,7 +9,7 @@ import Icon from '@/components/ui/icon'
 import { useState } from 'react'
 import DeleteSessionModal from './DeleteSessionModal'
 import useChatActions from '@/hooks/useChatActions'
-import { truncateText, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 type SessionItemProps = SessionEntry & {
   isSelected: boolean

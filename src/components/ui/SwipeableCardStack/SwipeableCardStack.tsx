@@ -80,7 +80,7 @@ const getStoredState = (articleKey: string): CardStackState | null => {
         return { currentIndex: index, scrollPosition: 0 }
       }
     }
-  } catch (e) {
+  } catch {
     // Silently fail - localStorage might be disabled or quota exceeded
   }
   return null
@@ -99,7 +99,7 @@ const setStoredState = (articleKey: string, state: CardStackState) => {
   try {
     const storageKey = `${CURRENT_INDEX_STORAGE_PREFIX}${articleKey}`
     localStorage.setItem(storageKey, JSON.stringify(state))
-  } catch (e) {
+  } catch {
     // Silently fail - localStorage might be disabled or quota exceeded
   }
 }
@@ -120,7 +120,7 @@ const getStoredCardHeight = (articleKey: string): CardHeightState | null => {
         return parsed
       }
     }
-  } catch (e) {
+  } catch {
     // Silently fail - localStorage might be disabled or quota exceeded
   }
   return null
@@ -136,7 +136,7 @@ const setStoredCardHeight = (articleKey: string, state: CardHeightState) => {
   try {
     const storageKey = `${CARD_HEIGHT_STORAGE_PREFIX}${articleKey}`
     localStorage.setItem(storageKey, JSON.stringify(state))
-  } catch (e) {
+  } catch {
     // Silently fail - localStorage might be disabled or quota exceeded
   }
 }
@@ -243,6 +243,7 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
 const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   articles,
   className,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   messageId,
 }) => {
   // Get scroll context to scroll to helper text position after cards render
@@ -704,6 +705,7 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     ? currentIndex
     : Math.max(0, Math.min(currentIndex, stableArticles.length - 1))
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const currentArticle = stableArticles[safeCurrentIndex]
 
   return (
@@ -729,9 +731,9 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
 
           // Calculate z-index and positioning
           // For circular navigation, calculate distance considering wrap-around
-          let distance = Math.abs(index - safeCurrentIndex)
+          const distance = Math.abs(index - safeCurrentIndex)
           const wrapDistance = Math.min(distance, stableArticles.length - distance)
-          let zIndex = stableArticles.length - wrapDistance
+          const zIndex = stableArticles.length - wrapDistance
           
           let translateX = 0
           let translateY = 0

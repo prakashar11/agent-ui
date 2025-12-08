@@ -20,18 +20,17 @@ const ChatInput = () => {
     if (!inputMessage.trim()) return
 
     try {
-      let result
       if (agentFiles && agentFiles.length > 0) {
         const formData = new FormData()
         Array.from(agentFiles).forEach((file) => {
           formData.append('files', file)
         })
         formData.append('message', inputMessage)
-        result = await handleStreamResponse(formData)
+        await handleStreamResponse(formData)
         setAgentFiles(null)
         if (resetAgentFileInput) resetAgentFileInput()
       } else {
-        result = await handleStreamResponse(inputMessage)
+        await handleStreamResponse(inputMessage)
       }
       setInputMessage('')
     } catch (error) {
