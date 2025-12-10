@@ -246,13 +246,98 @@ const Img = ({ src, alt }: ImgProps) => {
   )
 }
 
-const Table = ({ className, ...props }: TableProps) => (
-  <div className="w-full overflow-hidden rounded-md border border-border">
-    <div className="w-full overflow-x-auto">
-      <table className={cn(className, 'w-full table-auto')} {...filterProps(props)} />
+// Enhanced Table with dual scrollbars (top + bottom) and mouse drag scrolling
+const Table: FC<TableProps> = ({ className, ...props }) => {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const topScrollRef = useRef<HTMLDivElement>(null)
+  const [contentWidth, setContentWidth] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const [startX, setStartX] = useState(0)
+  const [scrollLeft, setScrollLeft] = useState(0)
+
+  // Measure content width for top scrollbar
+  useLayoutEffect(() => {
+    if (scrollContainerRef.current) {
+      const table = scrollContainerRef.current.querySelector('table')
+      if (table) {
+        setContentWidth(table.scrollWidth)
+      }
+    }
+  })
+
+  // Sync scrollbars
+  const handleBottomScroll = () => {
+    if (scrollContainerRef.current && topScrollRef.current) {
+      topScrollRef.current.scrollLeft = scrollContainerRef.current.scrollLeft
+    }
+  }
+
+  const handleTopScroll = () => {
+    if (scrollContainerRef.current && topScrollRef.current) {
+      scrollContainerRef.current.scrollLeft = topScrollRef.current.scrollLeft
+    }
+  }
+
+  // Mouse drag scrolling
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!scrollContainerRef.current) return
+    setIsDragging(true)
+    setStartX(e.pageX - scrollContainerRef.current.offsetLeft)
+    setScrollLeft(scrollContainerRef.current.scrollLeft)
+    scrollContainerRef.current.style.cursor = 'grabbing'
+  }
+
+  const handleMouseUp = () => {
+    setIsDragging(false)
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.style.cursor = 'grab'
+    }
+  }
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging || !scrollContainerRef.current) return
+    e.preventDefault()
+    const x = e.pageX - scrollContainerRef.current.offsetLeft
+    const walk = (x - startX) * 1.5 // Scroll speed multiplier
+    scrollContainerRef.current.scrollLeft = scrollLeft - walk
+  }
+
+  const handleMouseLeave = () => {
+    if (isDragging) {
+      setIsDragging(false)
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.style.cursor = 'grab'
+      }
+    }
+  }
+
+  return (
+    <div className="w-full overflow-hidden rounded-md border border-border">
+      {/* Top scrollbar - mirrors the bottom one */}
+      <div
+        ref={topScrollRef}
+        onScroll={handleTopScroll}
+        className="w-full overflow-x-auto overflow-y-hidden"
+        style={{ height: '12px' }}
+      >
+        <div style={{ width: contentWidth, height: '1px' }} />
+      </div>
+      {/* Main table container with drag scrolling */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleBottomScroll}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="w-full overflow-x-auto cursor-grab select-none"
+        style={{ scrollBehavior: isDragging ? 'auto' : 'smooth' }}
+      >
+        <table className={cn(className, 'w-full table-auto')} {...filterProps(props)} />
+      </div>
     </div>
-  </div>
-)
+  )
+}
 
 const TableHead = ({ className, ...props }: TableHeaderProps) => (
   <thead
