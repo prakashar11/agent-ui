@@ -133,7 +133,7 @@ const ChatBlankState = () => {
       className="flex flex-col items-center text-center font-geist"
       aria-label="Welcome message"
     >
-      <div className="flex max-w-7xl flex-col gap-y-8">
+      <div className="flex max-w-6xl flex-col gap-y-8">
         <motion.h1
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
