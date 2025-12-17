@@ -40,7 +40,7 @@ const VideoItem = memo(({ video }: { video: VideoData }) => {
 
   return (
     <div>
-      <div className="group relative w-full max-w-xl">
+      <div className="group relative w-full max-w-4xl">
         {}
         <video
           src={videoUrl}

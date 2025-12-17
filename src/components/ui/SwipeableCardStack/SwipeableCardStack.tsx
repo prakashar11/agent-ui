@@ -710,92 +710,117 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
 
   return (
     <div className={cn('relative w-full my-4', className)}>
-      {/* Card Stack Container */}
-      <div 
-        className="relative w-full"
-        style={{ 
-          minHeight: '400px',
-          height: `${cardHeight}px`,
-          maxHeight: '1200px'
-        }}
-      >
-        {/* Stack of cards with current card on top */}
-        {stableArticles.map((article, index) => {
-          const isCurrent = index === safeCurrentIndex
-          
-          // Calculate next and previous with circular navigation
-          const nextIndex = safeCurrentIndex === stableArticles.length - 1 ? 0 : safeCurrentIndex + 1
-          const prevIndex = safeCurrentIndex === 0 ? stableArticles.length - 1 : safeCurrentIndex - 1
-          const isNext = index === nextIndex
-          const isPrevious = index === prevIndex
+      {/* Card Container with Side Navigation Arrows */}
+      <div className="relative flex items-center gap-2">
+        {/* Left Arrow - positioned on left side of card */}
+        {stableArticles.length > 1 && (
+          <button
+            onClick={goToPrevious}
+            className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent hover:scale-110 shadow-md z-10"
+            aria-label="Previous article"
+          >
+            <span className="text-xl">←</span>
+          </button>
+        )}
 
-          // Calculate z-index and positioning
-          // For circular navigation, calculate distance considering wrap-around
-          const distance = Math.abs(index - safeCurrentIndex)
-          const wrapDistance = Math.min(distance, stableArticles.length - distance)
-          const zIndex = stableArticles.length - wrapDistance
-          
-          let translateX = 0
-          let translateY = 0
-          let scale = 1
-          let opacity = 1
+        {/* Card Stack Container */}
+        <div 
+          className="relative flex-1"
+          style={{ 
+            minHeight: '400px',
+            height: `${cardHeight}px`,
+            maxHeight: '1200px'
+          }}
+        >
+          {/* Stack of cards with current card on top */}
+          {stableArticles.map((article, index) => {
+            const isCurrent = index === safeCurrentIndex
+            
+            // Calculate next and previous with circular navigation
+            const nextIndex = safeCurrentIndex === stableArticles.length - 1 ? 0 : safeCurrentIndex + 1
+            const prevIndex = safeCurrentIndex === 0 ? stableArticles.length - 1 : safeCurrentIndex - 1
+            const isNext = index === nextIndex
+            const isPrevious = index === prevIndex
 
-          if (isCurrent) {
-            // Current card - can be dragged
-            translateX = offsetX
-            scale = 1
-            opacity = 1
-          } else if (isNext) {
-            // Next card - slightly behind and to the right
-            translateX = 20
-            translateY = -10
-            scale = 0.95
-            opacity = 0.7
-          } else if (isPrevious) {
-            // Previous card - slightly behind and to the left
-            translateX = -20
-            translateY = -10
-            scale = 0.95
-            opacity = 0.7
-          } else {
-            // Other cards - hidden
-            opacity = 0
-            scale = 0.9
-          }
+            // Calculate z-index and positioning
+            // For circular navigation, calculate distance considering wrap-around
+            const distance = Math.abs(index - safeCurrentIndex)
+            const wrapDistance = Math.min(distance, stableArticles.length - distance)
+            const zIndex = stableArticles.length - wrapDistance
+            
+            let translateX = 0
+            let translateY = 0
+            let scale = 1
+            let opacity = 1
 
-          return (
-            <div
-              key={article.id}
-              ref={isCurrent ? cardRef : null}
-              className={cn(
-                'absolute inset-0 transition-all duration-500 ease-in-out',
-                isCurrent && 'cursor-grab active:cursor-grabbing'
-              )}
-              style={{
-                zIndex,
-                transform: `translateX(${translateX}px) translateY(${translateY}px) scale(${scale})`,
-                opacity,
-                pointerEvents: isCurrent ? 'auto' : 'none',
-              }}
-              onTouchStart={isCurrent ? handleTouchStart : undefined}
-              onTouchMove={isCurrent ? handleTouchMove : undefined}
-              onTouchEnd={isCurrent ? handleTouchEnd : undefined}
-              onMouseDown={isCurrent ? handleMouseDown : undefined}
-              onMouseMove={isCurrent ? handleMouseMove : undefined}
-              onMouseUp={isCurrent ? handleMouseUp : undefined}
-              onMouseLeave={isCurrent ? handleMouseLeave : undefined}
-            >
-              <CardContent
-                article={article}
-                index={index}
-                isCurrent={isCurrent}
-                savedScrollPosition={index === safeCurrentIndex ? scrollPosition : 0}
-                onScrollChange={handleScrollChange}
-                cardHeight={cardHeight}
-              />
-            </div>
-          )
-        })}
+            if (isCurrent) {
+              // Current card - can be dragged
+              translateX = offsetX
+              scale = 1
+              opacity = 1
+            } else if (isNext) {
+              // Next card - slightly behind and to the right
+              translateX = 20
+              translateY = -10
+              scale = 0.95
+              opacity = 0.7
+            } else if (isPrevious) {
+              // Previous card - slightly behind and to the left
+              translateX = -20
+              translateY = -10
+              scale = 0.95
+              opacity = 0.7
+            } else {
+              // Other cards - hidden
+              opacity = 0
+              scale = 0.9
+            }
+
+            return (
+              <div
+                key={article.id}
+                ref={isCurrent ? cardRef : null}
+                className={cn(
+                  'absolute inset-0 transition-all duration-500 ease-in-out',
+                  isCurrent && 'cursor-grab active:cursor-grabbing'
+                )}
+                style={{
+                  zIndex,
+                  transform: `translateX(${translateX}px) translateY(${translateY}px) scale(${scale})`,
+                  opacity,
+                  pointerEvents: isCurrent ? 'auto' : 'none',
+                }}
+                onTouchStart={isCurrent ? handleTouchStart : undefined}
+                onTouchMove={isCurrent ? handleTouchMove : undefined}
+                onTouchEnd={isCurrent ? handleTouchEnd : undefined}
+                onMouseDown={isCurrent ? handleMouseDown : undefined}
+                onMouseMove={isCurrent ? handleMouseMove : undefined}
+                onMouseUp={isCurrent ? handleMouseUp : undefined}
+                onMouseLeave={isCurrent ? handleMouseLeave : undefined}
+              >
+                <CardContent
+                  article={article}
+                  index={index}
+                  isCurrent={isCurrent}
+                  savedScrollPosition={index === safeCurrentIndex ? scrollPosition : 0}
+                  onScrollChange={handleScrollChange}
+                  cardHeight={cardHeight}
+                />
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Right Arrow - positioned on right side of card */}
+        {stableArticles.length > 1 && (
+          <button
+            onClick={goToNext}
+            className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent hover:scale-110 shadow-md z-10"
+            aria-label="Next article"
+          >
+            <span className="text-xl">→</span>
+          </button>
+        )}
       </div>
 
       {/* Resize Handle - positioned below card container */}
@@ -815,45 +840,24 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
         </div>
       </div>
 
-      {/* Navigation Controls */}
+      {/* Navigation Slider (Dots) - at the bottom */}
       {stableArticles.length > 1 && (
-        <div className="mt-4 flex items-center justify-center gap-4">
-          {/* Left Arrow Button - always enabled with circular navigation */}
-          <button
-            onClick={goToPrevious}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent"
-            aria-label="Previous article"
-          >
-            <span className="text-lg">←</span>
-          </button>
-
-          {/* Navigation Dots */}
-          <div className="flex justify-center gap-2">
-            {stableArticles.map((article, index) => (
-              <button
-                key={article.id}
-                onClick={() => {
-                  handleUserNavigation(index)
-                }}
-                className={cn(
-                  'h-2 w-2 rounded-full transition-all',
-                  index === safeCurrentIndex
-                    ? 'w-8 bg-primary'
-                    : 'bg-muted-foreground/50 hover:bg-muted-foreground'
-                )}
-                aria-label={`Go to article ${index + 1}`}
-              />
-            ))}
-          </div>
-
-          {/* Right Arrow Button - always enabled with circular navigation */}
-          <button
-            onClick={goToNext}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent"
-            aria-label="Next article"
-          >
-            <span className="text-lg">→</span>
-          </button>
+        <div className="mt-4 flex items-center justify-center gap-2">
+          {stableArticles.map((article, index) => (
+            <button
+              key={article.id}
+              onClick={() => {
+                handleUserNavigation(index)
+              }}
+              className={cn(
+                'h-2 rounded-full transition-all',
+                index === safeCurrentIndex
+                  ? 'w-8 bg-primary'
+                  : 'w-2 bg-muted-foreground/50 hover:bg-muted-foreground'
+              )}
+              aria-label={`Go to article ${index + 1}`}
+            />
+          ))}
         </div>
       )}
 

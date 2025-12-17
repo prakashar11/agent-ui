@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 const Images = ({ images }: { images: ImageData[] }) => (
   <div
     className={cn(
-      'grid max-w-xl gap-4',
+      'grid max-w-4xl gap-4',
       images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'
     )}
   >
