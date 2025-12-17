@@ -1,10 +1,11 @@
 'use client'
 
-import { FC, useState, useRef, useLayoutEffect } from 'react'
+import { FC, useState, useRef, useLayoutEffect, Children, isValidElement } from 'react'
 
 import Image from 'next/image'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import MermaidRenderer from './MermaidRenderer'
 
 import type {
   UnorderedListProps,
@@ -141,6 +142,24 @@ const CodeBlock: FC<PreparedTextProps> = ({ children, className, ...props }) => 
   )
 }
 
+// Helper to extract text content from React children
+const extractTextContent = (children: React.ReactNode): string => {
+  let text = ''
+  Children.forEach(children, (child) => {
+    if (typeof child === 'string') {
+      text += child
+    } else if (typeof child === 'number') {
+      text += String(child)
+    } else if (isValidElement(child)) {
+      const props = child.props as { children?: React.ReactNode }
+      if (props.children) {
+        text += extractTextContent(props.children)
+      }
+    }
+  })
+  return text
+}
+
 // Code element inside code blocks (different styling from inline code)
 const CodeBlockCode: FC<PreparedTextProps & { inline?: boolean }> = ({ children, inline, className, ...props }) => {
   // Check if this is inline code or code block code
@@ -154,6 +173,15 @@ const CodeBlockCode: FC<PreparedTextProps & { inline?: boolean }> = ({ children,
         {children}
       </code>
     )
+  }
+  
+  // Check if this is a mermaid code block
+  const isMermaid = className?.includes('language-mermaid')
+  
+  if (isMermaid) {
+    // Extract the raw mermaid code from children
+    const mermaidCode = extractTextContent(children)
+    return <MermaidRenderer code={mermaidCode} />
   }
   
   // Code block code - preserve formatting, use horizontal scroll for long lines

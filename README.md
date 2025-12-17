@@ -49,6 +49,11 @@ pnpm install
 pnpm dev
 ```
 
+To restart
+```bash
+pkill -f "next dev" 2>/dev/null
+```
+
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 ## Connecting to an Agent Backend
