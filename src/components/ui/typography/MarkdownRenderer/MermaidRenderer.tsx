@@ -76,12 +76,26 @@ const MermaidRenderer: FC<MermaidRendererProps> = ({ code }) => {
           }
         })
         
-        // Validate the mermaid syntax first
-        const isValid = await mermaid.parse(cleanCode, { suppressErrors: true })
+        // 3. Quote node labels that contain special characters (hyphens, dots, etc.)
+        // Fix labels like CVE((CVE-2025-14174)) -> CVE(("CVE-2025-14174"))
+        // Match node definitions with special chars that aren't already quoted
+        cleanCode = cleanCode.replace(
+          /(\w+)\(\(([^"'][^)]*-[^)]*)\)\)/g,
+          '$1(("$2"))'
+        )
         
-        if (!isValid) {
-          throw new Error('Invalid mermaid syntax')
-        }
+        // 4. Fix labels like NODE[Label with-hyphen] -> NODE["Label with-hyphen"]
+        cleanCode = cleanCode.replace(
+          /(\w+)\[([^"\[\]]*-[^"\[\]]*)\]/g,
+          (match, node, label) => {
+            // Don't double-quote if already quoted
+            if (label.startsWith('"') || label.startsWith("'")) return match
+            return `${node}["${label}"]`
+          }
+        )
+        
+        // Skip pre-validation - mermaid.parse() behaves differently across versions
+        // Just try to render directly and catch any errors
         
         // Render the diagram
         const { svg: renderedSvg } = await mermaid.render(
@@ -107,7 +121,8 @@ const MermaidRenderer: FC<MermaidRendererProps> = ({ code }) => {
             fallbackCode
           )
           setSvg(fallbackSvg)
-        } catch (fallbackErr) {
+        } catch {
+          // Fallback also failed, use original error
           setError(err instanceof Error ? err.message : 'Failed to render diagram')
         }
       } finally {

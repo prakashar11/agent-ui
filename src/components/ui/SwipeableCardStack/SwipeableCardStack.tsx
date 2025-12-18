@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import type { Article } from '@/utils/articleParser'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Copy, Check } from 'lucide-react'
 
 interface SwipeableCardStackProps {
   articles: Article[]
@@ -155,6 +155,89 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const rafRef = useRef<number | null>(null)
   const lastSavedPositionRef = useRef<number>(0)
+  const [copied, setCopied] = useState(false)
+  const [copiedType, setCopiedType] = useState<'all' | 'selected' | null>(null)
+  const [hasSelection, setHasSelection] = useState(false)
+
+  // Track text selection
+  useEffect(() => {
+    const checkSelection = () => {
+      const selection = window.getSelection()
+      const selectedText = selection?.toString().trim() || ''
+      setHasSelection(selectedText.length > 0)
+    }
+
+    // Check selection on mouseup and keyup (for keyboard selection)
+    document.addEventListener('mouseup', checkSelection)
+    document.addEventListener('keyup', checkSelection)
+    document.addEventListener('selectionchange', checkSelection)
+
+    return () => {
+      document.removeEventListener('mouseup', checkSelection)
+      document.removeEventListener('keyup', checkSelection)
+      document.removeEventListener('selectionchange', checkSelection)
+    }
+  }, [])
+
+  // Copy selected text to clipboard
+  const handleCopySelected = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim() || ''
+    
+    if (!selectedText) return
+    
+    try {
+      await navigator.clipboard.writeText(selectedText)
+      setCopied(true)
+      setCopiedType('selected')
+      setTimeout(() => {
+        setCopied(false)
+        setCopiedType(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy selected text:', err)
+    }
+  }, [])
+
+  // Copy full article content to clipboard
+  const handleCopyAll = useCallback(async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    
+    try {
+      await navigator.clipboard.writeText(article.content)
+      setCopied(true)
+      setCopiedType('all')
+      setTimeout(() => {
+        setCopied(false)
+        setCopiedType(null)
+      }, 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+      // Fallback: try to copy using execCommand
+      try {
+        const textArea = document.createElement('textarea')
+        textArea.value = article.content
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-9999px'
+        document.body.appendChild(textArea)
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+        setCopied(true)
+        setCopiedType('all')
+        setTimeout(() => {
+          setCopied(false)
+          setCopiedType(null)
+        }, 2000)
+      } catch {
+        console.error('Fallback copy also failed')
+      }
+    }
+  }, [article.content])
 
   // Save scroll position when scrolling (only for current card)
   // Use requestAnimationFrame with throttling to keep scrolling smooth
@@ -215,12 +298,70 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
     }
   }, [index, article.content, isCurrent, savedScrollPosition])
 
+  // Stop mouse events from bubbling to prevent interference with text selection
+  const stopPropagation = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+  }, [])
+
   return (
     <div
       ref={scrollContainerRef}
-      className="h-full w-full rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto"
+      className="h-full w-full rounded-lg border border-border bg-background p-6 shadow-lg overflow-y-auto relative group"
       style={{ maxHeight: `${cardHeight}px` }}
+      // Stop mouse events from bubbling up to the swipe handler
+      onMouseDown={stopPropagation}
+      onMouseMove={stopPropagation}
+      onMouseUp={stopPropagation}
     >
+      {/* Copy Buttons - always visible for better UX */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-1">
+        {/* Copy Selected - only visible when text is selected */}
+        {hasSelection && (
+          <button
+            onClick={handleCopySelected}
+            className={cn(
+              "px-2 py-1.5 rounded-md transition-all duration-200 text-xs font-medium flex items-center gap-1",
+              "bg-blue-600 text-white border border-blue-500 shadow-md",
+              "hover:bg-blue-500 hover:scale-105",
+              copied && copiedType === 'selected' && "bg-green-600 border-green-500"
+            )}
+            title="Copy selected text"
+            aria-label="Copy selected text"
+          >
+            {copied && copiedType === 'selected' ? (
+              <>
+                <Check className="h-3 w-3" />
+                <span>Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" />
+                <span>Copy Selected</span>
+              </>
+            )}
+          </button>
+        )}
+        
+        {/* Copy All - always visible */}
+        <button
+          onClick={handleCopyAll}
+          className={cn(
+            "p-2 rounded-md transition-all duration-200",
+            "bg-zinc-800/90 backdrop-blur-sm border border-zinc-700 shadow-md",
+            "hover:bg-zinc-700 hover:border-zinc-600 hover:scale-105",
+            copied && copiedType === 'all' && "bg-green-900/50 border-green-700"
+          )}
+          title={copied && copiedType === 'all' ? "Copied!" : "Copy all content (Markdown)"}
+          aria-label={copied && copiedType === 'all' ? "Copied!" : "Copy all article content"}
+        >
+          {copied && copiedType === 'all' ? (
+            <Check className="h-4 w-4 text-green-400" />
+          ) : (
+            <Copy className="h-4 w-4 text-zinc-400 hover:text-zinc-200" />
+          )}
+        </button>
+      </div>
+
       {/* Article Separator */}
       {index > 0 && (
         <div className="mb-4 flex items-center gap-2">
@@ -233,7 +374,8 @@ const CardContent: FC<CardContentProps> = ({ article, index, isCurrent, savedScr
       )}
 
       {/* Article Content - title is already included in the markdown */}
-      <div className="prose prose-sm dark:prose-invert max-w-none">
+      {/* select-text and user-select-text ensure text can be selected */}
+      <div className="prose prose-sm dark:prose-invert max-w-none select-text [&_*]:select-text">
         <MarkdownRenderer>{article.content}</MarkdownRenderer>
       </div>
     </div>
@@ -566,47 +708,86 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     setOffsetX(0)
   }
 
+  // Minimum movement required to start drag (allows text selection for small movements)
+  const DRAG_START_THRESHOLD = 10
+  const [dragStarted, setDragStarted] = useState(false)
+  const startXRef = useRef(0)
+
   const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true)
+    // Don't start drag if clicking on interactive elements or text selection is happening
+    const target = e.target as HTMLElement
+    if (
+      target.tagName === 'BUTTON' ||
+      target.tagName === 'A' ||
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.closest('button') ||
+      target.closest('a') ||
+      target.closest('pre') ||  // Allow selection in code blocks
+      target.closest('code')    // Allow selection in inline code
+    ) {
+      return
+    }
+    
+    // Just record the start position, don't set dragging yet
+    startXRef.current = e.clientX
     setStartX(e.clientX)
+    setDragStarted(false)
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return
-
+    // If we haven't recorded a start position, ignore
+    if (startXRef.current === 0) return
+    
     const currentX = e.clientX
-    const diff = currentX - startX
-    setOffsetX(diff)
+    const diff = currentX - startXRef.current
+    
+    // Only start dragging if we've moved beyond the threshold
+    // This allows text selection for small movements
+    if (!dragStarted && Math.abs(diff) > DRAG_START_THRESHOLD) {
+      setDragStarted(true)
+      setIsDragging(true)
+    }
+    
+    // Only update offset if we're actually dragging
+    if (dragStarted) {
+      setOffsetX(diff)
+    }
   }
 
   const handleMouseUp = () => {
-    if (!isDragging) return
-
-    setIsDragging(false)
-
-    // Determine swipe direction (circular navigation)
-    if (Math.abs(offsetX) > SWIPE_THRESHOLD && stableArticles.length > 1) {
-      if (offsetX > 0) {
-        // Swipe right - go to previous (or last if at first)
-        const newIndex = currentIndex > 0 
-          ? currentIndex - 1 
-          : stableArticles.length - 1
-        handleUserNavigation(newIndex)
-      } else if (offsetX < 0) {
-        // Swipe left - go to next (or first if at last)
-        const newIndex = currentIndex < stableArticles.length - 1
-          ? currentIndex + 1
-          : 0
-        handleUserNavigation(newIndex)
+    // Only process swipe if we were actually dragging
+    if (dragStarted && isDragging) {
+      // Determine swipe direction (circular navigation)
+      if (Math.abs(offsetX) > SWIPE_THRESHOLD && stableArticles.length > 1) {
+        if (offsetX > 0) {
+          // Swipe right - go to previous (or last if at first)
+          const newIndex = currentIndex > 0 
+            ? currentIndex - 1 
+            : stableArticles.length - 1
+          handleUserNavigation(newIndex)
+        } else if (offsetX < 0) {
+          // Swipe left - go to next (or first if at last)
+          const newIndex = currentIndex < stableArticles.length - 1
+            ? currentIndex + 1
+            : 0
+          handleUserNavigation(newIndex)
+        }
       }
     }
 
+    // Reset all drag state
+    setIsDragging(false)
+    setDragStarted(false)
+    startXRef.current = 0
     setOffsetX(0)
   }
 
   const handleMouseLeave = () => {
-    if (isDragging) {
+    if (isDragging || dragStarted) {
       setIsDragging(false)
+      setDragStarted(false)
+      startXRef.current = 0
       setOffsetX(0)
     }
   }
@@ -782,7 +963,8 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
                 ref={isCurrent ? cardRef : null}
                 className={cn(
                   'absolute inset-0 transition-all duration-500 ease-in-out',
-                  isCurrent && 'cursor-grab active:cursor-grabbing'
+                  // Only show grabbing cursor when actually dragging, otherwise allow normal cursor for text selection
+                  isCurrent && dragStarted && 'cursor-grabbing'
                 )}
                 style={{
                   zIndex,
@@ -872,18 +1054,23 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       {stableArticles.length > 1 && (
         <div 
           ref={helperTextRef}
-          className="mt-4 flex items-center justify-center gap-4 text-xs text-muted-foreground"
+          className="mt-4 flex flex-col items-center gap-2 text-xs text-muted-foreground"
         >
-          {safeCurrentIndex > 0 && (
-            <span className="flex items-center gap-1">
-              <span>←</span> Swipe right or click arrow for previous
-            </span>
-          )}
-          {safeCurrentIndex < stableArticles.length - 1 && (
-            <span className="flex items-center gap-1">
-              Swipe left or click arrow for next <span>→</span>
-            </span>
-          )}
+          <div className="flex items-center gap-4">
+            {safeCurrentIndex > 0 && (
+              <span className="flex items-center gap-1">
+                <span>←</span> Swipe right or click arrow for previous
+              </span>
+            )}
+            {safeCurrentIndex < stableArticles.length - 1 && (
+              <span className="flex items-center gap-1">
+                Swipe left or click arrow for next <span>→</span>
+              </span>
+            )}
+          </div>
+          <span className="flex items-center gap-1 opacity-70">
+            <Copy className="h-3 w-3" /> Hover over card to copy content • Select text normally
+          </span>
         </div>
       )}
       {/* If only one article, still add ref for scrolling */}
