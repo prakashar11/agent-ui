@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import type { Article } from '@/utils/articleParser'
 import { useStickToBottomContext } from 'use-stick-to-bottom'
-import { GripVertical, Copy, Check } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 
 interface SwipeableCardStackProps {
   articles: Article[]
@@ -22,6 +22,7 @@ interface SwipeableCardStackProps {
 // currentIndex and scrollPosition across article additions.
 const CURRENT_INDEX_STORAGE_PREFIX = 'card-stack-index-'
 const CARD_HEIGHT_STORAGE_PREFIX = 'card-stack-height-'
+const CARD_WIDTH_STORAGE_PREFIX = 'card-stack-width-'
 
 interface CardStackState {
   currentIndex: number  // The index of the currently displayed card (0-based)
@@ -30,6 +31,10 @@ interface CardStackState {
 
 interface CardHeightState {
   height: number  // The height of the card in pixels
+}
+
+interface CardWidthState {
+  width: number  // The width of the card in pixels
 }
 
 /**
@@ -135,6 +140,43 @@ const getStoredCardHeight = (articleKey: string): CardHeightState | null => {
 const setStoredCardHeight = (articleKey: string, state: CardHeightState) => {
   try {
     const storageKey = `${CARD_HEIGHT_STORAGE_PREFIX}${articleKey}`
+    localStorage.setItem(storageKey, JSON.stringify(state))
+  } catch {
+    // Silently fail - localStorage might be disabled or quota exceeded
+  }
+}
+
+/**
+ * Retrieve stored card width from localStorage
+ * 
+ * @param articleKey - The first article's ID (e.g., "article-0")
+ * @returns CardWidthState with width, or null if not found
+ */
+const getStoredCardWidth = (articleKey: string): CardWidthState | null => {
+  try {
+    const storageKey = `${CARD_WIDTH_STORAGE_PREFIX}${articleKey}`
+    const stored = localStorage.getItem(storageKey)
+    if (stored) {
+      const parsed = JSON.parse(stored) as CardWidthState
+      if (parsed && typeof parsed.width === 'number' && parsed.width >= 400 && parsed.width <= 1600) {
+        return parsed
+      }
+    }
+  } catch {
+    // Silently fail - localStorage might be disabled or quota exceeded
+  }
+  return null
+}
+
+/**
+ * Save card width to localStorage
+ * 
+ * @param articleKey - The first article's ID (e.g., "article-0")
+ * @param state - The state to store (width)
+ */
+const setStoredCardWidth = (articleKey: string, state: CardWidthState) => {
+  try {
+    const storageKey = `${CARD_WIDTH_STORAGE_PREFIX}${articleKey}`
     localStorage.setItem(storageKey, JSON.stringify(state))
   } catch {
     // Silently fail - localStorage might be disabled or quota exceeded
@@ -417,9 +459,19 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   const cachedHeight = getStoredCardHeight(articleKey)
   const initialHeight = cachedHeight?.height ?? 800 // Default 800px
   const [cardHeight, setCardHeight] = useState(initialHeight)
-  const [isResizing, setIsResizing] = useState(false)
+  const [isResizingHeight, setIsResizingHeight] = useState(false)
   const resizeStartYRef = useRef<number>(0)
   const resizeStartHeightRef = useRef<number>(800)
+  
+  // Card width state with localStorage persistence
+  const cachedWidth = getStoredCardWidth(articleKey)
+  const initialWidth = cachedWidth?.width ?? 900 // Default 900px
+  const [cardWidth, setCardWidth] = useState(initialWidth)
+  const [isResizingWidth, setIsResizingWidth] = useState(false)
+  const resizeStartXRef = useRef<number>(0)
+  const resizeStartWidthRef = useRef<number>(900)
+  const resizeEdgeRef = useRef<'left' | 'right' | null>(null) // Track which horizontal edge
+  const resizeEdgeYRef = useRef<'top' | 'bottom' | null>(null) // Track which vertical edge
   
   // Track previous state to detect when articles are appended vs replaced
   const previousArticlesLengthRef = useRef<number>(stableArticles.length)
@@ -650,26 +702,6 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     setStoredState(articleKey, { currentIndex: newIndex, scrollPosition: 0 })
   }
 
-  const goToPrevious = () => {
-    if (stableArticles.length <= 1) return
-    
-    // Circular navigation: if at first card, go to last card
-    const newIndex = currentIndex > 0 
-      ? currentIndex - 1 
-      : stableArticles.length - 1
-    handleUserNavigation(newIndex)
-  }
-
-  const goToNext = () => {
-    if (stableArticles.length <= 1) return
-    
-    // Circular navigation: if at last card, go to first card
-    const newIndex = currentIndex < stableArticles.length - 1
-      ? currentIndex + 1
-      : 0
-    handleUserNavigation(newIndex)
-  }
-
   const handleTouchStart = (e: React.TouchEvent) => {
     setIsDragging(true)
     setStartX(e.touches[0].clientX)
@@ -801,80 +833,189 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     }
   }, [currentIndex, stableArticles.length])
 
-  // Save card height to localStorage when it changes
+  // Save card dimensions to localStorage when they change
   useEffect(() => {
     setStoredCardHeight(articleKey, { height: cardHeight })
   }, [cardHeight, articleKey])
+  
+  useEffect(() => {
+    setStoredCardWidth(articleKey, { width: cardWidth })
+  }, [cardWidth, articleKey])
 
-  // Handle resize mouse events
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsResizing(true)
-    resizeStartYRef.current = e.clientY
-    resizeStartHeightRef.current = cardHeight
-  }, [cardHeight])
-
-  const handleResizeMouseMove = useCallback((e: MouseEvent) => {
-    if (!isResizing) return
+  // Handle HEIGHT resize mouse events
+  const handleHeightResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizingHeight) return
     
     const deltaY = e.clientY - resizeStartYRef.current
-    const newHeight = Math.max(400, Math.min(1200, resizeStartHeightRef.current + deltaY))
-    setCardHeight(newHeight)
-  }, [isResizing])
+    let newHeight: number
+    
+    // Top edge: dragging up decreases height, dragging down increases
+    // Bottom edge: dragging down increases height, dragging up decreases
+    if (resizeEdgeYRef.current === 'top') {
+      newHeight = resizeStartHeightRef.current - deltaY
+    } else {
+      newHeight = resizeStartHeightRef.current + deltaY
+    }
+    
+    setCardHeight(Math.max(300, Math.min(1200, newHeight)))
+  }, [isResizingHeight])
 
-  const handleResizeMouseUp = useCallback(() => {
-    setIsResizing(false)
+  const handleHeightResizeMouseUp = useCallback(() => {
+    setIsResizingHeight(false)
+    resizeEdgeYRef.current = null
   }, [])
 
-  // Handle resize touch events
-  const handleResizeTouchStart = useCallback((e: React.TouchEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setIsResizing(true)
-    resizeStartYRef.current = e.touches[0].clientY
-    resizeStartHeightRef.current = cardHeight
-  }, [cardHeight])
-
-  const handleResizeTouchMove = useCallback((e: TouchEvent) => {
-    if (!isResizing) return
+  // Handle HEIGHT resize touch events
+  const handleHeightResizeTouchMove = useCallback((e: TouchEvent) => {
+    if (!isResizingHeight) return
     
     const deltaY = e.touches[0].clientY - resizeStartYRef.current
-    const newHeight = Math.max(400, Math.min(1200, resizeStartHeightRef.current + deltaY))
-    setCardHeight(newHeight)
-  }, [isResizing])
+    let newHeight: number
+    
+    if (resizeEdgeYRef.current === 'top') {
+      newHeight = resizeStartHeightRef.current - deltaY
+    } else {
+      newHeight = resizeStartHeightRef.current + deltaY
+    }
+    
+    setCardHeight(Math.max(300, Math.min(1200, newHeight)))
+  }, [isResizingHeight])
 
-  const handleResizeTouchEnd = useCallback(() => {
-    setIsResizing(false)
+  const handleHeightResizeTouchEnd = useCallback(() => {
+    setIsResizingHeight(false)
+    resizeEdgeYRef.current = null
+  }, [])
+  
+  // Handle WIDTH resize mouse events
+  const handleWidthResizeMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizingWidth) return
+    
+    const deltaX = e.clientX - resizeStartXRef.current
+    let newWidth: number
+    
+    // Left edge: dragging left increases width, dragging right decreases
+    // Right edge: dragging right increases width, dragging left decreases
+    if (resizeEdgeRef.current === 'left') {
+      newWidth = resizeStartWidthRef.current - deltaX
+    } else {
+      newWidth = resizeStartWidthRef.current + deltaX
+    }
+    
+    setCardWidth(Math.max(400, Math.min(1600, newWidth)))
+  }, [isResizingWidth])
+
+  const handleWidthResizeMouseUp = useCallback(() => {
+    setIsResizingWidth(false)
+    resizeEdgeRef.current = null
   }, [])
 
-  // Add global event listeners for resize
+  // Handle WIDTH resize touch events
+  const handleWidthResizeTouchMove = useCallback((e: TouchEvent) => {
+    if (!isResizingWidth) return
+    
+    const deltaX = e.touches[0].clientX - resizeStartXRef.current
+    let newWidth: number
+    
+    if (resizeEdgeRef.current === 'left') {
+      newWidth = resizeStartWidthRef.current - deltaX
+    } else {
+      newWidth = resizeStartWidthRef.current + deltaX
+    }
+    
+    setCardWidth(Math.max(400, Math.min(1600, newWidth)))
+  }, [isResizingWidth])
+
+  const handleWidthResizeTouchEnd = useCallback(() => {
+    setIsResizingWidth(false)
+    resizeEdgeRef.current = null
+  }, [])
+
+  // Add global event listeners for HEIGHT resize
   useEffect(() => {
-    if (isResizing) {
-      document.addEventListener('mousemove', handleResizeMouseMove)
-      document.addEventListener('mouseup', handleResizeMouseUp)
-      document.addEventListener('touchmove', handleResizeTouchMove, { passive: false })
-      document.addEventListener('touchend', handleResizeTouchEnd)
+    if (isResizingHeight) {
+      document.addEventListener('mousemove', handleHeightResizeMouseMove)
+      document.addEventListener('mouseup', handleHeightResizeMouseUp)
+      document.addEventListener('touchmove', handleHeightResizeTouchMove, { passive: false })
+      document.addEventListener('touchend', handleHeightResizeTouchEnd)
       document.body.style.cursor = 'ns-resize'
       document.body.style.userSelect = 'none'
     } else {
-      document.removeEventListener('mousemove', handleResizeMouseMove)
-      document.removeEventListener('mouseup', handleResizeMouseUp)
-      document.removeEventListener('touchmove', handleResizeTouchMove)
-      document.removeEventListener('touchend', handleResizeTouchEnd)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', handleHeightResizeMouseMove)
+      document.removeEventListener('mouseup', handleHeightResizeMouseUp)
+      document.removeEventListener('touchmove', handleHeightResizeTouchMove)
+      document.removeEventListener('touchend', handleHeightResizeTouchEnd)
+      if (!isResizingWidth) {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
     }
 
     return () => {
-      document.removeEventListener('mousemove', handleResizeMouseMove)
-      document.removeEventListener('mouseup', handleResizeMouseUp)
-      document.removeEventListener('touchmove', handleResizeTouchMove)
-      document.removeEventListener('touchend', handleResizeTouchEnd)
+      document.removeEventListener('mousemove', handleHeightResizeMouseMove)
+      document.removeEventListener('mouseup', handleHeightResizeMouseUp)
+      document.removeEventListener('touchmove', handleHeightResizeTouchMove)
+      document.removeEventListener('touchend', handleHeightResizeTouchEnd)
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isResizing, handleResizeMouseMove, handleResizeMouseUp, handleResizeTouchMove, handleResizeTouchEnd])
+  }, [isResizingHeight, isResizingWidth, handleHeightResizeMouseMove, handleHeightResizeMouseUp, handleHeightResizeTouchMove, handleHeightResizeTouchEnd])
+
+  // Add global event listeners for WIDTH resize
+  useEffect(() => {
+    if (isResizingWidth) {
+      document.addEventListener('mousemove', handleWidthResizeMouseMove)
+      document.addEventListener('mouseup', handleWidthResizeMouseUp)
+      document.addEventListener('touchmove', handleWidthResizeTouchMove, { passive: false })
+      document.addEventListener('touchend', handleWidthResizeTouchEnd)
+      document.body.style.cursor = 'ew-resize'
+      document.body.style.userSelect = 'none'
+    } else {
+      document.removeEventListener('mousemove', handleWidthResizeMouseMove)
+      document.removeEventListener('mouseup', handleWidthResizeMouseUp)
+      document.removeEventListener('touchmove', handleWidthResizeTouchMove)
+      document.removeEventListener('touchend', handleWidthResizeTouchEnd)
+      if (!isResizingHeight) {
+        document.body.style.cursor = ''
+        document.body.style.userSelect = ''
+      }
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleWidthResizeMouseMove)
+      document.removeEventListener('mouseup', handleWidthResizeMouseUp)
+      document.removeEventListener('touchmove', handleWidthResizeTouchMove)
+      document.removeEventListener('touchend', handleWidthResizeTouchEnd)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizingWidth, isResizingHeight, handleWidthResizeMouseMove, handleWidthResizeMouseUp, handleWidthResizeTouchMove, handleWidthResizeTouchEnd])
+
+  // Edge resize detection ref
+  const cardContainerRef = useRef<HTMLDivElement>(null)
+
+  // Mouse down handlers for resize zones - handles edges and corners
+  type ResizeEdgeType = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
+  
+  const handleResizeZoneMouseDown = useCallback((edge: ResizeEdgeType) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Width resizing - for left, right, and corner edges
+    if (edge === 'left' || edge === 'right' || edge.includes('left') || edge.includes('right')) {
+      setIsResizingWidth(true)
+      resizeStartXRef.current = e.clientX
+      resizeStartWidthRef.current = cardWidth
+      resizeEdgeRef.current = edge.includes('left') ? 'left' : 'right'
+    }
+    
+    // Height resizing - for top, bottom, and corner edges
+    if (edge === 'top' || edge === 'bottom' || edge.includes('top') || edge.includes('bottom')) {
+      setIsResizingHeight(true)
+      resizeStartYRef.current = e.clientY
+      resizeStartHeightRef.current = cardHeight
+      resizeEdgeYRef.current = edge.includes('top') ? 'top' : 'bottom'
+    }
+  }, [cardWidth, cardHeight])
 
   if (stableArticles.length === 0) {
     console.warn('SwipeableCardStack: No articles provided')
@@ -890,29 +1031,64 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
   const currentArticle = stableArticles[safeCurrentIndex]
 
   return (
-    <div className={cn('relative w-full my-4', className)}>
-      {/* Card Container with Side Navigation Arrows */}
-      <div className="relative flex items-center gap-2">
-        {/* Left Arrow - positioned on left side of card */}
-        {stableArticles.length > 1 && (
-          <button
-            onClick={goToPrevious}
-            className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent hover:scale-110 shadow-md z-10"
-            aria-label="Previous article"
-          >
-            <span className="text-xl">←</span>
-          </button>
-        )}
-
-        {/* Card Stack Container */}
+    <div className={cn('relative w-full my-4 flex flex-col items-center', className)}>
+      {/* Card Container - resize zones on edges */}
+      <div 
+        ref={cardContainerRef}
+        className="relative"
+        style={{
+          width: `${cardWidth}px`,
+          minWidth: '400px',
+          maxWidth: '100%',
+          height: `${cardHeight}px`,
+          minHeight: '300px',
+          maxHeight: '1200px'
+        }}
+      >
+        {/* Resize zones - transparent areas on edges for resize detection */}
+        {/* Top edge */}
         <div 
-          className="relative flex-1"
-          style={{ 
-            minHeight: '400px',
-            height: `${cardHeight}px`,
-            maxHeight: '1200px'
-          }}
-        >
+          className="absolute -top-2 left-4 right-4 h-4 cursor-ns-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('top')}
+        />
+        {/* Bottom edge */}
+        <div 
+          className="absolute -bottom-2 left-4 right-4 h-4 cursor-ns-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('bottom')}
+        />
+        {/* Left edge */}
+        <div 
+          className="absolute -left-2 top-4 bottom-4 w-4 cursor-ew-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('left')}
+        />
+        {/* Right edge */}
+        <div 
+          className="absolute -right-2 top-4 bottom-4 w-4 cursor-ew-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('right')}
+        />
+        {/* Top-left corner */}
+        <div 
+          className="absolute -top-2 -left-2 w-5 h-5 cursor-nwse-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('top-left')}
+        />
+        {/* Top-right corner */}
+        <div 
+          className="absolute -top-2 -right-2 w-5 h-5 cursor-nesw-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('top-right')}
+        />
+        {/* Bottom-left corner */}
+        <div 
+          className="absolute -bottom-2 -left-2 w-5 h-5 cursor-nesw-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('bottom-left')}
+        />
+        {/* Bottom-right corner */}
+        <div 
+          className="absolute -bottom-2 -right-2 w-5 h-5 cursor-nwse-resize z-50"
+          onMouseDown={handleResizeZoneMouseDown('bottom-right')}
+        />
+
+        {/* Card Stack */}
+        <div className="relative w-full h-full">
           {/* Stack of cards with current card on top */}
           {stableArticles.map((article, index) => {
             const isCurrent = index === safeCurrentIndex
@@ -992,85 +1168,50 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
             )
           })}
         </div>
+      </div>
 
-        {/* Right Arrow - positioned on right side of card */}
-        {stableArticles.length > 1 && (
+      {/* Navigation Arrows - at the bottom */}
+      {stableArticles.length > 1 && (
+        <div className="mt-3 flex items-center justify-center gap-3">
           <button
-            onClick={goToNext}
-            className="flex-shrink-0 flex h-12 w-12 items-center justify-center rounded-full border border-border bg-background transition-all hover:bg-accent hover:scale-110 shadow-md z-10"
+            onClick={() => {
+              // Circular navigation: if at first card, go to last card
+              const newIndex = safeCurrentIndex > 0 
+                ? safeCurrentIndex - 1 
+                : stableArticles.length - 1
+              handleUserNavigation(newIndex)
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground transition-all hover:bg-accent hover:text-foreground hover:scale-105 text-sm"
+            aria-label="Previous article"
+          >
+            ←
+          </button>
+          <span className="text-xs text-muted-foreground min-w-[3rem] text-center">
+            {safeCurrentIndex + 1} / {stableArticles.length}
+          </span>
+          <button
+            onClick={() => {
+              // Circular navigation: if at last card, go to first card
+              const newIndex = safeCurrentIndex < stableArticles.length - 1
+                ? safeCurrentIndex + 1
+                : 0
+              handleUserNavigation(newIndex)
+            }}
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background/80 text-muted-foreground transition-all hover:bg-accent hover:text-foreground hover:scale-105 text-sm"
             aria-label="Next article"
           >
-            <span className="text-xl">→</span>
+            →
           </button>
-        )}
-      </div>
-
-      {/* Resize Handle - positioned below card container */}
-      <div className="relative w-full flex justify-center -mt-3 mb-1">
-        <div
-          className={cn(
-            "flex items-center justify-center gap-2 px-4 py-2 rounded-lg border-2 border-border bg-background cursor-ns-resize",
-            "hover:bg-accent hover:border-primary transition-all shadow-md z-50",
-            isResizing && "bg-accent border-primary shadow-lg"
-          )}
-          onMouseDown={handleResizeMouseDown}
-          onTouchStart={handleResizeTouchStart}
-          title="Drag to resize card height"
-        >
-          <GripVertical className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs font-medium text-muted-foreground">Resize</span>
-        </div>
-      </div>
-
-      {/* Navigation Slider (Dots) - at the bottom */}
-      {stableArticles.length > 1 && (
-        <div className="mt-4 flex items-center justify-center gap-2">
-          {stableArticles.map((article, index) => (
-            <button
-              key={article.id}
-              onClick={() => {
-                handleUserNavigation(index)
-              }}
-              className={cn(
-                'h-2 rounded-full transition-all',
-                index === safeCurrentIndex
-                  ? 'w-8 bg-primary'
-                  : 'w-2 bg-muted-foreground/50 hover:bg-muted-foreground'
-              )}
-              aria-label={`Go to article ${index + 1}`}
-            />
-          ))}
         </div>
       )}
 
-      {/* Article Counter */}
-      {stableArticles.length > 1 && (
-        <div className="mt-2 text-center text-sm text-muted-foreground">
-          {safeCurrentIndex + 1} of {stableArticles.length}
-        </div>
-      )}
-
-      {/* Swipe Hints - ref used to scroll to this position to show metadata below */}
+      {/* Helper hints */}
       {stableArticles.length > 1 && (
         <div 
           ref={helperTextRef}
-          className="mt-4 flex flex-col items-center gap-2 text-xs text-muted-foreground"
+          className="mt-2 flex items-center justify-center gap-1 text-xs text-muted-foreground/70"
         >
-          <div className="flex items-center gap-4">
-            {safeCurrentIndex > 0 && (
-              <span className="flex items-center gap-1">
-                <span>←</span> Swipe right or click arrow for previous
-              </span>
-            )}
-            {safeCurrentIndex < stableArticles.length - 1 && (
-              <span className="flex items-center gap-1">
-                Swipe left or click arrow for next <span>→</span>
-              </span>
-            )}
-          </div>
-          <span className="flex items-center gap-1 opacity-70">
-            <Copy className="h-3 w-3" /> Hover over card to copy content • Select text normally
-          </span>
+          <Copy className="h-3 w-3" /> Hover to copy • Drag edges to resize
         </div>
       )}
       {/* If only one article, still add ref for scrolling */}
