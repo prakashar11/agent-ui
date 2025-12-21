@@ -937,17 +937,11 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       document.addEventListener('mouseup', handleHeightResizeMouseUp)
       document.addEventListener('touchmove', handleHeightResizeTouchMove, { passive: false })
       document.addEventListener('touchend', handleHeightResizeTouchEnd)
-      document.body.style.cursor = 'ns-resize'
-      document.body.style.userSelect = 'none'
     } else {
       document.removeEventListener('mousemove', handleHeightResizeMouseMove)
       document.removeEventListener('mouseup', handleHeightResizeMouseUp)
       document.removeEventListener('touchmove', handleHeightResizeTouchMove)
       document.removeEventListener('touchend', handleHeightResizeTouchEnd)
-      if (!isResizingWidth) {
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-      }
     }
 
     return () => {
@@ -955,10 +949,8 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       document.removeEventListener('mouseup', handleHeightResizeMouseUp)
       document.removeEventListener('touchmove', handleHeightResizeTouchMove)
       document.removeEventListener('touchend', handleHeightResizeTouchEnd)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
     }
-  }, [isResizingHeight, isResizingWidth, handleHeightResizeMouseMove, handleHeightResizeMouseUp, handleHeightResizeTouchMove, handleHeightResizeTouchEnd])
+  }, [isResizingHeight, handleHeightResizeMouseMove, handleHeightResizeMouseUp, handleHeightResizeTouchMove, handleHeightResizeTouchEnd])
 
   // Add global event listeners for WIDTH resize
   useEffect(() => {
@@ -967,17 +959,11 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       document.addEventListener('mouseup', handleWidthResizeMouseUp)
       document.addEventListener('touchmove', handleWidthResizeTouchMove, { passive: false })
       document.addEventListener('touchend', handleWidthResizeTouchEnd)
-      document.body.style.cursor = 'ew-resize'
-      document.body.style.userSelect = 'none'
     } else {
       document.removeEventListener('mousemove', handleWidthResizeMouseMove)
       document.removeEventListener('mouseup', handleWidthResizeMouseUp)
       document.removeEventListener('touchmove', handleWidthResizeTouchMove)
       document.removeEventListener('touchend', handleWidthResizeTouchEnd)
-      if (!isResizingHeight) {
-        document.body.style.cursor = ''
-        document.body.style.userSelect = ''
-      }
     }
 
     return () => {
@@ -985,25 +971,60 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
       document.removeEventListener('mouseup', handleWidthResizeMouseUp)
       document.removeEventListener('touchmove', handleWidthResizeTouchMove)
       document.removeEventListener('touchend', handleWidthResizeTouchEnd)
+    }
+  }, [isResizingWidth, handleWidthResizeMouseMove, handleWidthResizeMouseUp, handleWidthResizeTouchMove, handleWidthResizeTouchEnd])
+
+  // Manage cursor and user-select based on resize state (single source of truth)
+  useEffect(() => {
+    if (isResizingWidth && isResizingHeight) {
+      // Corner resize - use diagonal cursor
+      document.body.style.cursor = 'nwse-resize'
+      document.body.style.userSelect = 'none'
+    } else if (isResizingWidth) {
+      document.body.style.cursor = 'ew-resize'
+      document.body.style.userSelect = 'none'
+    } else if (isResizingHeight) {
+      document.body.style.cursor = 'ns-resize'
+      document.body.style.userSelect = 'none'
+    } else {
+      // Not resizing - restore defaults
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
-  }, [isResizingWidth, isResizingHeight, handleWidthResizeMouseMove, handleWidthResizeMouseUp, handleWidthResizeTouchMove, handleWidthResizeTouchEnd])
+    
+    // Cleanup on unmount
+    return () => {
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizingWidth, isResizingHeight])
+
+  // Handle window blur - stop resizing if user switches tabs/windows
+  useEffect(() => {
+    const handleWindowBlur = () => {
+      if (isResizingWidth || isResizingHeight) {
+        setIsResizingWidth(false)
+        setIsResizingHeight(false)
+        resizeEdgeRef.current = null
+        resizeEdgeYRef.current = null
+      }
+    }
+    
+    window.addEventListener('blur', handleWindowBlur)
+    return () => window.removeEventListener('blur', handleWindowBlur)
+  }, [isResizingWidth, isResizingHeight])
 
   // Edge resize detection ref
   const cardContainerRef = useRef<HTMLDivElement>(null)
 
-  // Mouse down handlers for resize zones - handles edges and corners
+  // Resize zone handlers - handles edges and corners for both mouse and touch
   type ResizeEdgeType = 'left' | 'right' | 'top' | 'bottom' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
   
-  const handleResizeZoneMouseDown = useCallback((edge: ResizeEdgeType) => (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    
+  const startResize = useCallback((edge: ResizeEdgeType, clientX: number, clientY: number) => {
     // Width resizing - for left, right, and corner edges
     if (edge === 'left' || edge === 'right' || edge.includes('left') || edge.includes('right')) {
       setIsResizingWidth(true)
-      resizeStartXRef.current = e.clientX
+      resizeStartXRef.current = clientX
       resizeStartWidthRef.current = cardWidth
       resizeEdgeRef.current = edge.includes('left') ? 'left' : 'right'
     }
@@ -1011,11 +1032,24 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
     // Height resizing - for top, bottom, and corner edges
     if (edge === 'top' || edge === 'bottom' || edge.includes('top') || edge.includes('bottom')) {
       setIsResizingHeight(true)
-      resizeStartYRef.current = e.clientY
+      resizeStartYRef.current = clientY
       resizeStartHeightRef.current = cardHeight
       resizeEdgeYRef.current = edge.includes('top') ? 'top' : 'bottom'
     }
   }, [cardWidth, cardHeight])
+  
+  const handleResizeZoneMouseDown = useCallback((edge: ResizeEdgeType) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    startResize(edge, e.clientX, e.clientY)
+  }, [startResize])
+  
+  const handleResizeZoneTouchStart = useCallback((edge: ResizeEdgeType) => (e: React.TouchEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const touch = e.touches[0]
+    startResize(edge, touch.clientX, touch.clientY)
+  }, [startResize])
 
   if (stableArticles.length === 0) {
     console.warn('SwipeableCardStack: No articles provided')
@@ -1048,43 +1082,51 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
         {/* Resize zones - transparent areas on edges for resize detection */}
         {/* Top edge */}
         <div 
-          className="absolute -top-2 left-4 right-4 h-4 cursor-ns-resize z-50"
+          className="absolute -top-2 left-4 right-4 h-4 cursor-ns-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('top')}
+          onTouchStart={handleResizeZoneTouchStart('top')}
         />
         {/* Bottom edge */}
         <div 
-          className="absolute -bottom-2 left-4 right-4 h-4 cursor-ns-resize z-50"
+          className="absolute -bottom-2 left-4 right-4 h-4 cursor-ns-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('bottom')}
+          onTouchStart={handleResizeZoneTouchStart('bottom')}
         />
         {/* Left edge */}
         <div 
-          className="absolute -left-2 top-4 bottom-4 w-4 cursor-ew-resize z-50"
+          className="absolute -left-2 top-4 bottom-4 w-4 cursor-ew-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('left')}
+          onTouchStart={handleResizeZoneTouchStart('left')}
         />
         {/* Right edge */}
         <div 
-          className="absolute -right-2 top-4 bottom-4 w-4 cursor-ew-resize z-50"
+          className="absolute -right-2 top-4 bottom-4 w-4 cursor-ew-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('right')}
+          onTouchStart={handleResizeZoneTouchStart('right')}
         />
         {/* Top-left corner */}
         <div 
-          className="absolute -top-2 -left-2 w-5 h-5 cursor-nwse-resize z-50"
+          className="absolute -top-2 -left-2 w-5 h-5 cursor-nwse-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('top-left')}
+          onTouchStart={handleResizeZoneTouchStart('top-left')}
         />
         {/* Top-right corner */}
         <div 
-          className="absolute -top-2 -right-2 w-5 h-5 cursor-nesw-resize z-50"
+          className="absolute -top-2 -right-2 w-5 h-5 cursor-nesw-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('top-right')}
+          onTouchStart={handleResizeZoneTouchStart('top-right')}
         />
         {/* Bottom-left corner */}
         <div 
-          className="absolute -bottom-2 -left-2 w-5 h-5 cursor-nesw-resize z-50"
+          className="absolute -bottom-2 -left-2 w-5 h-5 cursor-nesw-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('bottom-left')}
+          onTouchStart={handleResizeZoneTouchStart('bottom-left')}
         />
         {/* Bottom-right corner */}
         <div 
-          className="absolute -bottom-2 -right-2 w-5 h-5 cursor-nwse-resize z-50"
+          className="absolute -bottom-2 -right-2 w-5 h-5 cursor-nwse-resize z-50 touch-none"
           onMouseDown={handleResizeZoneMouseDown('bottom-right')}
+          onTouchStart={handleResizeZoneTouchStart('bottom-right')}
         />
 
         {/* Card Stack */}
