@@ -15,8 +15,21 @@ import { truncateText } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import ToolCallsToggle from './ToolCallsToggle'
 import ArticleViewToggle from './ArticleViewToggle'
+import { GraphVisualization } from '@/components/playground/GraphVisualization'
+import { Network } from 'lucide-react'
 
 const ENDPOINT_PLACEHOLDER = 'NO ENDPOINT ADDED'
+
+// Reusable section header component for consistent styling
+const SectionHeader = ({ children }: { children: React.ReactNode }) => (
+  <div className="text-xs font-medium uppercase text-primary">{children}</div>
+)
+
+// Visual divider between sections
+const SectionDivider = () => (
+  <div className="w-full h-px bg-primary/10" />
+)
+
 const SidebarHeader = () => (
   <div className="flex items-center gap-2">
     <Icon type="agno" size="xs" />
@@ -205,6 +218,7 @@ const Endpoint = () => {
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isGraphOpen, setIsGraphOpen] = useState(false)
   const { clearChat, focusChatInput, initializePlayground } = useChatActions()
   const {
     messages,
@@ -268,7 +282,7 @@ const Sidebar = () => {
         />
       </motion.button>
       <motion.div
-        className="w-60 space-y-5"
+        className="w-60 h-full space-y-5 overflow-y-auto overflow-x-hidden pb-4 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40"
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: isCollapsed ? 0 : 1, x: isCollapsed ? -20 : 0 }}
         transition={{ duration: 0.3, ease: 'easeInOut' }}
@@ -276,84 +290,153 @@ const Sidebar = () => {
           pointerEvents: isCollapsed ? 'none' : 'auto'
         }}
       >
+        {/* ═══════════════════════════════════════════════════════════════════
+            HEADER & PRIMARY ACTION
+        ═══════════════════════════════════════════════════════════════════ */}
         <SidebarHeader />
         <NewChatButton
           disabled={messages.length === 0}
           onClick={handleNewChat}
         />
-        {isMounted && (
+        
+        {isMounted && isEndpointActive && (
           <>
-            <Endpoint />
-            {isEndpointActive && (
-              <>
-                <motion.div
-                  className="flex w-full flex-col items-start gap-2"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.5, ease: 'easeInOut' }}
-                >
-                  <div className="text-xs font-medium uppercase text-primary">
-                    Agent
+            {/* ═══════════════════════════════════════════════════════════════════
+                WORKBENCH SECTION - Agent Selection & Asset Graph
+            ═══════════════════════════════════════════════════════════════════ */}
+            <motion.div
+              className="flex w-full flex-col items-start gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.5, ease: 'easeInOut' }}
+            >
+              <SectionHeader>Workbench</SectionHeader>
+              {isEndpointLoading ? (
+                <div className="flex w-full flex-col gap-2">
+                  {Array.from({ length: 2 }).map((_, index) => (
+                    <Skeleton
+                      key={index}
+                      className="h-9 w-full rounded-xl"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <GroupedAgentSelector />
+                  <Button
+                    onClick={() => setIsGraphOpen(true)}
+                    variant="outline"
+                    size="sm"
+                    className="h-9 w-full rounded-xl border border-primary/15 bg-accent text-xs font-medium text-muted hover:bg-accent/80 hover:text-primary flex items-center gap-2 justify-start px-3"
+                  >
+                    <Network className="w-4 h-4" />
+                    <span className="uppercase">Asset Graph</span>
+                  </Button>
+                </>
+              )}
+            </motion.div>
+            
+            {/* ═══════════════════════════════════════════════════════════════════
+                FILES SECTION
+            ═══════════════════════════════════════════════════════════════════ */}
+            {!isEndpointLoading && (
+              <motion.div
+                className="flex w-full flex-col items-start gap-2"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+              >
+                <SectionHeader>Files</SectionHeader>
+                <div className="flex w-full flex-col gap-2 rounded-xl border border-primary/15 bg-accent p-3">
+                  <div className="flex items-center gap-2">
+                    <Icon type="plus-icon" size="xs" aria-hidden="true" className="flex-shrink-0" />
+                    <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer flex-shrink-0">
+                      Upload Files
+                    </label>
+                    <input
+                      id="agent-file-upload"
+                      type="file"
+                      multiple
+                      ref={fileInputRef}
+                      onChange={handleAgentFileChange}
+                      className="hidden"
+                      accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*,.eml,.xlsx,.xls"
+                      disabled={!agentId}
+                    />
                   </div>
-                  {isEndpointLoading ? (
-                    <div className="flex w-full flex-col gap-2">
-                      {Array.from({ length: 2 }).map((_, index) => (
-                        <Skeleton
-                          key={index}
-                          className="h-9 w-full rounded-xl"
-                        />
+                  <div className="text-xs text-muted-foreground leading-relaxed">
+                    Supports: CSV, PDF, EML, JSON, Images, Audio
+                  </div>
+                  {agentFiles && agentFiles.length > 0 && (
+                    <div className="flex flex-col text-xs text-primary gap-1 mt-1 border-t border-primary/10 pt-2">
+                      <div className="text-[10px] text-muted-foreground uppercase">Selected:</div>
+                      {Array.from(agentFiles).map((file) => (
+                        <div key={file.name} className="break-words leading-relaxed flex items-center gap-1">
+                          <span className="text-positive">✓</span>
+                          {file.name}
+                        </div>
                       ))}
                     </div>
-                  ) : (
-                    <>
-                      <GroupedAgentSelector />
-                      {/* File upload for agent configuration */}
-                      <div className="flex w-full flex-col gap-2 rounded-xl border border-primary/15 bg-accent p-3 mt-2">
-                        <div className="flex items-center gap-2">
-                          <Icon type="plus-icon" size="xs" aria-hidden="true" className="flex-shrink-0" />
-                          <label htmlFor="agent-file-upload" className="text-xs font-medium uppercase cursor-pointer flex-shrink-0">
-                            Choose File(s)
-                          </label>
-                          <input
-                            id="agent-file-upload"
-                            type="file"
-                            multiple
-                            ref={fileInputRef}
-                            onChange={handleAgentFileChange}
-                            className="hidden"
-                            accept=".pdf,.csv,.docx,.txt,.json,image/*,audio/*,video/*,.eml"
-                            disabled={!agentId}
-                          />
-                        </div>
-                        {agentFiles && agentFiles.length > 0 && (
-                          <div className="flex flex-col text-xs text-primary gap-1">
-                            {Array.from(agentFiles).map((file) => (
-                              <div key={file.name} className="break-words leading-relaxed">
-                                {file.name}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {selectedModel && agentId && (
-                        <ModelDisplay model={selectedModel} />
-                      )}
-                    </>
                   )}
-                </motion.div>
-                <motion.div
-                  className="flex flex-col gap-2"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ duration: 0.2 }}
-                  >
-                    <ToolCallsToggle />
-                    <ArticleViewToggle />
-                </motion.div>
-                <Sessions />
-              </>
+                </div>
+              </motion.div>
             )}
+            
+            <SectionDivider />
+            
+            {/* ═══════════════════════════════════════════════════════════════════
+                DISPLAY OPTIONS SECTION
+            ═══════════════════════════════════════════════════════════════════ */}
+            <motion.div
+              className="flex flex-col gap-2"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, delay: 0.15 }}
+            >
+              <SectionHeader>Display</SectionHeader>
+              <ToolCallsToggle />
+              <ArticleViewToggle />
+            </motion.div>
+            
+            <SectionDivider />
+            
+            {/* ═══════════════════════════════════════════════════════════════════
+                SESSIONS SECTION
+            ═══════════════════════════════════════════════════════════════════ */}
+            <Sessions />
+            
+            <SectionDivider />
+            
+            {/* ═══════════════════════════════════════════════════════════════════
+                CONNECTION SECTION - Endpoint & Model (at bottom)
+            ═══════════════════════════════════════════════════════════════════ */}
+            <motion.div
+              className="flex w-full flex-col items-start gap-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, delay: 0.2 }}
+            >
+              <Endpoint />
+              {selectedModel && agentId && (
+                <div className="flex w-full flex-col items-start gap-2">
+                  <SectionHeader>Model</SectionHeader>
+                  <ModelDisplay model={selectedModel} />
+                </div>
+              )}
+            </motion.div>
+            
+            {/* Graph Visualization Modal */}
+            <GraphVisualization
+              isOpen={isGraphOpen}
+              onClose={() => setIsGraphOpen(false)}
+              endpoint={selectedEndpoint}
+            />
           </>
+        )}
+        
+        {/* Show endpoint when not active (initial state) */}
+        {isMounted && !isEndpointActive && (
+          <Endpoint />
         )}
       </motion.div>
     </motion.aside>

@@ -119,12 +119,14 @@ const SessionBlankState = () => {
   })()
 
   return (
-    <div className="mt-1 flex items-center justify-center rounded-lg bg-background-secondary/50 pb-6 pt-4">
+    <div className="flex items-center justify-center rounded-lg bg-background-secondary/50 p-3">
       <div className="flex flex-col items-center gap-1">
-        <HistoryBlankStateIcon />
-        <div className="flex flex-col items-center gap-2">
-          <h3 className="text-sm font-medium text-primary">No Session found</h3>
-          <p className="max-w-[210px] text-center text-sm text-muted">
+        <div className="scale-50 -my-6">
+          <HistoryBlankStateIcon />
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <h3 className="text-xs font-medium text-primary">No Sessions</h3>
+          <p className="max-w-[200px] text-center text-[10px] leading-relaxed text-muted">
             {errorMessage}
           </p>
         </div>

@@ -8,6 +8,7 @@ import React, { useState } from 'react'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
 import { InfoIcon } from 'lucide-react'
+import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 
 const EXTERNAL_LINKS = {
   documentation: 'https://agno.link/agent-ui',
@@ -202,24 +203,24 @@ const ChatBlankState = () => {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.6 }}
-              className="mt-6 flex items-start justify-center gap-2 text-base"
+              className="mt-6 flex items-start justify-center gap-2 text-base font-normal"
             >
               <div className="relative inline-flex items-center">
                 <motion.div
-                  className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primaryAccent/50 px-4 py-3 text-sm"
+                  className="flex items-start rounded-lg border border-primary/20 bg-primaryAccent/50 px-4 py-3 text-sm antialiased"
                   onHoverStart={() => setShowAgentTip(true)}
                   onHoverEnd={() => setShowAgentTip(false)}
-                  whileHover={{ scale: 1.02 }}
+                  whileHover={{ backgroundColor: 'rgba(var(--primary-accent), 0.6)' }}
                   transition={{ duration: 0.2 }}
                 >
-                  <InfoIcon className="h-4 w-4 text-blue-500 flex-shrink-0" />
-                  <span className="text-muted-foreground whitespace-pre-line">
-                    {agentTip}
-                  </span>
+                  <InfoIcon className="h-4 w-4 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-primary/90 text-left font-sans font-normal leading-snug tracking-normal ml-1 [&_p]:my-1 [&_ul]:my-1 [&_li]:my-0">
+                    <MarkdownRenderer>{agentTip}</MarkdownRenderer>
+                  </div>
                 </motion.div>
                 {showAgentTip && (
                   <motion.div
-                    className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 transform whitespace-nowrap rounded bg-neutral-800 px-2 py-1 text-xs text-primary"
+                    className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 transform whitespace-nowrap rounded bg-neutral-800 px-2 py-1 text-xs text-primary antialiased"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
