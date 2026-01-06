@@ -152,6 +152,7 @@ const getLayoutedElements = (
   edges: Edge[],
   _direction: 'TB' | 'LR' = 'TB'
 ) => {
+  void _direction; // Reserved for future layout direction support
   // Group nodes by their hierarchy level
   const nodesByLevel: Record<number, Node[]> = {};
   
@@ -2337,7 +2338,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }:
   // ==========================================================================
   const handleAddNode = useCallback((name: string, nodeType: string) => {
     const nodeId = `new-${nodeType.toLowerCase()}-${Date.now()}`;
-    const color = NODE_COLORS[nodeType] || NODE_COLORS.default;
+    const _color = NODE_COLORS[nodeType] || NODE_COLORS.default;
+    void _color; // Intentionally unused - reserved for future use
     const level = getNodeRank(nodeType);
     
     // Calculate position based on hierarchy level

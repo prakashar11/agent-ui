@@ -21,14 +21,14 @@ import { useEffect } from 'react'
 import useChatActions from '@/hooks/useChatActions'
 
 export function AgentSelector() {
-  const { agents, setMessages, setSelectedModel, setHasStorage } =
+  const { agents, setCurrentContext, setSelectedModel, setHasStorage } =
     usePlaygroundStore()
   const { focusChatInput } = useChatActions()
   const [agentId, setAgentId] = useQueryState('agent', {
     parse: (value) => value || undefined,
     history: 'push'
   })
-  const [, setSessionId] = useQueryState('session')
+  const [sessionId, setSessionId] = useQueryState('session')
 
   // Set the model when the component mounts if an agent is already selected
   useEffect(() => {
@@ -37,6 +37,7 @@ export function AgentSelector() {
       if (agent) {
         setSelectedModel(agent.model.provider || '')
         setHasStorage(!!agent.storage)
+        setCurrentContext(agentId, sessionId)
         if (agent.model.provider) {
           focusChatInput()
         }
@@ -45,7 +46,7 @@ export function AgentSelector() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agentId, agents, setSelectedModel])
+  }, [agentId, agents, setSelectedModel, sessionId])
 
   const handleOnValueChange = (value: string) => {
     const newAgent = value === agentId ? '' : value
@@ -53,7 +54,8 @@ export function AgentSelector() {
     setSelectedModel(selectedAgent?.model.provider || '')
     setHasStorage(!!selectedAgent?.storage)
     setAgentId(newAgent)
-    setMessages([])
+    // Switch to this agent's messages (null session = new chat)
+    setCurrentContext(newAgent || null, null)
     setSessionId(null)
     if (selectedAgent?.model.provider) {
       focusChatInput()

@@ -1,9 +1,9 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 
 import { APIRoutes } from '@/api/routes'
 
 import useChatActions from '@/hooks/useChatActions'
-import { usePlaygroundStore } from '../store'
+import { usePlaygroundStore, type ActiveJob, createStorageKey } from '../store'
 import {
   RunEvent,
   RunResponseContent,
@@ -17,11 +17,15 @@ import { getJsonMarkdown } from '@/lib/utils'
 
 /**
  * useAIChatStreamHandler is responsible for making API calls and handling the stream response.
- * For now, it only streams message content and updates the messages state.
+ * It now supports per-agent-session message storage to preserve responses when switching agents/sessions.
  */
 const useAIChatStreamHandler = () => {
   const setMessages = usePlaygroundStore((state) => state.setMessages)
-  const { addMessage, focusChatInput } = useChatActions()
+  const setSessionMessages = usePlaygroundStore((state) => state.setSessionMessages)
+  const setActiveJob = usePlaygroundStore((state) => state.setActiveJob)
+  const addBackgroundNotification = usePlaygroundStore((state) => state.addBackgroundNotification)
+  const agents = usePlaygroundStore((state) => state.agents)
+  const { focusChatInput } = useChatActions()
   const [agentId] = useQueryState('agent')
   const [sessionId, setSessionId] = useQueryState('session')
   const selectedEndpoint = usePlaygroundStore((state) => state.selectedEndpoint)
@@ -32,9 +36,26 @@ const useAIChatStreamHandler = () => {
   const setSessionsData = usePlaygroundStore((state) => state.setSessionsData)
   const hasStorage = usePlaygroundStore((state) => state.hasStorage)
   const { streamResponse } = useAIResponseStream()
+  
+  // Keep track of the storage key for the job (captured at job start)
+  const jobStorageKeyRef = useRef<string | null>(null)
+  const jobAgentIdRef = useRef<string | null>(null)
 
-  const updateMessagesWithErrorState = useCallback(() => {
-    setMessages((prevMessages) => {
+  // Update messages for a specific storage key (or current context if not specified)
+  const updateMessagesForSession = useCallback((
+    storageKey: string | null,
+    updater: (prev: import('@/types/playground').PlaygroundChatMessage[]) => import('@/types/playground').PlaygroundChatMessage[]
+  ) => {
+    if (storageKey) {
+      setSessionMessages(storageKey, updater)
+    } else {
+      setMessages(updater)
+    }
+  }, [setMessages, setSessionMessages])
+
+  const updateMessagesWithErrorState = useCallback((storageKey?: string | null) => {
+    const keyToUpdate = storageKey ?? jobStorageKeyRef.current
+    updateMessagesForSession(keyToUpdate, (prevMessages) => {
       const newMessages = [...prevMessages]
       const lastMessage = newMessages[newMessages.length - 1]
       if (lastMessage && lastMessage.role === 'agent') {
@@ -42,7 +63,7 @@ const useAIChatStreamHandler = () => {
       }
       return newMessages
     })
-  }, [setMessages])
+  }, [updateMessagesForSession])
 
   /**
    * Processes a new tool call and adds it to the message
@@ -107,14 +128,45 @@ const useAIChatStreamHandler = () => {
 
   const handleStreamResponse = useCallback(
     async (input: string | FormData) => {
+      if (!agentId) return
+      
+      // Capture the agent ID and session ID at job start - this ensures responses go to the correct context
+      // even if user navigates away
+      const jobAgentId = agentId
+      const jobSessionId = sessionId
+      // Create storage key - will be updated when session is created
+      let jobStorageKey = createStorageKey(jobAgentId, jobSessionId)
+      
+      jobAgentIdRef.current = jobAgentId
+      jobStorageKeyRef.current = jobStorageKey
+      
+      // Get agent label for notifications
+      const agentInfo = agents.find(a => a.value === jobAgentId)
+      const agentLabel = agentInfo?.label || jobAgentId
+      
       setIsStreaming(true)
 
       const formData = input instanceof FormData ? input : new FormData()
       if (typeof input === 'string') {
         formData.append('message', input)
       }
+      
+      const userMessage = formData.get('message') as string
 
-      setMessages((prevMessages) => {
+      // Track this as an active job
+      const activeJob: ActiveJob = {
+        agentId: jobAgentId,
+        agentLabel,
+        sessionId: jobSessionId,
+        storageKey: jobStorageKey,
+        startedAt: Date.now(),
+        status: 'running',
+        lastMessage: userMessage
+      }
+      setActiveJob(jobStorageKey, activeJob)
+
+      // Use session-specific message updates
+      updateMessagesForSession(jobStorageKey, (prevMessages) => {
         if (prevMessages.length >= 2) {
           const lastMessage = prevMessages[prevMessages.length - 1]
           const secondLastMessage = prevMessages[prevMessages.length - 2]
@@ -129,29 +181,36 @@ const useAIChatStreamHandler = () => {
         return prevMessages
       })
 
-      addMessage({
-        role: 'user',
-        content: formData.get('message') as string,
-        created_at: Math.floor(Date.now() / 1000)
-      })
+      // Add user message to the session's messages
+      updateMessagesForSession(jobStorageKey, (prevMessages) => [
+        ...prevMessages,
+        {
+          role: 'user' as const,
+          content: userMessage,
+          created_at: Math.floor(Date.now() / 1000)
+        }
+      ])
 
-      addMessage({
-        role: 'agent',
-        content: '',
-        tool_calls: [],
-        streamingError: false,
-        created_at: Math.floor(Date.now() / 1000) + 1
-      })
+      // Add placeholder agent message
+      updateMessagesForSession(jobStorageKey, (prevMessages) => [
+        ...prevMessages,
+        {
+          role: 'agent' as const,
+          content: '',
+          tool_calls: [],
+          streamingError: false,
+          created_at: Math.floor(Date.now() / 1000) + 1
+        }
+      ])
 
       let lastContent = ''
       let newSessionId = sessionId
       try {
         const endpointUrl = constructEndpointUrl(selectedEndpoint)
 
-        if (!agentId) return
         const playgroundRunUrl = APIRoutes.AgentRun(endpointUrl).replace(
           '{agent_id}',
-          agentId
+          jobAgentId
         )
 
         formData.append('stream', 'true')
@@ -188,7 +247,7 @@ const useAIChatStreamHandler = () => {
                 })
               }
             } else if (chunk.event === RunEvent.ToolCallStarted) {
-              setMessages((prevMessages) => {
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
@@ -200,7 +259,7 @@ const useAIChatStreamHandler = () => {
                 return newMessages
               })
             } else if (chunk.event === RunEvent.ToolCallCompleted) {
-              setMessages((prevMessages) => {
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
@@ -215,7 +274,7 @@ const useAIChatStreamHandler = () => {
               chunk.event === RunEvent.RunResponse ||
               chunk.event === RunEvent.RunResponseContent
             ) {
-              setMessages((prevMessages) => {
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (
@@ -281,7 +340,7 @@ const useAIChatStreamHandler = () => {
                 return newMessages
               })
             } else if (chunk.event === RunEvent.ReasoningCompleted) {
-              setMessages((prevMessages) => {
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
@@ -296,7 +355,7 @@ const useAIChatStreamHandler = () => {
               })
             } else if (chunk.event === RunEvent.RunCancelled) {
               // Handle cancellation - preserve existing messages, just mark as cancelled
-              setMessages((prevMessages) => {
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = [...prevMessages]
                 const lastMessage = newMessages[newMessages.length - 1]
                 if (lastMessage && lastMessage.role === 'agent') {
@@ -311,11 +370,13 @@ const useAIChatStreamHandler = () => {
                 }
                 return newMessages
               })
+              setActiveJob(jobStorageKey, null)
               setIsStreaming(false)
             } else if (chunk.event === RunEvent.RunError) {
-              updateMessagesWithErrorState()
+              updateMessagesWithErrorState(jobStorageKey)
               const errorContent = chunk.content as string
               setStreamingErrorMessage(errorContent)
+              setActiveJob(jobStorageKey, null)
               if (hasStorage && newSessionId) {
                 setSessionsData(
                   (prevSessionsData) =>
@@ -325,7 +386,20 @@ const useAIChatStreamHandler = () => {
                 )
               }
             } else if (chunk.event === RunEvent.RunCompleted) {
-              setMessages((prevMessages) => {
+              // Update storage key if session was created during this job
+              if (newSessionId && jobStorageKey !== createStorageKey(jobAgentId, newSessionId)) {
+                const oldStorageKey = jobStorageKey
+                jobStorageKey = createStorageKey(jobAgentId, newSessionId)
+                jobStorageKeyRef.current = jobStorageKey
+                
+                // Migrate messages from old key to new key if needed
+                const oldMessages = usePlaygroundStore.getState().sessionMessages[oldStorageKey]
+                if (oldMessages && oldMessages.length > 0) {
+                  setSessionMessages(jobStorageKey, oldMessages)
+                }
+              }
+              
+              updateMessagesForSession(jobStorageKey, (prevMessages) => {
                 const newMessages = prevMessages.map((message, index) => {
                   if (
                     index === prevMessages.length - 1 &&
@@ -366,11 +440,30 @@ const useAIChatStreamHandler = () => {
                 })
                 return newMessages
               })
+              
+              // Clear the active job
+              setActiveJob(jobStorageKey, null)
+              
+              // If user navigated to a different context, show a notification
+              const currentStorageKey = usePlaygroundStore.getState().currentStorageKey
+              if (currentStorageKey !== jobStorageKey) {
+                addBackgroundNotification({
+                  agentId: jobAgentId,
+                  agentLabel,
+                  sessionId: newSessionId,
+                  storageKey: jobStorageKey,
+                  completedAt: Date.now(),
+                  preview: typeof chunk.content === 'string' 
+                    ? chunk.content.slice(0, 100) + (chunk.content.length > 100 ? '...' : '')
+                    : 'Response received'
+                })
+              }
             }
           },
           onError: (error) => {
-            updateMessagesWithErrorState()
+            updateMessagesWithErrorState(jobStorageKey)
             setStreamingErrorMessage(error.message)
+            setActiveJob(jobStorageKey, null)
             if (hasStorage && newSessionId) {
               setSessionsData(
                 (prevSessionsData) =>
@@ -383,10 +476,11 @@ const useAIChatStreamHandler = () => {
           onComplete: () => {}
         })
       } catch (error) {
-        updateMessagesWithErrorState()
+        updateMessagesWithErrorState(jobStorageKey)
         setStreamingErrorMessage(
           error instanceof Error ? error.message : String(error)
         )
+        setActiveJob(jobStorageKey, null)
         if (hasStorage && newSessionId) {
           setSessionsData(
             (prevSessionsData) =>
@@ -398,15 +492,17 @@ const useAIChatStreamHandler = () => {
       } finally {
         focusChatInput()
         setIsStreaming(false)
+        jobAgentIdRef.current = null
+        jobStorageKeyRef.current = null
       }
     },
     [
-      setMessages,
-      addMessage,
+      updateMessagesForSession,
       updateMessagesWithErrorState,
       selectedEndpoint,
       streamResponse,
       agentId,
+      agents,
       setStreamingErrorMessage,
       setIsStreaming,
       focusChatInput,
@@ -414,7 +510,10 @@ const useAIChatStreamHandler = () => {
       sessionId,
       setSessionId,
       hasStorage,
-      processChunkToolCalls
+      processChunkToolCalls,
+      setActiveJob,
+      addBackgroundNotification,
+      setSessionMessages
     ]
   )
 

@@ -28,7 +28,7 @@ import { ChevronDown, ChevronRight, ChevronsDown, ChevronsUp } from 'lucide-reac
 const COLLAPSED_CATEGORIES_KEY = 'agent-ui-collapsed-categories'
 
 export function GroupedAgentSelector() {
-  const { agents, setMessages, setSelectedModel, setHasStorage } =
+  const { agents, setCurrentContext, setSelectedModel, setHasStorage } =
     usePlaygroundStore()
   const { focusChatInput } = useChatActions()
   const [agentId, setAgentId] = useQueryState('agent', {
@@ -100,7 +100,8 @@ export function GroupedAgentSelector() {
     setSelectedModel(selectedAgent?.model.provider || '')
     setHasStorage(!!selectedAgent?.storage)
     setAgentId(newAgent)
-    setMessages([])
+    // Switch to this agent's messages (null session = new chat)
+    setCurrentContext(newAgent || null, null)
     setSessionId(null)
     if (selectedAgent?.model.provider) {
       focusChatInput()

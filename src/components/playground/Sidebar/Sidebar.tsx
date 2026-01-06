@@ -1,22 +1,32 @@
 'use client'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { GroupedAgentSelector } from '@/components/playground/Sidebar/GroupedAgentSelector'
+import { CategorySelector } from '@/components/playground/Sidebar/CategorySelector'
 import useChatActions from '@/hooks/useChatActions'
 import { usePlaygroundStore } from '@/store'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useState, useEffect, useRef } from 'react'
 import Icon from '@/components/ui/icon'
+import { IconType } from '@/components/ui/icon/types'
 import { getProviderIcon } from '@/lib/modelProvider'
 import Sessions from './Sessions'
 import { isValidUrl } from '@/lib/utils'
 import { toast } from 'sonner'
 import { useQueryState } from 'nuqs'
-import { truncateText } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
 import ToolCallsToggle from './ToolCallsToggle'
 import ArticleViewToggle from './ArticleViewToggle'
-import { GraphVisualization } from '@/components/playground/GraphVisualization'
-import { Network } from 'lucide-react'
+import { BackgroundJobNotifications } from './BackgroundJobNotifications'
+import { ActiveJobsIndicator } from './ActiveJobsIndicator'
+
+// Tech stack icons for "Built with" section
+const TECH_ICONS: { type: IconType; link: string; name: string }[] = [
+  { type: 'agno', link: 'https://agno.com', name: 'Agno' },
+  { type: 'agent-ui', link: 'https://agno.link/agent-ui', name: 'Agent UI' },
+  { type: 'nextjs', link: 'https://nextjs.org', name: 'Next.js' },
+  { type: 'shadcn', link: 'https://ui.shadcn.com', name: 'shadcn/ui' },
+  { type: 'tailwind', link: 'https://tailwindcss.com', name: 'Tailwind' },
+]
 
 const ENDPOINT_PLACEHOLDER = 'NO ENDPOINT ADDED'
 
@@ -152,9 +162,9 @@ const Endpoint = () => {
           </Button>
         </div>
       ) : (
-        <div className="flex w-full items-center gap-1">
+        <div className="flex w-full items-center gap-2">
           <motion.div
-            className="relative flex h-9 w-full cursor-pointer items-center justify-between rounded-xl border border-primary/15 bg-accent p-3 uppercase"
+            className="relative flex h-9 flex-1 min-w-0 cursor-pointer items-center justify-between rounded-xl border border-primary/15 bg-accent px-3 uppercase"
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
             onClick={() => setIsEditing(true)}
@@ -164,7 +174,7 @@ const Endpoint = () => {
               {isHovering ? (
                 <motion.div
                   key="endpoint-display-hover"
-                  className="absolute inset-0 flex items-center justify-center"
+                  className="flex items-center justify-center w-full"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
@@ -177,16 +187,15 @@ const Endpoint = () => {
               ) : (
                 <motion.div
                   key="endpoint-display"
-                  className="absolute inset-0 flex items-center justify-between px-3"
+                  className="flex items-center justify-between w-full gap-2"
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <p className="text-xs font-medium text-muted">
+                  <p className="text-xs font-medium text-muted truncate">
                     {isMounted
-                      ? truncateText(selectedEndpoint, 21) ||
-                        ENDPOINT_PLACEHOLDER
+                      ? selectedEndpoint || ENDPOINT_PLACEHOLDER
                       : 'http://localhost:7777'}
                   </p>
                   <div
@@ -200,7 +209,7 @@ const Endpoint = () => {
             variant="ghost"
             size="icon"
             onClick={handleRefresh}
-            className="hover:cursor-pointer hover:bg-transparent"
+            className="shrink-0 hover:cursor-pointer hover:bg-transparent"
           >
             <motion.div
               key={isRotating ? 'rotating' : 'idle'}
@@ -218,7 +227,6 @@ const Endpoint = () => {
 
 const Sidebar = () => {
   const [isCollapsed, setIsCollapsed] = useState(false)
-  const [isGraphOpen, setIsGraphOpen] = useState(false)
   const { clearChat, focusChatInput, initializePlayground } = useChatActions()
   const {
     messages,
@@ -302,7 +310,7 @@ const Sidebar = () => {
         {isMounted && isEndpointActive && (
           <>
             {/* ═══════════════════════════════════════════════════════════════════
-                WORKBENCH SECTION - Agent Selection & Asset Graph
+                CATEGORIES SECTION - Select Category to see agents in carousel
             ═══════════════════════════════════════════════════════════════════ */}
             <motion.div
               className="flex w-full flex-col items-start gap-2"
@@ -310,29 +318,18 @@ const Sidebar = () => {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.5, ease: 'easeInOut' }}
             >
-              <SectionHeader>Workbench</SectionHeader>
+              <SectionHeader>Categories</SectionHeader>
               {isEndpointLoading ? (
                 <div className="flex w-full flex-col gap-2">
-                  {Array.from({ length: 2 }).map((_, index) => (
+                  {Array.from({ length: 3 }).map((_, index) => (
                     <Skeleton
                       key={index}
-                      className="h-9 w-full rounded-xl"
+                      className="h-12 w-full rounded-xl"
                     />
                   ))}
                 </div>
               ) : (
-                <>
-                  <GroupedAgentSelector />
-                  <Button
-                    onClick={() => setIsGraphOpen(true)}
-                    variant="outline"
-                    size="sm"
-                    className="h-9 w-full rounded-xl border border-primary/15 bg-accent text-xs font-medium text-muted hover:bg-accent/80 hover:text-primary flex items-center gap-2 justify-start px-3"
-                  >
-                    <Network className="w-4 h-4" />
-                    <span className="uppercase">Asset Graph</span>
-                  </Button>
-                </>
+                <CategorySelector />
               )}
             </motion.div>
             
@@ -408,6 +405,21 @@ const Sidebar = () => {
             <SectionDivider />
             
             {/* ═══════════════════════════════════════════════════════════════════
+                BACKGROUND JOBS SECTION - Show running & completed jobs for other agents
+            ═══════════════════════════════════════════════════════════════════ */}
+            <motion.div
+              className="flex flex-col gap-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2, delay: 0.25 }}
+            >
+              <ActiveJobsIndicator />
+              <BackgroundJobNotifications />
+            </motion.div>
+            
+            <SectionDivider />
+            
+            {/* ═══════════════════════════════════════════════════════════════════
                 CONNECTION SECTION - Endpoint & Model (at bottom)
             ═══════════════════════════════════════════════════════════════════ */}
             <motion.div
@@ -425,12 +437,33 @@ const Sidebar = () => {
               )}
             </motion.div>
             
-            {/* Graph Visualization Modal */}
-            <GraphVisualization
-              isOpen={isGraphOpen}
-              onClose={() => setIsGraphOpen(false)}
-              endpoint={selectedEndpoint}
-            />
+            {/* ═══════════════════════════════════════════════════════════════════
+                BUILT WITH SECTION - Tech stack icons at bottom
+            ═══════════════════════════════════════════════════════════════════ */}
+            <motion.div
+              className="flex w-full flex-col items-start gap-2 pt-4 mt-auto border-t border-primary/10"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3, delay: 0.25 }}
+            >
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wider">
+                Built with
+              </span>
+              <div className="flex items-center gap-1">
+                {TECH_ICONS.map((icon) => (
+                  <Link
+                    key={icon.type}
+                    href={icon.link}
+                    target="_blank"
+                    rel="noopener"
+                    className="opacity-50 hover:opacity-100 transition-opacity"
+                    title={icon.name}
+                  >
+                    <Icon type={icon.type} size="xxs" />
+                  </Link>
+                ))}
+              </div>
+            </motion.div>
           </>
         )}
         
