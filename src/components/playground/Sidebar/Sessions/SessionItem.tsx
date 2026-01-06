@@ -2,11 +2,11 @@ import { useQueryState } from 'nuqs'
 import { SessionEntry } from '@/types/playground'
 import { Button } from '../../../ui/button'
 import useSessionLoader from '@/hooks/useSessionLoader'
-import { deletePlaygroundSessionAPI } from '@/api/playground'
+import { deletePlaygroundSessionAPI, renamePlaygroundSessionAPI } from '@/api/playground'
 import { usePlaygroundStore } from '@/store'
 import { toast } from 'sonner'
 import Icon from '@/components/ui/icon'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import DeleteSessionModal from './DeleteSessionModal'
 import useChatActions from '@/hooks/useChatActions'
 import { cn } from '@/lib/utils'
@@ -27,7 +27,24 @@ const SessionItem = ({
   const { selectedEndpoint, sessionsData, setSessionsData } =
     usePlaygroundStore()
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editedTitle, setEditedTitle] = useState(title)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
   const { clearChat } = useChatActions()
+
+  // Focus input when entering edit mode
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus()
+      inputRef.current.select()
+    }
+  }, [isEditing])
+
+  // Reset edited title when title prop changes
+  useEffect(() => {
+    setEditedTitle(title)
+  }, [title])
 
   const handleGetSession = async () => {
     if (agentId) {
@@ -61,6 +78,67 @@ const SessionItem = ({
       }
     }
   }
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditedTitle(title)
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = (e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    setEditedTitle(title)
+    setIsEditing(false)
+  }
+
+  const handleSaveEdit = async (e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    const trimmedTitle = editedTitle.trim()
+    
+    if (!trimmedTitle) {
+      toast.error('Session name cannot be empty')
+      return
+    }
+    
+    if (trimmedTitle === title) {
+      setIsEditing(false)
+      return
+    }
+
+    if (agentId) {
+      setIsRenaming(true)
+      const result = await renamePlaygroundSessionAPI(
+        selectedEndpoint,
+        agentId,
+        session_id,
+        trimmedTitle
+      )
+      
+      if (result.success && sessionsData) {
+        setSessionsData(
+          sessionsData.map((session) =>
+            session.session_id === session_id
+              ? { ...session, title: trimmedTitle }
+              : session
+          )
+        )
+        toast.success('Session renamed')
+        setIsEditing(false)
+      } else {
+        toast.error(result.error || 'Failed to rename session')
+      }
+      setIsRenaming(false)
+    }
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSaveEdit()
+    } else if (e.key === 'Escape') {
+      handleCancelEdit()
+    }
+  }
   return (
     <>
       <div
@@ -70,26 +148,82 @@ const SessionItem = ({
             ? 'cursor-default bg-primary/10'
             : 'bg-background-secondary hover:bg-background-secondary/80'
         )}
-        onClick={handleGetSession}
+        onClick={isEditing ? undefined : handleGetSession}
       >
         <div className="flex flex-col gap-1 flex-1 min-w-0">
-          <h4
-            className={cn('text-sm font-medium break-words leading-relaxed', isSelected && 'text-primary')}
-          >
-            {title}
-          </h4>
+          {isEditing ? (
+            <input
+              ref={inputRef}
+              type="text"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onClick={(e) => e.stopPropagation()}
+              disabled={isRenaming}
+              className={cn(
+                'w-full bg-transparent text-sm font-medium outline-none border-b border-primary/50 focus:border-primary pb-0.5',
+                isSelected && 'text-primary'
+              )}
+              placeholder="Session name"
+            />
+          ) : (
+            <h4
+              className={cn('text-sm font-medium break-words leading-relaxed', isSelected && 'text-primary')}
+            >
+              {title}
+            </h4>
+          )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100 flex-shrink-0 ml-2"
-          onClick={(e) => {
-            e.stopPropagation()
-            setIsDeleteModalOpen(true)
-          }}
-        >
-          <Icon type="trash" size="xs" />
-        </Button>
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+          {isEditing ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleSaveEdit}
+                disabled={isRenaming}
+                title="Save"
+              >
+                <Icon type="check" size="xs" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleCancelEdit}
+                disabled={isRenaming}
+                title="Cancel"
+              >
+                <Icon type="x" size="xs" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+                onClick={handleStartEdit}
+                title="Rename session"
+              >
+                <Icon type="edit" size="xs" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setIsDeleteModalOpen(true)
+                }}
+                title="Delete session"
+              >
+                <Icon type="trash" size="xs" />
+              </Button>
+            </>
+          )}
+        </div>
       </div>
       <DeleteSessionModal
         isOpen={isDeleteModalOpen}

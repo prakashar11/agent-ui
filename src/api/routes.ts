@@ -21,6 +21,13 @@ export const APIRoutes = {
   ) =>
     `${PlaygroundApiUrl}/v1/playground/agents/${agentId}/sessions/${sessionId}`,
 
+  RenamePlaygroundSession: (
+    PlaygroundApiUrl: string,
+    agentId: string,
+    sessionId: string
+  ) =>
+    `${PlaygroundApiUrl}/v1/playground/agents/${agentId}/sessions/${sessionId}/rename`,
+
   // Asset Memory CRUD API Routes
   AssetMemoryList: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/asset-memory/assets`,

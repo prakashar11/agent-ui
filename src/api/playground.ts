@@ -102,3 +102,29 @@ export const deletePlaygroundSessionAPI = async (
   )
   return response
 }
+
+export const renamePlaygroundSessionAPI = async (
+  base: string,
+  agentId: string,
+  sessionId: string,
+  newTitle: string
+): Promise<{ success: boolean; error?: string }> => {
+  try {
+    const response = await fetch(
+      APIRoutes.RenamePlaygroundSession(base, agentId, sessionId),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ name: newTitle })
+      }
+    )
+    if (!response.ok) {
+      return { success: false, error: `Failed to rename session: ${response.statusText}` }
+    }
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: 'Error renaming session' }
+  }
+}
