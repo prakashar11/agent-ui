@@ -67,7 +67,15 @@ const useSessionLoader = () => {
           selectedEndpoint,
           agentId,
           sessionId
-        )) as SessionResponse
+        )) as SessionResponse | null
+
+        // Handle case where session is not found (404)
+        if (!response) {
+          console.warn(`Session ${sessionId} not found, starting fresh`)
+          // Reset to new session context
+          setCurrentContext(agentId, null)
+          return null
+        }
 
         if (response && response.memory) {
           const sessionHistory = response.runs

@@ -67,13 +67,26 @@ export const getPlaygroundSessionAPI = async (
   agentId: string,
   sessionId: string
 ) => {
+  try {
   const response = await fetch(
     APIRoutes.GetPlaygroundSession(base, agentId, sessionId),
     {
       method: 'GET'
     }
   )
+    if (!response.ok) {
+      if (response.status === 404) {
+        // Session not found - return null to indicate no session data
+        console.warn(`Session ${sessionId} not found for agent ${agentId}`)
+        return null
+      }
+      throw new Error(`Failed to fetch session: ${response.statusText}`)
+    }
   return response.json()
+  } catch (error) {
+    console.error('Error fetching session:', error)
+    return null
+  }
 }
 
 export const deletePlaygroundSessionAPI = async (

@@ -248,11 +248,20 @@ interface AgentCarouselProps {
 }
 
 const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
-  const { agents, selectedCategory, setSelectedCategory, setSelectedModel, setHasStorage, setCurrentContext, selectedEndpoint } = usePlaygroundStore()
-  const [agentId, setAgentId] = useQueryState('agent')
-  const [, setSessionId] = useQueryState('session')
+  const { agents, setSelectedCategory, setSelectedModel, setHasStorage, setCurrentContext, selectedEndpoint } = usePlaygroundStore()
+  const [agentId, setAgentId] = useQueryState('agent', { history: 'push' })
+  const [, setSessionId] = useQueryState('session', { history: 'push' })
+  const [categoryParam, setCategoryParam] = useQueryState('category', { history: 'push' })
   const { focusChatInput } = useChatActions()
   const [isGraphOpen, setIsGraphOpen] = useState(false)
+  
+  // Use category from URL for browser navigation support
+  const selectedCategory = categoryParam
+  
+  // Sync URL category to store
+  React.useEffect(() => {
+    setSelectedCategory(categoryParam)
+  }, [categoryParam, setSelectedCategory])
 
   // Filter agents by selected category
   const categoryAgents = React.useMemo(() => {
@@ -276,7 +285,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   }
 
   const handleBackToCategories = () => {
-    setSelectedCategory(null)
+    setCategoryParam(null)
   }
 
   if (!selectedCategory || categoryAgents.length === 0) {

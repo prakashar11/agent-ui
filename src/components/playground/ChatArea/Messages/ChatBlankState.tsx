@@ -5,6 +5,7 @@ import React from 'react'
 import { usePlaygroundStore } from '@/store'
 import { Folder, ArrowLeft } from 'lucide-react'
 import AgentCarousel from './AgentCarousel'
+import { useQueryState } from 'nuqs'
 
 // Component shown when no category is selected - prompts user to select from sidebar
 const CategorySelectionPrompt = () => {
@@ -34,7 +35,15 @@ const CategorySelectionPrompt = () => {
 }
 
 const ChatBlankState = () => {
-  const { selectedCategory } = usePlaygroundStore()
+  const { setSelectedCategory } = usePlaygroundStore()
+  // Read category from URL for browser back/forward navigation support
+  const [categoryParam] = useQueryState('category')
+  const selectedCategory = categoryParam
+  
+  // Sync URL category to store
+  React.useEffect(() => {
+    setSelectedCategory(categoryParam)
+  }, [categoryParam, setSelectedCategory])
 
   return (
     <section
@@ -51,7 +60,7 @@ const ChatBlankState = () => {
           <h1 className="text-2xl font-[600] tracking-tight text-foreground">
             Cybersecurity Workbench Agent UI
           </h1>
-        </motion.div>
+                      </motion.div>
 
         {/* Content Section - Show AgentCarousel when category is selected, otherwise prompt to select */}
         <motion.div

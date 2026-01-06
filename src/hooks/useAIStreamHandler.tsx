@@ -36,7 +36,7 @@ const useAIChatStreamHandler = () => {
   const setSessionsData = usePlaygroundStore((state) => state.setSessionsData)
   const hasStorage = usePlaygroundStore((state) => state.hasStorage)
   const { streamResponse } = useAIResponseStream()
-  
+
   // Keep track of the storage key for the job (captured at job start)
   const jobStorageKeyRef = useRef<string | null>(null)
   const jobAgentIdRef = useRef<string | null>(null)
@@ -157,7 +157,7 @@ const useAIChatStreamHandler = () => {
       if (typeof input === 'string') {
         formData.append('message', input)
       }
-      
+
       const userMessage = formData.get('message') as string
 
       // Track this as an active job
@@ -194,7 +194,7 @@ const useAIChatStreamHandler = () => {
         {
           role: 'user' as const,
           content: userMessage,
-          created_at: Math.floor(Date.now() / 1000)
+        created_at: Math.floor(Date.now() / 1000)
         }
       ])
 
@@ -203,10 +203,10 @@ const useAIChatStreamHandler = () => {
         ...prevMessages,
         {
           role: 'agent' as const,
-          content: '',
-          tool_calls: [],
-          streamingError: false,
-          created_at: Math.floor(Date.now() / 1000) + 1
+        content: '',
+        tool_calls: [],
+        streamingError: false,
+        created_at: Math.floor(Date.now() / 1000) + 1
         }
       ])
 

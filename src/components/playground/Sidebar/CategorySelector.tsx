@@ -10,9 +10,19 @@ import {
   ChevronRight 
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useQueryState } from 'nuqs'
 
 export function CategorySelector() {
-  const { agents, selectedCategory, setSelectedCategory } = usePlaygroundStore()
+  const { agents, setSelectedCategory, setCurrentContext } = usePlaygroundStore()
+  const [, setAgentId] = useQueryState('agent', { history: 'push' })
+  const [, setSessionId] = useQueryState('session', { history: 'push' })
+  const [categoryParam, setCategoryParam] = useQueryState('category', { history: 'push' })
+  
+  // Sync URL category param with store
+  const selectedCategory = categoryParam
+  React.useEffect(() => {
+    setSelectedCategory(categoryParam)
+  }, [categoryParam, setSelectedCategory])
 
   // Group agents by category
   const groupedAgents = React.useMemo(() => {
@@ -20,11 +30,17 @@ export function CategorySelector() {
   }, [agents])
 
   const handleCategoryClick = (category: string) => {
-    // Toggle category selection
-    if (selectedCategory === category) {
-      setSelectedCategory(null)
+    // When clicking a category, switch to "browse mode"
+    // Clear the current agent/session to show the agent carousel
+    if (selectedCategory !== category) {
+      // Switching to a new category - clear agent to show carousel
+      setAgentId(null)
+      setSessionId(null)
+      setCurrentContext(null, null)
+      setCategoryParam(category)
     } else {
-      setSelectedCategory(category)
+      // Clicking the same category again - toggle it off
+      setCategoryParam(null)
     }
   }
 

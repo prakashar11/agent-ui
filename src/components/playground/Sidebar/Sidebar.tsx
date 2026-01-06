@@ -92,8 +92,8 @@ const Endpoint = () => {
   const [isMounted, setIsMounted] = useState(false)
   const [isHovering, setIsHovering] = useState(false)
   const [isRotating, setIsRotating] = useState(false)
-  const [, setAgentId] = useQueryState('agent')
-  const [, setSessionId] = useQueryState('session')
+  const [, setAgentId] = useQueryState('agent', { history: 'push' })
+  const [, setSessionId] = useQueryState('session', { history: 'push' })
 
   useEffect(() => {
     setEndpointValue(selectedEndpoint)

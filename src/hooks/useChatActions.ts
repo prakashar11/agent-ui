@@ -13,7 +13,7 @@ import { useQueryState } from 'nuqs'
 const useChatActions = () => {
   const { chatInputRef } = usePlaygroundStore()
   const selectedEndpoint = usePlaygroundStore((state) => state.selectedEndpoint)
-  const [sessionId, setSessionId] = useQueryState('session')
+  const [sessionId, setSessionId] = useQueryState('session', { history: 'push' })
   const setMessages = usePlaygroundStore((state) => state.setMessages)
   const setCurrentContext = usePlaygroundStore((state) => state.setCurrentContext)
   const clearSessionMessages = usePlaygroundStore((state) => state.clearSessionMessages)
@@ -26,7 +26,7 @@ const useChatActions = () => {
   const setAgents = usePlaygroundStore((state) => state.setAgents)
   const setSelectedModel = usePlaygroundStore((state) => state.setSelectedModel)
   const setSelectedCategory = usePlaygroundStore((state) => state.setSelectedCategory)
-  const [agentId, setAgentId] = useQueryState('agent')
+  const [agentId, setAgentId] = useQueryState('agent', { history: 'push' })
 
   const getStatus = useCallback(async () => {
     try {
@@ -53,7 +53,7 @@ const useChatActions = () => {
     if (storageKey) {
       clearSessionMessages(storageKey)
     } else {
-      setMessages([])
+    setMessages([])
     }
     setSessionId(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,16 +83,20 @@ const useChatActions = () => {
         agents = await getAgents()
         if (agents.length > 0) {
           if (!agentId) {
-            // No agent selected - select the first one
-            const firstAgent = agents[0]
-            setAgentId(firstAgent.value)
-            setSelectedModel(firstAgent.model.provider || '')
-            // Set context with agent and session (null for new session)
-            setCurrentContext(firstAgent.value, null)
-            // Also set the category based on the first agent
-            if (firstAgent.category && setSelectedCategory) {
-              setSelectedCategory(firstAgent.category)
+            // No agent selected in URL
+            // Check if user has a selected category (browsing mode) - don't auto-select agent
+            const currentCategory = usePlaygroundStore.getState().selectedCategory
+            if (!currentCategory) {
+              // No category either - this is initial load, select first agent
+              const firstAgent = agents[0]
+              setAgentId(firstAgent.value)
+              setSelectedModel(firstAgent.model.provider || '')
+              setCurrentContext(firstAgent.value, null)
+              if (firstAgent.category && setSelectedCategory) {
+                setSelectedCategory(firstAgent.category)
+              }
             }
+            // If category is set but no agent, user is browsing - don't auto-select
           } else {
             // Agent already selected from URL - set the category based on that agent
             const selectedAgent = agents.find(a => a.value === agentId)
