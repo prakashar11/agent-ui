@@ -27,6 +27,7 @@ interface SessionResponse {
 
 const useSessionLoader = () => {
   const setMessages = usePlaygroundStore((state) => state.setMessages)
+  const setCurrentContext = usePlaygroundStore((state) => state.setCurrentContext)
   const selectedEndpoint = usePlaygroundStore((state) => state.selectedEndpoint)
   const setIsSessionsLoading = usePlaygroundStore(
     (state) => state.setIsSessionsLoading
@@ -57,6 +58,9 @@ const useSessionLoader = () => {
       if (!sessionId || !agentId || !selectedEndpoint) {
         return null
       }
+
+      // Set the current context before loading messages
+      setCurrentContext(agentId, sessionId)
 
       try {
         const response = (await getPlaygroundSessionAPI(
@@ -152,7 +156,7 @@ const useSessionLoader = () => {
         return null
       }
     },
-    [selectedEndpoint, setMessages]
+    [selectedEndpoint, setMessages, setCurrentContext]
   )
 
   return { getSession, getSessions }

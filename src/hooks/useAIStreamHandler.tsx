@@ -140,6 +140,13 @@ const useAIChatStreamHandler = () => {
       jobAgentIdRef.current = jobAgentId
       jobStorageKeyRef.current = jobStorageKey
       
+      // Ensure current context is set to match job context (fixes race condition where
+      // context might not be set yet when user sends message)
+      const currentState = usePlaygroundStore.getState()
+      if (currentState.currentStorageKey !== jobStorageKey) {
+        currentState.setCurrentContext(jobAgentId, jobSessionId)
+      }
+      
       // Get agent label for notifications
       const agentInfo = agents.find(a => a.value === jobAgentId)
       const agentLabel = agentInfo?.label || jobAgentId
@@ -226,6 +233,43 @@ const useAIChatStreamHandler = () => {
             ) {
               newSessionId = chunk.session_id as string
               setSessionId(chunk.session_id as string)
+              
+              // Migrate messages from "agent:new" to "agent:session-id" if this is a new session
+              if (chunk.session_id && !jobSessionId) {
+                const oldKey = jobStorageKey
+                const newKey = createStorageKey(jobAgentId, chunk.session_id as string)
+                
+                // Migrate messages from old key to new key
+                const currentMessages = usePlaygroundStore.getState().sessionMessages[oldKey] || []
+                if (currentMessages.length > 0) {
+                  setSessionMessages(newKey, currentMessages)
+                }
+                
+                // Update the job storage key for remaining stream processing
+                jobStorageKey = newKey
+                jobStorageKeyRef.current = newKey
+                
+                // Update active job with new key
+                const oldJob = usePlaygroundStore.getState().activeJobs[oldKey]
+                if (oldJob) {
+                  setActiveJob(oldKey, null) // Remove old key
+                  setActiveJob(newKey, {
+                    ...oldJob,
+                    sessionId: chunk.session_id as string,
+                    storageKey: newKey
+                  })
+                }
+                
+                // Update current context if we're still viewing this agent
+                const state = usePlaygroundStore.getState()
+                if (state.currentAgentId === jobAgentId && state.currentStorageKey === oldKey) {
+                  usePlaygroundStore.getState().setCurrentContext(jobAgentId, chunk.session_id as string)
+                }
+                
+                // Clear old "new" key messages
+                usePlaygroundStore.getState().clearSessionMessages(oldKey)
+              }
+              
               if (
                 hasStorage &&
                 (!sessionId || sessionId !== chunk.session_id) &&
