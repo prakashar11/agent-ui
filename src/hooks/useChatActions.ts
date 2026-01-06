@@ -26,6 +26,7 @@ const useChatActions = () => {
   const setAgents = usePlaygroundStore((state) => state.setAgents)
   const setSelectedModel = usePlaygroundStore((state) => state.setSelectedModel)
   const setSelectedCategory = usePlaygroundStore((state) => state.setSelectedCategory)
+  const setHasStorage = usePlaygroundStore((state) => state.setHasStorage)
   const [agentId, setAgentId] = useQueryState('agent', { history: 'push' })
 
   const getStatus = useCallback(async () => {
@@ -91,6 +92,7 @@ const useChatActions = () => {
               const firstAgent = agents[0]
               setAgentId(firstAgent.value)
               setSelectedModel(firstAgent.model.provider || '')
+              setHasStorage(!!firstAgent.storage)
               setCurrentContext(firstAgent.value, null)
               if (firstAgent.category && setSelectedCategory) {
                 setSelectedCategory(firstAgent.category)
@@ -102,6 +104,7 @@ const useChatActions = () => {
             const selectedAgent = agents.find(a => a.value === agentId)
             if (selectedAgent) {
               setSelectedModel(selectedAgent.model?.provider || '')
+              setHasStorage(!!selectedAgent.storage)
               // Set context with agent and current session from URL
               setCurrentContext(agentId, sessionId)
               if (selectedAgent.category && setSelectedCategory) {
@@ -129,6 +132,7 @@ const useChatActions = () => {
     setAgentId,
     setSelectedModel,
     setSelectedCategory,
+    setHasStorage,
     setCurrentContext,
     agentId,
     sessionId

@@ -110,6 +110,9 @@ interface PlaygroundStore {
   ) => void
   isSessionsLoading: boolean
   setIsSessionsLoading: (isSessionsLoading: boolean) => void
+  // Trigger to refresh sessions list (incremented when a job completes)
+  sessionsRefreshTrigger: number
+  triggerSessionsRefresh: () => void
   showToolCalls: boolean
   setShowToolCalls: (show: boolean) => void
   useArticleCardView: boolean
@@ -271,6 +274,10 @@ export const usePlaygroundStore = create<PlaygroundStore>()(
       isSessionsLoading: false,
       setIsSessionsLoading: (isSessionsLoading) =>
         set(() => ({ isSessionsLoading })),
+      // Sessions refresh trigger - increment to trigger re-fetch
+      sessionsRefreshTrigger: 0,
+      triggerSessionsRefresh: () =>
+        set((state) => ({ sessionsRefreshTrigger: state.sessionsRefreshTrigger + 1 })),
       showToolCalls: true, // default to showing tool calls
       setShowToolCalls: (show: boolean) => 
         set((state) => ({

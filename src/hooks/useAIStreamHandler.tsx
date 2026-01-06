@@ -502,6 +502,9 @@ const useAIChatStreamHandler = () => {
                     : 'Response received'
                 })
               }
+              
+              // Trigger sessions list refresh to show the new/updated session
+              usePlaygroundStore.getState().triggerSessionsRefresh()
             }
           },
           onError: (error) => {

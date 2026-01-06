@@ -60,7 +60,8 @@ const Sessions = () => {
     sessionsData,
     hydrated,
     hasStorage,
-    setSessionsData
+    setSessionsData,
+    sessionsRefreshTrigger
   } = usePlaygroundStore()
   const [isScrolling, setIsScrolling] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -105,7 +106,10 @@ const Sessions = () => {
       return
     }
     if (!isEndpointLoading) {
-      setSessionsData(() => null)
+      // Only clear sessions data when agent changes, not on refresh
+      if (sessionsRefreshTrigger === 0) {
+        setSessionsData(() => null)
+      }
       getSessions(agentId)
     }
   }, [
@@ -114,7 +118,8 @@ const Sessions = () => {
     getSessions,
     isEndpointLoading,
     hasStorage,
-    setSessionsData
+    setSessionsData,
+    sessionsRefreshTrigger // Re-fetch when a job completes
   ])
 
   useEffect(() => {
