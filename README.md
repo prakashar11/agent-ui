@@ -54,6 +54,11 @@ To restart
 pkill -f "next dev" 2>/dev/null
 ```
 
+To clean cache
+```bash
+pnpm store prune && rm -rf .next && pnpm run dev
+```
+
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 ## Connecting to an Agent Backend

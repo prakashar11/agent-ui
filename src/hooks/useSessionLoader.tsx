@@ -45,7 +45,7 @@ const useSessionLoader = () => {
         )
         setSessionsData(sessions)
       } catch {
-        toast.error('Error loading sessions')
+        toast.error('Error loading sessions', { duration: 3000 })
       } finally {
         setIsSessionsLoading(false)
       }

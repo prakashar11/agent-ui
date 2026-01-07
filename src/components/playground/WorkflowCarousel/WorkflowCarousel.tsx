@@ -133,7 +133,7 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
       setTasks(data.tasks || [])
     } catch (error) {
       console.error('Error fetching workflow tasks:', error)
-      toast.error('Failed to load workflow tasks')
+      toast.error('Failed to load workflow tasks', { duration: 3000 })
     } finally {
       setLoading(false)
     }
@@ -191,7 +191,7 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
   // Create task
   const handleCreateTask = async () => {
     if (!formData.title.trim()) {
-      toast.error('Task title is required')
+      toast.error('Task title is required', { duration: 3000 })
       return
     }
 
@@ -205,14 +205,14 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
       if (!response.ok) throw new Error('Failed to create task')
 
       const data = await response.json()
-      toast.success('Task created successfully')
+      toast.success('Task created', { duration: 2000 })
       setShowCreateDialog(false)
       resetForm()
       fetchTasks()
       fetchStats()
     } catch (error) {
       console.error('Error creating task:', error)
-      toast.error('Failed to create task')
+      toast.error('Failed to create task', { duration: 3000 })
     }
   }
 
@@ -232,14 +232,14 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
 
       if (!response.ok) throw new Error('Failed to update task')
 
-      toast.success('Task updated successfully')
+      toast.success('Task updated', { duration: 2000 })
       setEditingTask(null)
       resetForm()
       fetchTasks()
       fetchStats()
     } catch (error) {
       console.error('Error updating task:', error)
-      toast.error('Failed to update task')
+      toast.error('Failed to update task', { duration: 3000 })
     }
   }
 
@@ -255,12 +255,12 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
 
       if (!response.ok) throw new Error('Failed to delete task')
 
-      toast.success('Task deleted successfully')
+      toast.success('Task deleted', { duration: 2000 })
       fetchTasks()
       fetchStats()
     } catch (error) {
       console.error('Error deleting task:', error)
-      toast.error('Failed to delete task')
+      toast.error('Failed to delete task', { duration: 3000 })
     }
   }
 
@@ -274,12 +274,12 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
 
       if (!response.ok) throw new Error('Failed to complete task')
 
-      toast.success('Task marked as completed')
+      toast.success('Task completed', { duration: 2000 })
       fetchTasks()
       fetchStats()
     } catch (error) {
       console.error('Error completing task:', error)
-      toast.error('Failed to complete task')
+      toast.error('Failed to complete task', { duration: 3000 })
     }
   }
 
@@ -297,12 +297,12 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
 
       if (!response.ok) throw new Error('Failed to update status')
 
-      toast.success('Status updated')
+      toast.success('Status updated', { duration: 2000 })
       fetchTasks()
       fetchStats()
     } catch (error) {
       console.error('Error updating status:', error)
-      toast.error('Failed to update status')
+      toast.error('Failed to update status', { duration: 3000 })
     }
   }
 

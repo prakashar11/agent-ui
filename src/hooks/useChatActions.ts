@@ -44,7 +44,7 @@ const useChatActions = () => {
       const agents = await getPlaygroundAgentsAPI(selectedEndpoint)
       return agents
     } catch {
-      toast.error('Error fetching agents')
+      toast.error('Error fetching agents', { duration: 3000 })
       return []
     }
   }, [selectedEndpoint])
@@ -92,30 +92,22 @@ const useChatActions = () => {
           await waitForBackend(selectedEndpoint, {
             // maxRetries: 60,  // Uncomment for production (60 seconds)
             delayMs: 1000,
-            onProgress: (attempt, max, status) => {
+            onProgress: (attempt) => {
               // Only show attempt count periodically to avoid toast spam during long waits
-              const displayAttempt = attempt <= 10 || attempt % 10 === 0 ? attempt : null
-              if (displayAttempt) {
-                toast.loading(`Connecting... ${displayAttempt}s`, {
-                  id: toastId,
-                })
+              if (attempt <= 10 || attempt % 10 === 0) {
+                toast.loading(`Connecting... ${attempt}s`, { id: toastId })
               }
             },
-            onReady: (response) => {
-              // Dismiss the loading toast and show a brief success message
-              toast.success('Backend ready', {
-                id: toastId,
-                description: `${response.agents_loaded || 0} agents`,
-                duration: 2000,  // Auto-dismiss after 2 seconds
-              })
+            onReady: () => {
+              // Dismiss loading toast completely, then show brief success
+              toast.dismiss(toastId)
+              toast.success('Backend ready', { duration: 1500 })
             },
           })
         } catch (error) {
-          toast.error('Backend unavailable', {
-            id: toastId,
-            description: 'Check if server is running',
-            duration: 5000,  // Show error for 5 seconds
-          })
+          // Dismiss and show error
+          toast.dismiss(toastId)
+          toast.error('Backend unavailable', { duration: 4000 })
           setIsEndpointActive(false)
           setAgents([])
           return []

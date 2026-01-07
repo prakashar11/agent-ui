@@ -26,7 +26,7 @@ export const getPlaygroundAgentsAPI = async (
     }))
     return agents
   } catch {
-    toast.error('Error fetching playground agents')
+    toast.error('Error fetching agents', { duration: 3000 })
     return []
   }
 }

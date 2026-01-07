@@ -67,12 +67,12 @@ const SessionItem = ({
             sessionsData.filter((session) => session.session_id !== session_id)
           )
           clearChat()
-          toast.success('Session deleted')
+          toast.success('Session deleted', { duration: 2000 })
         } else {
-          toast.error('Failed to delete session')
+          toast.error('Failed to delete session', { duration: 3000 })
         }
       } catch {
-        toast.error('Failed to delete session')
+        toast.error('Failed to delete session', { duration: 3000 })
       } finally {
         setIsDeleteModalOpen(false)
       }
@@ -96,7 +96,7 @@ const SessionItem = ({
     const trimmedTitle = editedTitle.trim()
     
     if (!trimmedTitle) {
-      toast.error('Session name cannot be empty')
+      toast.error('Session name cannot be empty', { duration: 3000 })
       return
     }
     
@@ -122,10 +122,10 @@ const SessionItem = ({
               : session
           )
         )
-        toast.success('Session renamed')
+        toast.success('Session renamed', { duration: 2000 })
         setIsEditing(false)
       } else {
-        toast.error(result.error || 'Failed to rename session')
+        toast.error(result.error || 'Failed to rename session', { duration: 3000 })
       }
       setIsRenaming(false)
     }

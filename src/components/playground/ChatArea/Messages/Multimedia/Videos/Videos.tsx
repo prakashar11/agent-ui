@@ -31,10 +31,10 @@ const VideoItem = memo(({ video }: { video: VideoData }) => {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
       toast.dismiss()
-      toast.success('Video downloaded successfully')
+      toast.success('Video downloaded', { duration: 2000 })
     } catch {
       toast.dismiss()
-      toast.error('Failed to download video')
+      toast.error('Failed to download video', { duration: 3000 })
     }
   }
 

@@ -105,7 +105,7 @@ const Endpoint = () => {
 
   const handleSave = async () => {
     if (!isValidUrl(endpointValue)) {
-      toast.error('Please enter a valid URL')
+      toast.error('Please enter a valid URL', { duration: 3000 })
       return
     }
     const cleanEndpoint = endpointValue.replace(/\/$/, '').trim()
