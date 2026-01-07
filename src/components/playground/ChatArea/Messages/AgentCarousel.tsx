@@ -12,13 +12,14 @@ import {
 } from '@/components/ui/carousel'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
-import { Bot, Sparkles, ArrowRight, Network, Table2 } from 'lucide-react'
+import { Bot, Sparkles, ArrowRight, Network, Table2, ClipboardCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import useChatActions from '@/hooks/useChatActions'
 import type { ComboboxAgent } from '@/types/playground'
 import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
+import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
 
 // Generate consistent gradient based on category name hash
 const GRADIENT_PALETTES = [
@@ -325,6 +326,87 @@ const AssetSpreadsheetCard: React.FC<AssetSpreadsheetCardProps> = ({
   )
 }
 
+// Workflow Tasks Card Component
+interface WorkflowCardProps {
+  index: number
+  categoryGradient: string
+  onOpenWorkflow: () => void
+}
+
+const WorkflowCard: React.FC<WorkflowCardProps> = ({
+  index,
+  categoryGradient,
+  onOpenWorkflow,
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+      className="h-full"
+    >
+      <button
+        onClick={onOpenWorkflow}
+        className={cn(
+          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
+          `bg-gradient-to-br ${categoryGradient}`,
+          'border-border/50 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5'
+        )}
+      >
+        {/* Background pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
+          <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Header with icon and name */}
+          <div className="mb-3 flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-background/80 transition-colors">
+              <ClipboardCheck className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
+                Workflow Tasks
+              </h3>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                Asset Security Workflows
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="flex-1 overflow-hidden">
+            <div className="text-xs leading-relaxed text-muted-foreground">
+              <p className="mb-2">
+                <strong>Manage security workflows</strong> for asset hygiene, access reviews, patching, and threat management.
+              </p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Hygiene & configuration review</li>
+                <li>User Access Review (UAR)</li>
+                <li>Patching workflows</li>
+                <li>Threat & IoC review</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer with action hint */}
+          <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
+            <div className="flex items-center gap-1.5">
+              <ClipboardCheck className="h-3 w-3 text-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
+                Click to open
+              </span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground/30 transition-transform group-hover:translate-x-1" />
+          </div>
+        </div>
+      </button>
+    </motion.div>
+  )
+}
+
 interface AgentCarouselProps {
   className?: string
 }
@@ -337,6 +419,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   const { focusChatInput } = useChatActions()
   const [isGraphOpen, setIsGraphOpen] = useState(false)
   const [isSpreadsheetOpen, setIsSpreadsheetOpen] = useState(false)
+  const [isWorkflowOpen, setIsWorkflowOpen] = useState(false)
   
   // Use category from URL for browser navigation support
   const selectedCategory = categoryParam
@@ -373,18 +456,23 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
 
   // Check if this is Asset Management category to show Asset Graph and Spreadsheet
   const isAssetManagement = selectedCategory?.toLowerCase().includes('asset') ?? false
+  
+  // Check if this is Utilities category to show Workflow Tasks
+  const isUtilities = selectedCategory?.toLowerCase().includes('utilities') ?? false
 
-  // For Asset Management, we always have at least 2 tools even without agents
+  // For Asset Management and Utilities, we always have at least some tools even without agents
   // For other categories, we need at least one agent
-  if (!selectedCategory || (categoryAgents.length === 0 && !isAssetManagement)) {
+  if (!selectedCategory || (categoryAgents.length === 0 && !isAssetManagement && !isUtilities)) {
     return null
   }
 
   const categoryGradient = getGradientForCategory(selectedCategory)
   
-  // Calculate total items including Asset Graph and Spreadsheet for Asset Management
+  // Calculate total items including special category tools
   // Asset Management gets +2 extra items: Asset Graph and Asset Memory Spreadsheet
-  const totalItems = isAssetManagement ? categoryAgents.length + 2 : categoryAgents.length
+  // Utilities gets +1 extra item: Workflow Tasks
+  const extraItems = (isAssetManagement ? 2 : 0) + (isUtilities ? 1 : 0)
+  const totalItems = categoryAgents.length + extraItems
   const isSingleItem = totalItems === 1
   const isTwoItems = totalItems === 2
   const isThreeItems = totalItems === 3
@@ -412,6 +500,8 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
         <p className="mt-1.5 text-sm text-muted-foreground">
           {isAssetManagement 
             ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 2 tools`
+            : isUtilities
+            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 1 tool`
             : `Select an agent to start chatting • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} available`
           }
         </p>
@@ -426,6 +516,12 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 index={0}
                 categoryGradient={categoryGradient}
                 onOpenGraph={() => setIsGraphOpen(true)}
+              />
+            ) : isUtilities && categoryAgents.length === 0 ? (
+              <WorkflowCard
+                index={0}
+                categoryGradient={categoryGradient}
+                onOpenWorkflow={() => setIsWorkflowOpen(true)}
               />
             ) : (
               <AgentCard
@@ -474,6 +570,15 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 </div>
               </>
             )}
+            {isUtilities && (
+              <div className="h-[280px]">
+                <WorkflowCard
+                  index={categoryAgents.length}
+                  categoryGradient={categoryGradient}
+                  onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -510,6 +615,15 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                   />
                 </div>
               </>
+            )}
+            {isUtilities && (
+              <div className="h-[280px]">
+                <WorkflowCard
+                  index={categoryAgents.length}
+                  categoryGradient={categoryGradient}
+                  onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -563,6 +677,17 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 </CarouselItem>
               </>
             )}
+            {isUtilities && (
+              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
+                <div className="h-[280px]">
+                  <WorkflowCard
+                    index={categoryAgents.length}
+                    categoryGradient={categoryGradient}
+                    onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                  />
+                </div>
+              </CarouselItem>
+            )}
           </CarouselContent>
           <CarouselPrevious className="-left-2 border-border/50 bg-background/80 hover:bg-accent" />
           <CarouselNext className="-right-2 border-border/50 bg-background/80 hover:bg-accent" />
@@ -581,6 +706,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
       <AssetMemorySpreadsheet
         isOpen={isSpreadsheetOpen}
         onClose={() => setIsSpreadsheetOpen(false)}
+        endpoint={selectedEndpoint}
+      />
+
+      {/* Workflow Tasks Modal */}
+      <WorkflowCarousel
+        isOpen={isWorkflowOpen}
+        onClose={() => setIsWorkflowOpen(false)}
         endpoint={selectedEndpoint}
       />
     </div>

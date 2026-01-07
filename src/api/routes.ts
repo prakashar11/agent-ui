@@ -55,4 +55,43 @@ export const APIRoutes = {
     `${PlaygroundApiUrl}/v1/asset-memory/metadata/criticalities`,
   AssetMemoryMetadataEnvironments: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/asset-memory/metadata/environments`,
+
+  // Workflow API Routes
+  WorkflowTasksList: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks`,
+  WorkflowTaskGet: (PlaygroundApiUrl: string, taskId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/${taskId}`,
+  WorkflowTaskCreate: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks`,
+  WorkflowTaskUpdate: (PlaygroundApiUrl: string, taskId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/${taskId}`,
+  WorkflowTaskDelete: (PlaygroundApiUrl: string, taskId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/${taskId}`,
+  WorkflowTaskComplete: (PlaygroundApiUrl: string, taskId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/${taskId}/complete`,
+  WorkflowTasksBulkCreate: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/bulk`,
+  WorkflowTasksBulkDelete: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/tasks/bulk-delete`,
+  WorkflowStats: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/stats`,
+  WorkflowDashboard: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/dashboard`,
+  WorkflowOverdue: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/overdue`,
+  WorkflowUpcoming: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/upcoming`,
+  WorkflowAssetTasks: (PlaygroundApiUrl: string, assetId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/assets/${assetId}/tasks`,
+  WorkflowMetadataTaskTypes: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/metadata/task-types`,
+  WorkflowMetadataStatuses: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/metadata/statuses`,
+  WorkflowMetadataPriorities: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/metadata/priorities`,
+  // Asset picker for workflow
+  WorkflowAssetsPicker: (PlaygroundApiUrl: string, search?: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/assets${search ? `?search=${encodeURIComponent(search)}` : ''}`,
+  WorkflowAssetWorkflows: (PlaygroundApiUrl: string, assetId: string) =>
+    `${PlaygroundApiUrl}/v1/workflow/assets/${assetId}/workflows`,
 }
