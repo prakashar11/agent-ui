@@ -82,8 +82,8 @@ const useChatActions = () => {
       // This handles the case where frontend starts before backend workers are initialized
       const isReady = await isBackendReady(selectedEndpoint)
       if (!isReady) {
-        // Backend not ready yet, wait for it with progress toasts
-        const toastId = toast.loading('Waiting for backend to start...', {
+        // Backend not ready yet, wait for it with compact progress toasts
+        const toastId = toast.loading('Starting backend...', {
           duration: Infinity,
         })
         try {
@@ -96,23 +96,25 @@ const useChatActions = () => {
               // Only show attempt count periodically to avoid toast spam during long waits
               const displayAttempt = attempt <= 10 || attempt % 10 === 0 ? attempt : null
               if (displayAttempt) {
-                toast.loading(`Connecting to backend... (${displayAttempt}/${max > 1000 ? '∞' : max})`, {
+                toast.loading(`Connecting... ${displayAttempt}s`, {
                   id: toastId,
-                  description: status,
                 })
               }
             },
             onReady: (response) => {
-              toast.success('Backend is ready!', {
+              // Dismiss the loading toast and show a brief success message
+              toast.success('Backend ready', {
                 id: toastId,
-                description: `${response.agents_loaded || 0} agents loaded`,
+                description: `${response.agents_loaded || 0} agents`,
+                duration: 2000,  // Auto-dismiss after 2 seconds
               })
             },
           })
         } catch (error) {
-          toast.error('Failed to connect to backend', {
+          toast.error('Backend unavailable', {
             id: toastId,
-            description: 'Please check if the server is running',
+            description: 'Check if server is running',
+            duration: 5000,  // Show error for 5 seconds
           })
           setIsEndpointActive(false)
           setAgents([])
