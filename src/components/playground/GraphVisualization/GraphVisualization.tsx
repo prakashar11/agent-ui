@@ -43,21 +43,18 @@ import {
 // =============================================================================
 
 // Define the logical hierarchy for node types (lower number = higher in graph)
+// Consolidated to 9 node types to avoid schema bloat
 const NODE_TYPE_HIERARCHY: Record<string, number> = {
-  AssetCategory: 0,   // Top level - categories
-  Asset: 1,           // Assets belong to categories
+  AssetCategory: 0,   // Top level - categories and groups
+  Asset: 1,           // Core assets - infrastructure, applications, endpoints
   Service: 1,         // Services same level as assets
-  Identity: 1,        // Identities same level as assets
-  Vulnerability: 2,   // Vulnerabilities affect assets
-  Control: 2,         // Controls protect assets
-  Credential: 2,      // Credentials same level as vulnerabilities
-  Threat: 3,          // Threats exploit vulnerabilities
-  ThreatActor: 3,     // Threat actors same level as threats
-  Indicator: 3,       // Indicators same level as threats
-  Technique: 4,       // MITRE techniques used by threats
-  Malware: 4,         // Malware same level as techniques
-  Tool: 4,            // Tools same level as techniques
-  Tactic: 5,          // MITRE tactics (grouping of techniques)
+  Identity: 1,        // Identities (embeds credentials) same level as assets
+  Vulnerability: 2,   // CVEs and security weaknesses
+  Control: 2,         // Security controls / hygiene essentials
+  Threat: 3,          // Consolidated threat (embeds: actor, campaign, tools, malware)
+  Indicator: 3,       // IOCs (IP, domain, hash) same level as threats
+  Attack: 4,          // Consolidated MITRE ATT&CK (embeds: technique + tactic)
+  LogEvent: 4,        // Security logs for detection correlation
 };
 
 const getNodeRank = (nodeType: string): number => {
@@ -518,13 +515,13 @@ function NodeDetailsPanel({ node, edges, nodes, onNavigate, onClose, editMode, o
 // HIERARCHY LEGEND PANEL
 // =============================================================================
 
+// Hierarchy levels for the consolidated 9-node schema
 const HIERARCHY_LEVELS = [
   { rank: 0, label: 'Categories', types: ['AssetCategory'], description: 'Asset categories & groups' },
-  { rank: 1, label: 'Assets', types: ['Asset', 'Service', 'Identity'], description: 'Assets, services, identities' },
-  { rank: 2, label: 'Vulnerabilities', types: ['Vulnerability', 'Control', 'Credential'], description: 'Weaknesses & controls' },
-  { rank: 3, label: 'Threats', types: ['Threat', 'ThreatActor', 'Indicator'], description: 'Threat actors & indicators' },
-  { rank: 4, label: 'Techniques', types: ['Technique', 'Malware', 'Tool'], description: 'Attack methods & tools' },
-  { rank: 5, label: 'Tactics', types: ['Tactic'], description: 'MITRE ATT&CK tactics' },
+  { rank: 1, label: 'Assets', types: ['Asset', 'Service', 'Identity'], description: 'Assets, services, identities (Identity embeds credentials)' },
+  { rank: 2, label: 'Vulnerabilities', types: ['Vulnerability', 'Control'], description: 'Weaknesses & security controls' },
+  { rank: 3, label: 'Threats', types: ['Threat', 'Indicator'], description: 'Threats (embeds actor/campaign/tools) & IOCs' },
+  { rank: 4, label: 'Attacks', types: ['Attack', 'LogEvent'], description: 'MITRE ATT&CK (embeds technique+tactic) & logs' },
 ];
 
 function HierarchyLegend() {
@@ -616,31 +613,47 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats }: Filter
 // RELATIONSHIP TYPE SELECTOR MODAL
 // =============================================================================
 
+// Relationship types for consolidated schema
 const RELATIONSHIP_TYPES = [
+  // Category relationships
   { value: 'BELONGS_TO_CATEGORY', label: 'Belongs to Category', color: EDGE_COLORS.BELONGS_TO_CATEGORY },
   { value: 'APPLIES_TO_CATEGORY', label: 'Applies to Category', color: EDGE_COLORS.APPLIES_TO_CATEGORY },
+  // Asset relationships
   { value: 'CONNECTED_TO', label: 'Connected To', color: EDGE_COLORS.CONNECTED_TO },
   { value: 'DEPENDS_ON', label: 'Depends On', color: EDGE_COLORS.DEPENDS_ON },
-  { value: 'PROTECTS', label: 'Protects', color: EDGE_COLORS.PROTECTS },
+  { value: 'HAS_SERVICE', label: 'Has Service', color: EDGE_COLORS.HAS_SERVICE },
+  { value: 'HAS_IDENTITY', label: 'Has Identity', color: EDGE_COLORS.HAS_IDENTITY },
+  // Control relationships
+  { value: 'HAS_CONTROL', label: 'Has Control', color: EDGE_COLORS.HAS_CONTROL },
+  { value: 'IMPLEMENTS_CONTROL', label: 'Implements Control', color: EDGE_COLORS.IMPLEMENTS_CONTROL },
+  { value: 'MITIGATED_BY', label: 'Mitigated By', color: EDGE_COLORS.MITIGATED_BY },
+  // Vulnerability relationships
   { value: 'VULNERABLE_TO', label: 'Vulnerable To', color: EDGE_COLORS.VULNERABLE_TO },
+  // Threat relationships
   { value: 'HAS_THREAT', label: 'Has Threat', color: EDGE_COLORS.HAS_THREAT },
   { value: 'EXPLOITS', label: 'Exploits', color: EDGE_COLORS.EXPLOITS },
   { value: 'TARGETS', label: 'Targets', color: EDGE_COLORS.TARGETS },
-  { value: 'USES_TECHNIQUE', label: 'Uses Technique', color: EDGE_COLORS.USES_TECHNIQUE },
-  { value: 'USES_TOOL', label: 'Uses Tool', color: EDGE_COLORS.USES_TOOL },
-  { value: 'USES_MALWARE', label: 'Uses Malware', color: EDGE_COLORS.USES_MALWARE },
+  // Attack relationships (MITRE ATT&CK)
+  { value: 'USES_ATTACK', label: 'Uses Attack', color: EDGE_COLORS.USES_ATTACK },
+  { value: 'ATTACK_TARGETS', label: 'Attack Targets', color: EDGE_COLORS.ATTACK_TARGETS },
+  { value: 'RELATED_ATTACK', label: 'Related Attack', color: EDGE_COLORS.RELATED_ATTACK },
+  // Detection relationships
+  { value: 'HAS_INDICATOR', label: 'Has Indicator', color: EDGE_COLORS.HAS_INDICATOR },
+  { value: 'DETECTED_BY_LOG', label: 'Detected By Log', color: EDGE_COLORS.DETECTED_BY_LOG },
 ];
 
+// Consolidated 9 node types + LogEvent
 const NODE_TYPES = [
   { value: 'AssetCategory', label: 'Asset Category', color: NODE_COLORS.AssetCategory },
   { value: 'Asset', label: 'Asset', color: NODE_COLORS.Asset },
-  { value: 'Vulnerability', label: 'Vulnerability', color: NODE_COLORS.Vulnerability },
-  { value: 'Threat', label: 'Threat', color: NODE_COLORS.Threat },
-  { value: 'ThreatActor', label: 'Threat Actor', color: NODE_COLORS.ThreatActor },
-  { value: 'Technique', label: 'MITRE Technique', color: NODE_COLORS.Technique },
-  { value: 'Tactic', label: 'MITRE Tactic', color: NODE_COLORS.Tactic },
-  { value: 'Control', label: 'Security Control', color: NODE_COLORS.Control },
   { value: 'Service', label: 'Service', color: NODE_COLORS.Service },
+  { value: 'Identity', label: 'Identity', color: NODE_COLORS.Identity },
+  { value: 'Vulnerability', label: 'Vulnerability', color: NODE_COLORS.Vulnerability },
+  { value: 'Control', label: 'Security Control', color: NODE_COLORS.Control },
+  { value: 'Threat', label: 'Threat', color: NODE_COLORS.Threat },
+  { value: 'Indicator', label: 'Indicator (IOC)', color: NODE_COLORS.Indicator },
+  { value: 'Attack', label: 'Attack (MITRE)', color: NODE_COLORS.Attack },
+  { value: 'LogEvent', label: 'Log Event', color: NODE_COLORS.LogEvent },
 ];
 
 // =============================================================================
@@ -1693,6 +1706,81 @@ interface PendingChanges {
 }
 
 // =============================================================================
+// DEMO/SAMPLE DATA (shown when backend has no data)
+// =============================================================================
+
+const DEMO_GRAPH_DATA: GraphData = {
+  nodes: [
+    // Asset Category
+    { id: 'cat-web', name: 'Web Servers', label: 'AssetCategory', properties: { description: 'Web application servers' } },
+    { id: 'cat-db', name: 'Databases', label: 'AssetCategory', properties: { description: 'Database systems' } },
+    // Assets
+    { id: 'asset-web1', name: 'web-prod-01', label: 'Asset', properties: { asset_type: 'web_server', criticality: 'high', ip_addresses: ['10.0.1.10'] } },
+    { id: 'asset-db1', name: 'db-prod-01', label: 'Asset', properties: { asset_type: 'database', criticality: 'critical', ip_addresses: ['10.0.2.10'] } },
+    // Identity
+    { id: 'id-admin', name: 'admin@company.com', label: 'Identity', properties: { identity_type: 'user', privileged: true, roles: ['admin'], has_mfa: true } },
+    { id: 'id-svc', name: 'svc-webapp', label: 'Identity', properties: { identity_type: 'service_account', privileged: false, roles: ['read'] } },
+    // Vulnerability
+    { id: 'vuln-1', name: 'CVE-2024-1234', label: 'Vulnerability', properties: { severity: 'critical', cvss: 9.8, description: 'Remote code execution' } },
+    // Control
+    { id: 'ctrl-1', name: 'Enable TLS 1.3', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'basic', status: 'implemented' } },
+    { id: 'ctrl-2', name: 'Database Encryption', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'intermediate', status: 'not_implemented' } },
+    // Threat
+    { id: 'threat-1', name: 'APT29 Campaign', label: 'Threat', properties: { threat_actor: 'APT29', threat_actor_type: 'nation-state', campaign: 'SolarWinds', tools: ['Cobalt Strike'], malware: ['SUNBURST'] } },
+    // Attack (MITRE ATT&CK)
+    { id: 'attack-1', name: 'T1566', label: 'Attack', properties: { technique_id: 'T1566', technique_name: 'Phishing', tactic: 'Initial Access', tactic_id: 'TA0001' } },
+    { id: 'attack-2', name: 'T1059', label: 'Attack', properties: { technique_id: 'T1059', technique_name: 'Command and Scripting Interpreter', tactic: 'Execution', tactic_id: 'TA0002' } },
+    // Indicator
+    { id: 'ioc-1', name: '192.168.1.100', label: 'Indicator', properties: { indicator_type: 'ip', source: 'threat_intel' } },
+    { id: 'ioc-2', name: 'malware.evil.com', label: 'Indicator', properties: { indicator_type: 'domain', source: 'threat_intel' } },
+    // LogEvent
+    { id: 'log-1', name: 'EVT-4625', label: 'LogEvent', properties: { event_type: 'authentication', source: 'windows_security', description: 'Failed login attempt' } },
+  ],
+  edges: [
+    // Asset -> Category
+    { id: 'e1', source: 'asset-web1', target: 'cat-web', label: 'BELONGS_TO_CATEGORY', properties: {} },
+    { id: 'e2', source: 'asset-db1', target: 'cat-db', label: 'BELONGS_TO_CATEGORY', properties: {} },
+    // Asset -> Identity
+    { id: 'e3', source: 'asset-db1', target: 'id-admin', label: 'HAS_IDENTITY', properties: {} },
+    { id: 'e4', source: 'asset-web1', target: 'id-svc', label: 'HAS_IDENTITY', properties: {} },
+    // Asset -> Vulnerability
+    { id: 'e5', source: 'asset-web1', target: 'vuln-1', label: 'VULNERABLE_TO', properties: {} },
+    // Asset -> Control
+    { id: 'e6', source: 'asset-web1', target: 'ctrl-1', label: 'HAS_CONTROL', properties: {} },
+    { id: 'e7', source: 'asset-db1', target: 'ctrl-2', label: 'HAS_CONTROL', properties: {} },
+    // Control -> Category
+    { id: 'e8', source: 'ctrl-1', target: 'cat-web', label: 'APPLIES_TO_CATEGORY', properties: {} },
+    // Asset -> Threat
+    { id: 'e9', source: 'asset-web1', target: 'threat-1', label: 'HAS_THREAT', properties: {} },
+    // Threat -> Attack
+    { id: 'e10', source: 'threat-1', target: 'attack-1', label: 'USES_ATTACK', properties: {} },
+    { id: 'e11', source: 'threat-1', target: 'attack-2', label: 'USES_ATTACK', properties: {} },
+    // Attack -> Indicator
+    { id: 'e12', source: 'attack-1', target: 'ioc-1', label: 'HAS_INDICATOR', properties: {} },
+    { id: 'e13', source: 'attack-1', target: 'ioc-2', label: 'HAS_INDICATOR', properties: {} },
+    // Attack -> LogEvent
+    { id: 'e14', source: 'attack-1', target: 'log-1', label: 'DETECTED_BY_LOG', properties: {} },
+    // Attack -> Category
+    { id: 'e15', source: 'attack-1', target: 'cat-web', label: 'ATTACK_TARGETS', properties: {} },
+    // Related attacks (kill chain)
+    { id: 'e16', source: 'attack-1', target: 'attack-2', label: 'RELATED_ATTACK', properties: {} },
+  ],
+};
+
+const DEMO_STATS: GraphStats = {
+  node_count: DEMO_GRAPH_DATA.nodes.length,
+  edge_count: DEMO_GRAPH_DATA.edges.length,
+  nodes_by_label: DEMO_GRAPH_DATA.nodes.reduce((acc, n) => {
+    acc[n.label] = (acc[n.label] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>),
+  edges_by_label: DEMO_GRAPH_DATA.edges.reduce((acc, e) => {
+    acc[e.label] = (acc[e.label] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>),
+};
+
+// =============================================================================
 // INTERNAL FLOW COMPONENT
 // =============================================================================
 
@@ -1703,9 +1791,11 @@ interface InternalFlowProps {
   error: string | null;
   onRefresh: () => void;
   endpoint?: string;
+  isShowingDemoData?: boolean;
+  onLoadDemoData?: () => void;
 }
 
-function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }: InternalFlowProps) {
+function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData }: InternalFlowProps) {
   const { fitView, setCenter, getNode } = useReactFlow();
   
   // Load stored layout preferences on mount
@@ -1866,11 +1956,35 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }:
         };
       });
 
-    // Check if we have stored positions for most nodes
-    const hasStoredPositions = stored?.nodePositions && 
-      Object.keys(stored.nodePositions).length > flowNodes.length * 0.5;
+    // Check if stored positions are valid and match current nodes
+    // This detects schema migrations where node IDs have changed
+    let useStoredLayout = false;
+    if (stored?.nodePositions) {
+      const storedNodeIds = new Set(Object.keys(stored.nodePositions));
+      const currentNodeIds = new Set(flowNodes.map(n => n.id));
+      
+      // Count how many current nodes have stored positions
+      const matchingNodes = flowNodes.filter(n => storedNodeIds.has(n.id)).length;
+      const matchPercentage = flowNodes.length > 0 ? matchingNodes / flowNodes.length : 0;
+      
+      // Count how many stored positions reference non-existent nodes (stale data)
+      const stalePositions = [...storedNodeIds].filter(id => !currentNodeIds.has(id)).length;
+      
+      console.log(`[AssetGraph] Layout cache check: ${matchingNodes}/${flowNodes.length} nodes have stored positions (${(matchPercentage * 100).toFixed(0)}%), ${stalePositions} stale positions`);
+      
+      // Use stored layout if:
+      // - More than 50% of current nodes have stored positions
+      // - AND stale positions don't outnumber valid ones (indicates schema change)
+      if (matchPercentage > 0.5 && stalePositions < matchingNodes) {
+        useStoredLayout = true;
+      } else if (stalePositions > 0) {
+        // Auto-clear stale layout cache (e.g., after schema migration)
+        console.log(`[AssetGraph] Clearing stale layout cache (${stalePositions} orphaned positions detected)`);
+        clearStoredLayout();
+      }
+    }
 
-    if (hasStoredPositions) {
+    if (useStoredLayout) {
       // Use stored positions directly
       setNodes(flowNodes);
       setEdges(flowEdges);
@@ -1884,6 +1998,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }:
       );
       setNodes(layoutedNodes as CustomNode[]);
       setEdges(layoutedEdges);
+      console.log('[AssetGraph] Applied fresh hierarchical layout');
     }
 
     // Fit view after layout
@@ -2537,9 +2652,20 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }:
         <div className="text-center max-w-md">
           <Info className="w-12 h-12 text-neutral-500 mx-auto mb-3" />
           <h3 className="text-lg font-medium text-white mb-2">No Graph Data</h3>
-          <p className="text-neutral-400">
+          <p className="text-neutral-400 mb-4">
             Import assets through the Asset Management agent to populate the graph.
             Assets, threats, vulnerabilities, and MITRE techniques will appear here.
+          </p>
+          {onLoadDemoData && (
+            <button
+              onClick={onLoadDemoData}
+              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+            >
+              Load Sample Data
+            </button>
+          )}
+          <p className="text-xs text-neutral-500 mt-3">
+            Sample data helps you explore the graph visualization features.
           </p>
         </div>
       </div>
@@ -2548,6 +2674,25 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint }:
 
   return (
     <div className="flex-1 relative">
+      {/* Demo Data Banner */}
+      {isShowingDemoData && (
+        <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-amber-600/90 to-orange-600/90 backdrop-blur-sm px-4 py-2 flex items-center justify-center gap-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm font-medium text-white">
+              Showing sample data — Backend does not have asset graph data yet
+            </span>
+          </div>
+          <button
+            onClick={onRefresh}
+            className="text-xs px-2 py-1 bg-white/20 hover:bg-white/30 text-white rounded transition-colors"
+          >
+            Check Backend
+          </button>
+        </div>
+      )}
       
       <ReactFlow
         nodes={nodes}
@@ -2876,11 +3021,22 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isShowingDemoData, setIsShowingDemoData] = useState(false);
+
+  // Load demo/sample data when backend has no data
+  const loadDemoData = useCallback(() => {
+    console.log('[AssetGraph] Loading demo/sample data');
+    setGraphData(DEMO_GRAPH_DATA);
+    setStats(DEMO_STATS);
+    setIsShowingDemoData(true);
+    setError(null);
+  }, []);
 
   // Fetch graph data from backend
   const fetchGraphData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setIsShowingDemoData(false); // Reset demo state when fetching from backend
 
     try {
       const baseUrl = endpoint || 'http://localhost:7777';
@@ -2989,6 +3145,11 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
           <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 bg-neutral-900/50">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-white">Asset Graph</h2>
+              {isShowingDemoData && (
+                <span className="text-xs px-2 py-1 bg-amber-600/20 text-amber-400 rounded-md font-medium border border-amber-600/30">
+                  SAMPLE DATA
+                </span>
+              )}
               {stats && (
                 <span className="text-sm text-neutral-400">
                   {stats.node_count} nodes • {stats.edge_count} relationships
@@ -3024,6 +3185,8 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
               error={error}
               onRefresh={fetchGraphData}
               endpoint={endpoint}
+              isShowingDemoData={isShowingDemoData}
+              onLoadDemoData={loadDemoData}
             />
           </ReactFlowProvider>
         </motion.div>
