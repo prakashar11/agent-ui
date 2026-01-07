@@ -9,6 +9,7 @@ import {
   getPlaygroundStatusAPI
 } from '@/api/playground'
 import { useQueryState } from 'nuqs'
+import { waitForBackend, isBackendReady } from '@/utils/waitForBackend'
 
 const useChatActions = () => {
   const { chatInputRef } = usePlaygroundStore()
@@ -77,6 +78,48 @@ const useChatActions = () => {
   const initializePlayground = useCallback(async () => {
     setIsEndpointLoading(true)
     try {
+      // Wait for backend to be fully ready before fetching agents
+      // This handles the case where frontend starts before backend workers are initialized
+      const isReady = await isBackendReady(selectedEndpoint)
+      if (!isReady) {
+        // Backend not ready yet, wait for it with progress toasts
+        const toastId = toast.loading('Waiting for backend to start...', {
+          duration: Infinity,
+        })
+        try {
+          // Uses default timeout from waitForBackend.ts (24h for dev, reduce for production)
+          // TODO: PRODUCTION - pass explicit maxRetries: 60 for faster failure detection
+          await waitForBackend(selectedEndpoint, {
+            // maxRetries: 60,  // Uncomment for production (60 seconds)
+            delayMs: 1000,
+            onProgress: (attempt, max, status) => {
+              // Only show attempt count periodically to avoid toast spam during long waits
+              const displayAttempt = attempt <= 10 || attempt % 10 === 0 ? attempt : null
+              if (displayAttempt) {
+                toast.loading(`Connecting to backend... (${displayAttempt}/${max > 1000 ? '∞' : max})`, {
+                  id: toastId,
+                  description: status,
+                })
+              }
+            },
+            onReady: (response) => {
+              toast.success('Backend is ready!', {
+                id: toastId,
+                description: `${response.agents_loaded || 0} agents loaded`,
+              })
+            },
+          })
+        } catch (error) {
+          toast.error('Failed to connect to backend', {
+            id: toastId,
+            description: 'Please check if the server is running',
+          })
+          setIsEndpointActive(false)
+          setAgents([])
+          return []
+        }
+      }
+
       const status = await getStatus()
       let agents: ComboboxAgent[] = []
       if (status === 200) {

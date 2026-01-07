@@ -1,4 +1,10 @@
 export const APIRoutes = {
+  // Health & Readiness Check
+  Health: (PlaygroundApiUrl: string) => `${PlaygroundApiUrl}/health`,
+  Ready: (PlaygroundApiUrl: string) => `${PlaygroundApiUrl}/ready`,
+  ServerStatus: (PlaygroundApiUrl: string) => `${PlaygroundApiUrl}/v1/status`,
+
+  // Playground
   GetPlaygroundAgents: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/playground/agents`,
   AgentRun: (PlaygroundApiUrl: string) =>
