@@ -142,3 +142,77 @@ export interface GraphVisualizationProps {
   endpoint?: string;
 }
 
+// =============================================================================
+// METAPATH WALKER TYPES (Exploitability & Remediation)
+// =============================================================================
+
+export interface ExploitabilityScore {
+  asset_id: string;
+  asset_name: string;
+  overall_score: number; // 0-100
+  component_scores: {
+    threat_exposure: number;
+    vulnerability_severity: number;
+    attack_surface: number;
+    lateral_movement_risk: number;
+    control_coverage: number;
+  };
+  top_threats: string[];
+  critical_vulnerabilities: string[];
+  exposed_services: string[];
+  missing_controls: string[];
+  kill_chain_coverage: Record<string, boolean>;
+}
+
+export interface RemediationRecommendation {
+  priority_rank: number;
+  priority_score: number; // 0-100
+  remediation_type: 'patch' | 'control' | 'configuration' | 'architecture';
+  target: {
+    id: string;
+    name: string;
+    type: 'asset' | 'vulnerability' | 'control';
+  };
+  action: string;
+  rationale: string;
+  impact: {
+    affected_assets: string[];
+    mitigated_threats: string[];
+    mitigated_vulnerabilities: string[];
+  };
+  effort_level: 'low' | 'medium' | 'high';
+}
+
+export interface AttackPathStep {
+  step: number;
+  type: 'threat' | 'attack' | 'category' | 'asset';
+  node_id: string;
+  name?: string;
+  action: string;
+}
+
+export interface AttackPath {
+  path: AttackPathStep[];
+}
+
+export interface MetaPathInfo {
+  name: string;
+  description: string;
+  length: number;
+  node_types: string[];
+  edge_types: string[];
+  weight: number;
+}
+
+export interface MetaPathStats {
+  metapaths: Record<string, MetaPathInfo>;
+  graph_stats: GraphStats;
+  capabilities: {
+    exploitability_analysis: boolean;
+    remediation_prioritization: boolean;
+    attack_path_discovery: boolean;
+    kill_chain_analysis: boolean;
+    defense_gap_analysis: boolean;
+    embeddings_available: boolean;
+  };
+}

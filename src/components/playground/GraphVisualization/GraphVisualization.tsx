@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -36,6 +37,9 @@ import {
   NODE_COLORS,
   EDGE_COLORS,
   type GraphVisualizationProps,
+  type ExploitabilityScore,
+  type RemediationRecommendation,
+  type AttackPathStep,
 } from './types';
 
 // =============================================================================
@@ -606,6 +610,425 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats }: Filter
         })}
       </div>
     </div>
+  );
+}
+
+// =============================================================================
+// EXPLOITABILITY ANALYSIS PANEL
+// =============================================================================
+
+interface ExploitabilityPanelProps {
+  scores: ExploitabilityScore[];
+  loading: boolean;
+  onSelectAsset: (assetId: string) => void;
+  onClose: () => void;
+}
+
+function ExploitabilityPanel({ scores, loading, onSelectAsset, onClose }: ExploitabilityPanelProps) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const getScoreColor = (score: number) => {
+    if (score >= 70) return 'text-red-400 bg-red-500/20';
+    if (score >= 40) return 'text-amber-400 bg-amber-500/20';
+    return 'text-green-400 bg-green-500/20';
+  };
+
+  const getScoreLabel = (score: number) => {
+    if (score >= 70) return 'Critical';
+    if (score >= 40) return 'Medium';
+    return 'Low';
+  };
+
+  return (
+    <motion.div
+      initial={{ x: -320, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: -320, opacity: 0 }}
+      className="absolute left-0 top-0 h-full w-80 bg-neutral-900/95 backdrop-blur-sm border-r border-neutral-700 overflow-y-auto z-10"
+    >
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Shield className="w-4 h-4 text-red-400" />
+            <span className="text-sm font-semibold text-white">Exploitability Analysis</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-neutral-700 rounded transition-colors"
+          >
+            <X className="w-4 h-4 text-neutral-400" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-red-400 rounded-full" />
+          </div>
+        ) : scores.length === 0 ? (
+          <div className="text-center py-8 text-neutral-500 text-sm">
+            No assets to analyze. Add assets to the graph first.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {scores.map((score) => (
+              <div
+                key={score.asset_id}
+                className="bg-neutral-800/50 rounded-lg overflow-hidden"
+              >
+                <button
+                  onClick={() => setExpanded(expanded === score.asset_id ? null : score.asset_id)}
+                  className="w-full p-3 flex items-center justify-between hover:bg-neutral-800 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`px-2 py-1 rounded text-xs font-bold ${getScoreColor(score.overall_score)}`}>
+                      {Math.round(score.overall_score)}
+                    </div>
+                    <div className="text-left">
+                      <div className="text-sm text-white font-medium truncate max-w-[160px]">
+                        {score.asset_name}
+                      </div>
+                      <div className="text-xs text-neutral-500">
+                        {getScoreLabel(score.overall_score)} Risk
+                      </div>
+                    </div>
+                  </div>
+                  {expanded === score.asset_id ? (
+                    <ChevronUp className="w-4 h-4 text-neutral-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-neutral-400" />
+                  )}
+                </button>
+
+                <AnimatePresence>
+                  {expanded === score.asset_id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden"
+                    >
+                      <div className="px-3 pb-3 space-y-3 border-t border-neutral-700/50">
+                        {/* Component Scores */}
+                        <div className="pt-3">
+                          <div className="text-xs text-neutral-400 uppercase mb-2">Scores</div>
+                          <div className="space-y-1.5">
+                            {Object.entries(score.component_scores).map(([key, value]) => (
+                              <div key={key} className="flex items-center justify-between">
+                                <span className="text-xs text-neutral-400 capitalize">
+                                  {key.replace(/_/g, ' ')}
+                                </span>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-1.5 bg-neutral-700 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${
+                                        value >= 70 ? 'bg-red-500' : value >= 40 ? 'bg-amber-500' : 'bg-green-500'
+                                      }`}
+                                      style={{ width: `${value}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-xs text-neutral-300 w-8 text-right">{Math.round(value)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Top Threats */}
+                        {score.top_threats.length > 0 && (
+                          <div>
+                            <div className="text-xs text-neutral-400 uppercase mb-1">Top Threats</div>
+                            <div className="flex flex-wrap gap-1">
+                              {score.top_threats.slice(0, 3).map((threat, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-red-500/20 text-red-300 rounded text-xs">
+                                  {threat}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Critical Vulnerabilities */}
+                        {score.critical_vulnerabilities.length > 0 && (
+                          <div>
+                            <div className="text-xs text-neutral-400 uppercase mb-1">Critical Vulns</div>
+                            <div className="flex flex-wrap gap-1">
+                              {score.critical_vulnerabilities.slice(0, 3).map((vuln, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded text-xs">
+                                  {vuln}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Missing Controls */}
+                        {score.missing_controls.length > 0 && (
+                          <div>
+                            <div className="text-xs text-neutral-400 uppercase mb-1">Missing Controls</div>
+                            <div className="flex flex-wrap gap-1">
+                              {score.missing_controls.slice(0, 2).map((control, i) => (
+                                <span key={i} className="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded text-xs truncate max-w-full">
+                                  {control}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Navigate Button */}
+                        <button
+                          onClick={() => onSelectAsset(score.asset_id)}
+                          className="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Target className="w-3 h-3" />
+                          Focus in Graph
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// =============================================================================
+// REMEDIATION PRIORITIES PANEL
+// =============================================================================
+
+interface RemediationPanelProps {
+  recommendations: RemediationRecommendation[];
+  loading: boolean;
+  onSelectTarget: (targetId: string) => void;
+  onClose: () => void;
+}
+
+function RemediationPanel({ recommendations, loading, onSelectTarget, onClose }: RemediationPanelProps) {
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'patch': return <Zap className="w-3 h-3" />;
+      case 'control': return <Shield className="w-3 h-3" />;
+      case 'architecture': return <Activity className="w-3 h-3" />;
+      default: return <AlertTriangle className="w-3 h-3" />;
+    }
+  };
+
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case 'patch': return 'bg-red-500/20 text-red-300 border-red-500/30';
+      case 'control': return 'bg-green-500/20 text-green-300 border-green-500/30';
+      case 'architecture': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+      default: return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+    }
+  };
+
+  const getEffortColor = (effort: string) => {
+    switch (effort) {
+      case 'low': return 'text-green-400';
+      case 'medium': return 'text-amber-400';
+      case 'high': return 'text-red-400';
+      default: return 'text-neutral-400';
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ x: -320, opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: -320, opacity: 0 }}
+      className="absolute left-0 top-0 h-full w-96 bg-neutral-900/95 backdrop-blur-sm border-r border-neutral-700 overflow-y-auto z-10"
+    >
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-semibold text-white">Remediation Priorities</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-neutral-700 rounded transition-colors"
+          >
+            <X className="w-4 h-4 text-neutral-400" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-amber-400 rounded-full" />
+          </div>
+        ) : recommendations.length === 0 ? (
+          <div className="text-center py-8 text-neutral-500 text-sm">
+            No remediation recommendations available.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {recommendations.map((rec, index) => (
+              <div
+                key={index}
+                className="bg-neutral-800/50 rounded-lg p-3 border border-neutral-700/50"
+              >
+                {/* Priority Badge & Type */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-neutral-700 flex items-center justify-center text-xs font-bold text-white">
+                      {rec.priority_rank}
+                    </div>
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 border ${getTypeColor(rec.remediation_type)}`}>
+                      {getTypeIcon(rec.remediation_type)}
+                      {rec.remediation_type}
+                    </span>
+                  </div>
+                  <div className="text-xs text-neutral-400">
+                    Score: <span className="text-white font-medium">{Math.round(rec.priority_score)}</span>
+                  </div>
+                </div>
+
+                {/* Target */}
+                <div className="mb-2">
+                  <div className="text-xs text-neutral-500 uppercase">Target</div>
+                  <div className="text-sm text-white font-medium">{rec.target.name}</div>
+                  <div className="text-xs text-neutral-400">{rec.target.type}</div>
+                </div>
+
+                {/* Action */}
+                <div className="mb-2">
+                  <div className="text-xs text-neutral-500 uppercase">Action</div>
+                  <div className="text-sm text-neutral-200">{rec.action}</div>
+                </div>
+
+                {/* Rationale */}
+                <div className="mb-3">
+                  <div className="text-xs text-neutral-500 uppercase">Rationale</div>
+                  <div className="text-xs text-neutral-400">{rec.rationale}</div>
+                </div>
+
+                {/* Impact & Effort */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-3">
+                    {rec.impact.affected_assets.length > 0 && (
+                      <span className="text-neutral-400">
+                        <span className="text-blue-400">{rec.impact.affected_assets.length}</span> assets
+                      </span>
+                    )}
+                    {rec.impact.mitigated_vulnerabilities.length > 0 && (
+                      <span className="text-neutral-400">
+                        <span className="text-orange-400">{rec.impact.mitigated_vulnerabilities.length}</span> vulns
+                      </span>
+                    )}
+                  </div>
+                  <span className={`${getEffortColor(rec.effort_level)} capitalize`}>
+                    {rec.effort_level} effort
+                  </span>
+                </div>
+
+                {/* Navigate Button */}
+                {rec.target.id && (
+                  <button
+                    onClick={() => onSelectTarget(rec.target.id)}
+                    className="w-full mt-3 px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Target className="w-3 h-3" />
+                    Focus Target in Graph
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// =============================================================================
+// ATTACK PATH PANEL
+// =============================================================================
+
+interface AttackPathPanelProps {
+  paths: AttackPathStep[][];
+  threatId: string;
+  targetAssetId: string;
+  loading: boolean;
+  onSelectNode: (nodeId: string) => void;
+  onClose: () => void;
+}
+
+function AttackPathPanel({ paths, threatId, targetAssetId, loading, onSelectNode, onClose }: AttackPathPanelProps) {
+  const getStepColor = (type: string) => {
+    switch (type) {
+      case 'threat': return 'bg-red-500';
+      case 'attack': return 'bg-yellow-500';
+      case 'category': return 'bg-purple-500';
+      case 'asset': return 'bg-blue-500';
+      default: return 'bg-neutral-500';
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ y: 100, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 100, opacity: 0 }}
+      className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[600px] max-h-80 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl overflow-hidden z-10"
+    >
+      <div className="p-4">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-yellow-400" />
+            <span className="text-sm font-semibold text-white">Attack Paths</span>
+            <span className="text-xs text-neutral-400">({paths.length} found)</span>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-neutral-700 rounded transition-colors"
+          >
+            <X className="w-4 h-4 text-neutral-400" />
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-6">
+            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-yellow-400 rounded-full" />
+          </div>
+        ) : paths.length === 0 ? (
+          <div className="text-center py-6 text-neutral-500 text-sm">
+            No attack paths found between selected threat and asset.
+          </div>
+        ) : (
+          <div className="space-y-3 max-h-52 overflow-y-auto">
+            {paths.map((path, pathIndex) => (
+              <div key={pathIndex} className="bg-neutral-800/50 rounded-lg p-3">
+                <div className="text-xs text-neutral-400 mb-2">Path {pathIndex + 1}</div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {path.map((step, stepIndex) => (
+                    <React.Fragment key={step.step}>
+                      <button
+                        onClick={() => onSelectNode(step.node_id)}
+                        className="flex items-center gap-1.5 px-2 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-xs transition-colors"
+                      >
+                        <div className={`w-2 h-2 rounded-full ${getStepColor(step.type)}`} />
+                        <span className="text-white">{step.name || step.node_id}</span>
+                        <span className="text-neutral-500 capitalize">({step.type})</span>
+                      </button>
+                      {stepIndex < path.length - 1 && (
+                        <span className="text-neutral-500 text-xs px-1">→</span>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </motion.div>
   );
 }
 
@@ -1839,6 +2262,17 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [showEditRelationshipModal, setShowEditRelationshipModal] = useState(false);
   const [editingEdge, setEditingEdge] = useState<Edge | null>(null);
   
+  // Analysis panels state
+  const [showExploitabilityPanel, setShowExploitabilityPanel] = useState(false);
+  const [showRemediationPanel, setShowRemediationPanel] = useState(false);
+  const [showAttackPathPanel, setShowAttackPathPanel] = useState(false);
+  const [exploitabilityScores, setExploitabilityScores] = useState<ExploitabilityScore[]>([]);
+  const [remediationRecommendations, setRemediationRecommendations] = useState<RemediationRecommendation[]>([]);
+  const [attackPaths, setAttackPaths] = useState<AttackPathStep[][]>([]);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [selectedThreatForPath, setSelectedThreatForPath] = useState<string>('');
+  const [selectedAssetForPath, setSelectedAssetForPath] = useState<string>('');
+  
   // Track if there are unsaved changes
   const hasUnsavedChanges = pendingChanges.addedEdges.length > 0 || 
     pendingChanges.deletedEdgeIds.length > 0 || 
@@ -2302,8 +2736,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           source_handle: sourceHandle,
           target_handle: targetHandle,
         }),
-      }).catch(err => {
-        console.error('Failed to update edge:', err);
+      }).catch(() => {
+        toast.error('Failed to update edge connection', { duration: 3000 });
       });
     }
   }, [setEdges, endpoint]);
@@ -2409,9 +2843,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       setEditMode(false);
       onRefresh();
       
-    } catch (err) {
-      console.error('Failed to save changes:', err);
-      alert('Failed to save changes. Please try again.');
+    } catch {
+      toast.error('Failed to save changes. Please try again.', { duration: 3000 });
     } finally {
       setIsSaving(false);
     }
@@ -2439,6 +2872,118 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     });
     setSelectedEdges(new Set());
   }, [selectedEdges, handleDeleteEdge]);
+
+  // ==========================================================================
+  // ANALYSIS FUNCTIONS (MetaPath Walker Integration)
+  // ==========================================================================
+
+  // Fetch exploitability scores for all assets
+  const fetchExploitabilityScores = useCallback(async () => {
+    setAnalysisLoading(true);
+    try {
+      const baseUrl = endpoint || 'http://localhost:7777';
+      const response = await fetch(`${baseUrl}/v1/asset-graph/exploitability?limit=50`);
+      
+      if (!response.ok) {
+        toast.error('Failed to fetch exploitability scores. Check if backend is running.', { duration: 3000 });
+        return;
+      }
+      
+      const data = await response.json();
+      setExploitabilityScores(data.assets || []);
+      if (data.assets?.length === 0) {
+        toast('No exploitability data available. Add assets with threats/vulnerabilities first.', { duration: 4000 });
+      }
+    } catch (err) {
+      toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [endpoint]);
+
+  // Fetch global remediation priorities
+  const fetchRemediationPriorities = useCallback(async () => {
+    setAnalysisLoading(true);
+    try {
+      const baseUrl = endpoint || 'http://localhost:7777';
+      const response = await fetch(`${baseUrl}/v1/asset-graph/remediation?limit=20`);
+      
+      if (!response.ok) {
+        toast.error('Failed to fetch remediation priorities. Check if backend is running.', { duration: 3000 });
+        return;
+      }
+      
+      const data = await response.json();
+      setRemediationRecommendations(data.recommendations || []);
+      if (data.recommendations?.length === 0) {
+        toast('No remediation recommendations available. Add vulnerabilities or threats first.', { duration: 4000 });
+      }
+    } catch (err) {
+      toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [endpoint]);
+
+  // Fetch attack paths between threat and asset
+  const fetchAttackPaths = useCallback(async (threatId: string, assetId: string) => {
+    if (!threatId || !assetId) return;
+    
+    setAnalysisLoading(true);
+    setSelectedThreatForPath(threatId);
+    setSelectedAssetForPath(assetId);
+    
+    try {
+      const baseUrl = endpoint || 'http://localhost:7777';
+      const response = await fetch(
+        `${baseUrl}/v1/asset-graph/attack-paths?threat_id=${encodeURIComponent(threatId)}&target_asset_id=${encodeURIComponent(assetId)}&max_paths=5`
+      );
+      
+      if (!response.ok) {
+        toast.error('Failed to fetch attack paths. Check if backend is running.', { duration: 3000 });
+        return;
+      }
+      
+      const data = await response.json();
+      setAttackPaths(data.paths || []);
+      setShowAttackPathPanel(true);
+      if (data.paths?.length === 0) {
+        toast('No attack paths found between selected threat and asset.', { duration: 3000 });
+      }
+    } catch (err) {
+      toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [endpoint]);
+
+  // Toggle exploitability panel
+  const toggleExploitabilityPanel = useCallback(() => {
+    if (!showExploitabilityPanel) {
+      fetchExploitabilityScores();
+    }
+    setShowExploitabilityPanel(!showExploitabilityPanel);
+    setShowRemediationPanel(false);
+  }, [showExploitabilityPanel, fetchExploitabilityScores]);
+
+  // Toggle remediation panel
+  const toggleRemediationPanel = useCallback(() => {
+    if (!showRemediationPanel) {
+      fetchRemediationPriorities();
+    }
+    setShowRemediationPanel(!showRemediationPanel);
+    setShowExploitabilityPanel(false);
+  }, [showRemediationPanel, fetchRemediationPriorities]);
+
+  // Navigate to a node from analysis panels
+  const handleAnalysisNavigate = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (node) {
+      setSelectedNode(node);
+      const { x, y } = node.position;
+      setCenter(x + 100, y + 35, { duration: 500, zoom: 1.5 });
+    }
+  }, [nodes, setCenter]);
 
   // Get node name by ID (for relationship selector)
   const getNodeName = useCallback((nodeId: string | null) => {
@@ -2607,8 +3152,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ properties }),
         });
-      } catch (err) {
-        console.error('Failed to save node properties:', err);
+      } catch {
+        toast.error('Failed to save node properties to server', { duration: 3000 });
         // Properties are still updated locally even if backend fails
       }
     }
@@ -2781,6 +3326,37 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             <Info className="w-4 h-4" />
           </button>
 
+          {/* Analysis Separator */}
+          <div className="w-px h-6 bg-neutral-700" />
+
+          {/* Exploitability Analysis Button */}
+          <button
+            onClick={toggleExploitabilityPanel}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+              showExploitabilityPanel 
+                ? 'bg-red-600 text-white' 
+                : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-red-500/50'
+            }`}
+            title="Exploitability Analysis"
+          >
+            <Shield className="w-4 h-4" />
+            <span className="text-xs font-medium">Risk</span>
+          </button>
+
+          {/* Remediation Priorities Button */}
+          <button
+            onClick={toggleRemediationPanel}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+              showRemediationPanel 
+                ? 'bg-amber-600 text-white' 
+                : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-amber-500/50'
+            }`}
+            title="Remediation Priorities"
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-xs font-medium">Remediate</span>
+          </button>
+
           {/* Minimap Toggle */}
           <button
             onClick={() => setShowMinimap(!showMinimap)}
@@ -2944,6 +3520,44 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         )}
       </AnimatePresence>
 
+      {/* Exploitability Analysis Panel */}
+      <AnimatePresence>
+        {showExploitabilityPanel && (
+          <ExploitabilityPanel
+            scores={exploitabilityScores}
+            loading={analysisLoading}
+            onSelectAsset={handleAnalysisNavigate}
+            onClose={() => setShowExploitabilityPanel(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Remediation Priorities Panel */}
+      <AnimatePresence>
+        {showRemediationPanel && (
+          <RemediationPanel
+            recommendations={remediationRecommendations}
+            loading={analysisLoading}
+            onSelectTarget={handleAnalysisNavigate}
+            onClose={() => setShowRemediationPanel(false)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Attack Path Panel */}
+      <AnimatePresence>
+        {showAttackPathPanel && (
+          <AttackPathPanel
+            paths={attackPaths}
+            threatId={selectedThreatForPath}
+            targetAssetId={selectedAssetForPath}
+            loading={analysisLoading}
+            onSelectNode={handleAnalysisNavigate}
+            onClose={() => setShowAttackPathPanel(false)}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Relationship Type Selector Modal (for drag-connect) */}
       <RelationshipSelector
         isOpen={showRelationshipSelector}
@@ -3095,7 +3709,7 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
         edges_by_label: {},
       });
     } catch (err) {
-      console.error('[AssetGraph] Error fetching graph data:', err);
+      toast.error('Failed to fetch graph data. Check if backend is running.', { duration: 3000 });
       // Show error state instead of demo data
       setError(err instanceof Error ? err.message : 'Failed to fetch graph data');
       setGraphData({ nodes: [], edges: [] });
