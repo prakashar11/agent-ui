@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ReactFlow,
@@ -59,6 +59,63 @@ const NODE_TYPE_HIERARCHY: Record<string, number> = {
   Indicator: 3,       // IOCs (IP, domain, hash) same level as threats
   Attack: 4,          // Consolidated MITRE ATT&CK (embeds: technique + tactic)
   LogEvent: 4,        // Security logs for detection correlation
+};
+
+// Helper to detect if a string is a URL
+const isUrl = (value: unknown): boolean => {
+  if (typeof value !== 'string') return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+// Helper to render a property value (handles URLs, arrays, etc.)
+const renderPropertyValue = (key: string, value: unknown): React.ReactNode => {
+  if (Array.isArray(value)) {
+    // For arrays, check if any item is a URL
+    return value.map((item, idx) => (
+      <span key={idx}>
+        {isUrl(item) ? (
+          <a
+            href={String(item)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {String(item).length > 50 ? `${String(item).substring(0, 50)}...` : String(item)}
+            <ExternalLink className="w-3 h-3 flex-shrink-0" />
+          </a>
+        ) : (
+          String(item)
+        )}
+        {idx < value.length - 1 ? ', ' : ''}
+      </span>
+    ));
+  }
+  
+  const strValue = String(value);
+  
+  // Check if this is a URL
+  if (isUrl(value)) {
+    return (
+      <a
+        href={strValue}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-blue-400 hover:text-blue-300 hover:underline inline-flex items-center gap-1 break-all"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {strValue.length > 60 ? `${strValue.substring(0, 60)}...` : strValue}
+        <ExternalLink className="w-3 h-3 flex-shrink-0" />
+      </a>
+    );
+  }
+  
+  return strValue;
 };
 
 const getNodeRank = (nodeType: string): number => {
@@ -440,7 +497,7 @@ function NodeDetailsPanel({ node, edges, nodes, onNavigate, onClose, editMode, o
                   <div key={key} className="flex flex-col">
                     <span className="text-xs text-neutral-500">{key}</span>
                     <span className="text-sm text-neutral-200 break-words">
-                      {Array.isArray(value) ? value.join(', ') : String(value)}
+                      {renderPropertyValue(key, value)}
                     </span>
                   </div>
                 );
