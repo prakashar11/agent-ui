@@ -2258,6 +2258,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [selectedNode, setSelectedNode] = useState<CustomNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilteredNodeIds, setSearchFilteredNodeIds] = useState<Set<string> | null>(null);
+  const [filterMaxHops, setFilterMaxHops] = useState<number | undefined>(2); // Default to 2 hops
   const [showFilters, setShowFilters] = useState(false);
   const [showLegend, setShowLegend] = useState(storedLayout?.preferences?.showLegend ?? false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
@@ -2577,9 +2578,79 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [nodes, setCenter]);
 
-  // Search for nodes - filters graph to show searched node and connected nodes
-  const handleSearch = useCallback((query: string) => {
+  // Local fallback for multi-hop collection (when API unavailable)
+  const collectMultiHopNodesLocal = useCallback((
+    startNodeIds: string[],
+    maxHops: number = 2
+  ): Set<string> => {
+    const collectedNodeIds = new Set<string>(startNodeIds);
+    let currentFrontier = new Set<string>(startNodeIds);
+    
+    for (let hop = 0; hop < maxHops; hop++) {
+      const nextFrontier = new Set<string>();
+      
+      currentFrontier.forEach(nodeId => {
+        // Find all edges connected to this node
+        graphData?.edges.forEach(edge => {
+          if (edge.source === nodeId && !collectedNodeIds.has(edge.target)) {
+            nextFrontier.add(edge.target);
+            collectedNodeIds.add(edge.target);
+          }
+          if (edge.target === nodeId && !collectedNodeIds.has(edge.source)) {
+            nextFrontier.add(edge.source);
+            collectedNodeIds.add(edge.source);
+          }
+        });
+      });
+      
+      currentFrontier = nextFrontier;
+      
+      // Stop if no new nodes found
+      if (currentFrontier.size === 0) break;
+    }
+    
+    return collectedNodeIds;
+  }, [graphData]);
+
+  // Fetch all connected nodes from backend using graph traversal utility
+  const fetchConnectedNodes = useCallback(async (
+    nodeId: string,
+    maxHops?: number
+  ): Promise<Set<string>> => {
+    try {
+      const baseUrl = endpoint || 'http://localhost:7777';
+      // No max_hops param = get all connected nodes (entire connected component)
+      const hopsParam = maxHops !== undefined ? `?max_hops=${maxHops}` : '';
+      const response = await fetch(
+        `${baseUrl}/v1/asset-graph/metapath/connected/${nodeId}${hopsParam}`
+      );
+      
+      if (!response.ok) {
+        // Fallback to local computation if API fails
+        console.warn('Connected nodes API failed, using local fallback');
+        return collectMultiHopNodesLocal([nodeId], maxHops ?? 10);
+      }
+      
+      const data = await response.json();
+      if (data.success && data.node_ids) {
+        return new Set<string>(data.node_ids);
+      }
+      
+      return collectMultiHopNodesLocal([nodeId], maxHops ?? 10);
+    } catch (error) {
+      console.warn('Connected nodes API error, using local fallback:', error);
+      return collectMultiHopNodesLocal([nodeId], maxHops ?? 10);
+    }
+  }, [endpoint, collectMultiHopNodesLocal]);
+
+  // Search for nodes - filters graph to show searched node and connected nodes (multi-hop via backend)
+  // maxHopsOverride allows passing a specific value when state hasn't updated yet
+  const handleSearch = useCallback(async (query: string, maxHopsOverride?: number | null) => {
     setSearchQuery(query);
+    // Use override if provided, otherwise use state (null means use undefined for "all")
+    const effectiveMaxHops = maxHopsOverride !== undefined 
+      ? (maxHopsOverride === null ? undefined : maxHopsOverride)
+      : filterMaxHops;
     
     // If search is cleared, reset filter and show all nodes
     if (!query.trim()) {
@@ -2602,26 +2673,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       return;
     }
 
-    // Collect matched nodes and their connected nodes
-    const connectedNodeIds = new Set<string>();
+    // Use backend graph traversal to get connected nodes (respecting max hops filter)
+    // This includes the security context: vulnerabilities, threats, controls, etc.
+    // For multiple matching nodes, collect from each and merge
+    const allConnectedNodeIds = new Set<string>();
     
-    matchingNodes.forEach(matchedNode => {
-      // Add the matched node itself
-      connectedNodeIds.add(matchedNode.id);
-      
-      // Find all edges connected to this node
-      graphData?.edges.forEach(edge => {
-        if (edge.source === matchedNode.id) {
-          connectedNodeIds.add(edge.target);
-        }
-        if (edge.target === matchedNode.id) {
-          connectedNodeIds.add(edge.source);
-        }
-      });
-    });
+    for (const matchedNode of matchingNodes) {
+      const nodeNeighbors = await fetchConnectedNodes(matchedNode.id, effectiveMaxHops);
+      nodeNeighbors.forEach(id => allConnectedNodeIds.add(id));
+    }
 
     // Update the filter state - this will trigger graph re-render
-    setSearchFilteredNodeIds(connectedNodeIds);
+    setSearchFilteredNodeIds(allConnectedNodeIds);
 
     // Wait for layout to complete, then fit view and select the first matched node
     setTimeout(() => {
@@ -2639,7 +2702,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         }
       }, 350);
     }, 200);
-  }, [graphData, nodes, fitView]);
+  }, [graphData, nodes, fitView, fetchConnectedNodes, filterMaxHops]);
 
   // Toggle filter
   const toggleFilter = useCallback((type: string) => {
@@ -3059,8 +3122,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     setShowExploitabilityPanel(false);
   }, [showRemediationPanel, fetchRemediationPriorities]);
 
-  // Navigate to a node from analysis panels - also filters graph to show focused node and connected nodes
-  const handleAnalysisNavigate = useCallback((nodeId: string) => {
+  // Navigate to a node from analysis panels - uses backend MetaPath Walker for multi-hop walk
+  const handleAnalysisNavigate = useCallback(async (nodeId: string) => {
     // Find the target node in graphData
     const targetNode = graphData?.nodes.find(n => n.id === nodeId);
     if (!targetNode) {
@@ -3068,19 +3131,9 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       return;
     }
 
-    // Collect the target node and all connected nodes
-    const connectedNodeIds = new Set<string>();
-    connectedNodeIds.add(nodeId);
-
-    // Find all edges connected to this node
-    graphData?.edges.forEach(edge => {
-      if (edge.source === nodeId) {
-        connectedNodeIds.add(edge.target);
-      }
-      if (edge.target === nodeId) {
-        connectedNodeIds.add(edge.source);
-      }
-    });
+    // Use backend graph traversal to get all connected nodes (no hop limit)
+    // This provides the security context for the focused node (respecting max hops)
+    const connectedNodeIds = await fetchConnectedNodes(nodeId, filterMaxHops);
 
     // Update the filter state - this will trigger graph re-render
     setSearchFilteredNodeIds(connectedNodeIds);
@@ -3101,7 +3154,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         }
       }, 350);
     }, 200);
-  }, [graphData, nodes, fitView]);
+  }, [graphData, nodes, fitView, fetchConnectedNodes, filterMaxHops]);
 
   // Get node name by ID (for relationship selector)
   const getNodeName = useCallback((nodeId: string | null) => {
@@ -3441,6 +3494,32 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
+          </div>
+
+          {/* Max Hops Selector */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-neutral-500">Depth:</span>
+            <select
+              value={filterMaxHops ?? 'all'}
+              onChange={(e) => {
+                const val = e.target.value;
+                const newMaxHops = val === 'all' ? undefined : parseInt(val, 10);
+                setFilterMaxHops(newMaxHops);
+                // Re-trigger search with new depth if there's an active query
+                // Pass the new value directly since state update is async
+                if (searchQuery.trim()) {
+                  handleSearch(searchQuery, newMaxHops === undefined ? null : newMaxHops);
+                }
+              }}
+              className="px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
+              title="Maximum relationship depth for filtering"
+            >
+              <option value="1">1 hop</option>
+              <option value="2">2 hops</option>
+              <option value="3">3 hops</option>
+              <option value="5">5 hops</option>
+              <option value="all">All</option>
+            </select>
           </div>
           
           {/* Search filter indicator */}
