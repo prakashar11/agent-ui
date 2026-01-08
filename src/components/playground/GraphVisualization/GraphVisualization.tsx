@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   ReactFlow,
@@ -216,6 +216,15 @@ const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
   const nodeData = data as unknown as CustomNodeData;
   const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
   
+  const handleCopyLabel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(nodeData.label).then(() => {
+      toast.success(`Copied: ${nodeData.label}`);
+    }).catch(() => {
+      toast.error('Failed to copy');
+    });
+  };
+  
   return (
     <div
       className={`
@@ -291,8 +300,13 @@ const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
         >
           {nodeData.nodeType}
         </div>
-        <div className="text-sm font-semibold text-white truncate" title={nodeData.label}>
-          {nodeData.label}
+        <div 
+          className="text-sm font-semibold text-white truncate flex items-center gap-1.5 group cursor-pointer hover:text-blue-300 transition-colors" 
+          title={`Click to copy: ${nodeData.label}`}
+          onClick={handleCopyLabel}
+        >
+          <span className="truncate">{nodeData.label}</span>
+          <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
         </div>
       </div>
     </div>
@@ -379,10 +393,25 @@ function NodeDetailsPanel({ node, edges, nodes, onNavigate, onClose, editMode, o
           </div>
         </div>
 
-        {/* Node Name */}
-        <h3 className="text-lg font-semibold text-white mb-4 break-words">
-          {nodeData.label}
-        </h3>
+        {/* Node Name - Copyable */}
+        <div className="mb-4 flex items-center gap-2 group">
+          <h3 className="text-lg font-semibold text-white break-words flex-1">
+            {nodeData.label}
+          </h3>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(nodeData.label).then(() => {
+                toast.success(`Copied: ${nodeData.label}`);
+              }).catch(() => {
+                toast.error('Failed to copy');
+              });
+            }}
+            className="p-1.5 hover:bg-neutral-700 rounded transition-colors opacity-50 group-hover:opacity-100"
+            title="Copy node name"
+          >
+            <Copy className="w-4 h-4 text-neutral-400 hover:text-white" />
+          </button>
+        </div>
 
         {/* Properties Section */}
         <div className="mb-6">
@@ -2228,6 +2257,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNode, setSelectedNode] = useState<CustomNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchFilteredNodeIds, setSearchFilteredNodeIds] = useState<Set<string> | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showLegend, setShowLegend] = useState(storedLayout?.preferences?.showLegend ?? false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
@@ -2287,9 +2317,14 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     const stored = getStoredLayout();
 
     // Filter nodes based on active filters
-    const filteredApiNodes = activeFilters.size > 0
+    let filteredApiNodes = activeFilters.size > 0
       ? graphData.nodes.filter(n => activeFilters.has(n.label))
       : graphData.nodes;
+
+    // Apply search filter if active (shows searched node + connected nodes)
+    if (searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0) {
+      filteredApiNodes = filteredApiNodes.filter(n => searchFilteredNodeIds.has(n.id));
+    }
 
     const filteredNodeIds = new Set(filteredApiNodes.map(n => n.id));
 
@@ -2437,7 +2472,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
     // Fit view after layout
     setTimeout(() => fitView({ padding: 0.2 }), 100);
-  }, [graphData, activeFilters, setNodes, setEdges, fitView]);
+  }, [graphData, activeFilters, searchFilteredNodeIds, setNodes, setEdges, fitView]);
 
   // ==========================================================================
   // SAVE LAYOUT TO BROWSER STORAGE
@@ -2542,20 +2577,69 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [nodes, setCenter]);
 
-  // Search for nodes
+  // Search for nodes - filters graph to show searched node and connected nodes
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
-    if (!query) return;
+    
+    // If search is cleared, reset filter and show all nodes
+    if (!query.trim()) {
+      setSearchFilteredNodeIds(null);
+      // Fit view to show all nodes after clearing filter
+      setTimeout(() => {
+        fitView({ padding: 0.2, duration: 300 });
+      }, 200);
+      return;
+    }
 
-    const found = nodes.find(n => {
-      const data = n.data as unknown as CustomNodeData;
-      return data.label.toLowerCase().includes(query.toLowerCase());
+    // Find all nodes matching the query
+    const matchingNodes = graphData?.nodes.filter(n => 
+      n.name.toLowerCase().includes(query.toLowerCase())
+    ) || [];
+
+    if (matchingNodes.length === 0) {
+      // No matches found - keep showing current graph
+      toast.info('No matching nodes found');
+      return;
+    }
+
+    // Collect matched nodes and their connected nodes
+    const connectedNodeIds = new Set<string>();
+    
+    matchingNodes.forEach(matchedNode => {
+      // Add the matched node itself
+      connectedNodeIds.add(matchedNode.id);
+      
+      // Find all edges connected to this node
+      graphData?.edges.forEach(edge => {
+        if (edge.source === matchedNode.id) {
+          connectedNodeIds.add(edge.target);
+        }
+        if (edge.target === matchedNode.id) {
+          connectedNodeIds.add(edge.source);
+        }
+      });
     });
 
-    if (found) {
-      navigateToNode(found.id);
-    }
-  }, [nodes, navigateToNode]);
+    // Update the filter state - this will trigger graph re-render
+    setSearchFilteredNodeIds(connectedNodeIds);
+
+    // Wait for layout to complete, then fit view and select the first matched node
+    setTimeout(() => {
+      // First fit the view to show all filtered nodes
+      fitView({ padding: 0.3, duration: 300 });
+      
+      // Then after fitView completes, find and select the first matched node
+      setTimeout(() => {
+        const firstMatch = matchingNodes[0];
+        if (firstMatch) {
+          const node = nodes.find(n => n.id === firstMatch.id);
+          if (node) {
+            setSelectedNode(node);
+          }
+        }
+      }, 350);
+    }, 200);
+  }, [graphData, nodes, fitView]);
 
   // Toggle filter
   const toggleFilter = useCallback((type: string) => {
@@ -2975,15 +3059,49 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     setShowExploitabilityPanel(false);
   }, [showRemediationPanel, fetchRemediationPriorities]);
 
-  // Navigate to a node from analysis panels
+  // Navigate to a node from analysis panels - also filters graph to show focused node and connected nodes
   const handleAnalysisNavigate = useCallback((nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (node) {
-      setSelectedNode(node);
-      const { x, y } = node.position;
-      setCenter(x + 100, y + 35, { duration: 500, zoom: 1.5 });
+    // Find the target node in graphData
+    const targetNode = graphData?.nodes.find(n => n.id === nodeId);
+    if (!targetNode) {
+      toast.info('Node not found in graph');
+      return;
     }
-  }, [nodes, setCenter]);
+
+    // Collect the target node and all connected nodes
+    const connectedNodeIds = new Set<string>();
+    connectedNodeIds.add(nodeId);
+
+    // Find all edges connected to this node
+    graphData?.edges.forEach(edge => {
+      if (edge.source === nodeId) {
+        connectedNodeIds.add(edge.target);
+      }
+      if (edge.target === nodeId) {
+        connectedNodeIds.add(edge.source);
+      }
+    });
+
+    // Update the filter state - this will trigger graph re-render
+    setSearchFilteredNodeIds(connectedNodeIds);
+    
+    // Update search query to show visual feedback
+    setSearchQuery(targetNode.name);
+
+    // Wait for layout to complete, then fit view and select the target node
+    setTimeout(() => {
+      // First fit the view to show all filtered nodes
+      fitView({ padding: 0.3, duration: 300 });
+      
+      // Then after fitView completes, find and select the target node
+      setTimeout(() => {
+        const node = nodes.find(n => n.id === nodeId);
+        if (node) {
+          setSelectedNode(node);
+        }
+      }, 350);
+    }, 200);
+  }, [graphData, nodes, fitView]);
 
   // Get node name by ID (for relationship selector)
   const getNodeName = useCallback((nodeId: string | null) => {
@@ -3296,17 +3414,41 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
         {/* Top Controls Panel */}
         <Panel position="top-left" className="flex items-center gap-2">
-          {/* Search */}
+          {/* Search - filters to show searched node and connected nodes */}
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-500" />
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${searchFilteredNodeIds ? 'text-green-400' : 'text-neutral-500'}`} />
             <input
               type="text"
               placeholder="Search nodes..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-48 pl-9 pr-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
+              className={`w-48 pl-9 pr-8 py-2 bg-neutral-800 border rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none ${
+                searchFilteredNodeIds 
+                  ? 'border-green-500/50 ring-1 ring-green-500/20' 
+                  : 'border-neutral-700 focus:border-blue-500'
+              }`}
             />
+            {/* Clear search button */}
+            {searchQuery && (
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSearchFilteredNodeIds(null);
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
+                title="Clear search and show all nodes"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
+          
+          {/* Search filter indicator */}
+          {searchFilteredNodeIds && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-green-600/20 border border-green-500/30 rounded-lg text-xs text-green-400">
+              <span>Filtered: {searchFilteredNodeIds.size} nodes</span>
+            </div>
+          )}
 
           {/* Filter Button */}
           <button
