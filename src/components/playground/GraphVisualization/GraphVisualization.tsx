@@ -302,8 +302,8 @@ const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
         </div>
         <div 
           className="text-sm font-semibold text-white truncate flex items-center gap-1.5 group cursor-pointer hover:text-blue-300 transition-colors" 
-          title={`Click to copy: ${nodeData.label}`}
-          onClick={handleCopyLabel}
+          title={`Double-click to copy: ${nodeData.label}`}
+          onDoubleClick={handleCopyLabel}
         >
           <span className="truncate">{nodeData.label}</span>
           <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
