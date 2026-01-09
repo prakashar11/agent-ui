@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { toast } from 'sonner'
 import { TextArea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { usePlaygroundStore } from '@/store'
+import { usePlaygroundStore, createStorageKey } from '@/store'
 import useAIChatStreamHandler from '@/hooks/useAIStreamHandler'
 import { useQueryState } from 'nuqs'
 import Icon from '@/components/ui/icon'
@@ -13,8 +13,20 @@ const ChatInput = () => {
 
   const { handleStreamResponse } = useAIChatStreamHandler()
   const [selectedAgent] = useQueryState('agent')
+  const [sessionId] = useQueryState('session')
   const [inputMessage, setInputMessage] = useState('')
-  const isStreaming = usePlaygroundStore((state) => state.isStreaming)
+  
+  // Get active jobs for per-session streaming state
+  const activeJobs = usePlaygroundStore((state) => state.activeJobs)
+  
+  // Check if THIS specific agent+session is currently streaming
+  // This allows other agents/sessions to accept input even when one is busy
+  const isCurrentSessionStreaming = useMemo(() => {
+    if (!selectedAgent) return false
+    const storageKey = createStorageKey(selectedAgent, sessionId)
+    const job = activeJobs[storageKey]
+    return job?.status === 'running'
+  }, [selectedAgent, sessionId, activeJobs])
 
   const handleSubmit = async () => {
     if (!inputMessage.trim()) return
@@ -53,7 +65,7 @@ const ChatInput = () => {
             e.key === 'Enter' &&
             !e.nativeEvent.isComposing &&
             !e.shiftKey &&
-            !isStreaming
+            !isCurrentSessionStreaming
           ) {
             e.preventDefault()
             handleSubmit()
@@ -65,7 +77,7 @@ const ChatInput = () => {
       />
       <Button
         onClick={handleSubmit}
-        disabled={!selectedAgent || !inputMessage.trim() || isStreaming}
+        disabled={!selectedAgent || !inputMessage.trim() || isCurrentSessionStreaming}
         size="icon"
         className="rounded-xl bg-primary p-5 text-primaryAccent"
       >
