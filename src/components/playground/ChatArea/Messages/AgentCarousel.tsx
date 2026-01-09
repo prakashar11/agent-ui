@@ -12,13 +12,14 @@ import {
 } from '@/components/ui/carousel'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
-import { Bot, Sparkles, ArrowRight, Network, Table2, ClipboardCheck } from 'lucide-react'
+import { Bot, Sparkles, ArrowRight, Network, Table2, ClipboardCheck, Shield } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import useChatActions from '@/hooks/useChatActions'
 import type { ComboboxAgent } from '@/types/playground'
 import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
+import { HygieneEssentialsSpreadsheet } from '@/components/playground/HygieneEssentialsSpreadsheet'
 import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
 import { toast } from 'sonner'
 
@@ -481,6 +482,87 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({
   )
 }
 
+// Hygiene Essentials Card Component
+interface HygieneCardProps {
+  index: number
+  categoryGradient: string
+  onOpenHygiene: () => void
+}
+
+const HygieneCard: React.FC<HygieneCardProps> = ({
+  index,
+  categoryGradient,
+  onOpenHygiene,
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+      className="h-full"
+    >
+      <button
+        onClick={onOpenHygiene}
+        className={cn(
+          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
+          `bg-gradient-to-br ${categoryGradient}`,
+          'border-border/50 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5'
+        )}
+      >
+        {/* Background pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
+          <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Header with icon and name */}
+          <div className="mb-3 flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-background/80 transition-colors">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
+                Hygiene Essentials
+              </h3>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                Security Controls Manager
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
+              <p className="mb-2">
+                <strong>Manage security hygiene essentials</strong> and controls linked to asset categories.
+              </p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Add/edit hygiene essentials</li>
+                <li>Import from CSV</li>
+                <li>Filter by category</li>
+                <li>Set maturity levels</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer with action hint */}
+          <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
+            <div className="flex items-center gap-1.5">
+              <Shield className="h-3 w-3 text-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
+                Click to open
+              </span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground/30 transition-transform group-hover:translate-x-1" />
+          </div>
+        </div>
+      </button>
+    </motion.div>
+  )
+}
+
 interface AgentCarouselProps {
   className?: string
 }
@@ -493,6 +575,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   const { focusChatInput } = useChatActions()
   const [isGraphOpen, setIsGraphOpen] = useState(false)
   const [isSpreadsheetOpen, setIsSpreadsheetOpen] = useState(false)
+  const [isHygieneOpen, setIsHygieneOpen] = useState(false)
   const [isWorkflowOpen, setIsWorkflowOpen] = useState(false)
   
   // Use category from URL for browser navigation support
@@ -543,9 +626,9 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   const categoryGradient = getGradientForCategory(selectedCategory)
   
   // Calculate total items including special category tools
-  // Asset Management gets +2 extra items: Asset Graph and Asset Memory Spreadsheet
+  // Asset Management gets +3 extra items: Asset Graph, Asset Memory Spreadsheet, and Hygiene Essentials
   // Utilities gets +1 extra item: Workflow Tasks
-  const extraItems = (isAssetManagement ? 2 : 0) + (isUtilities ? 1 : 0)
+  const extraItems = (isAssetManagement ? 3 : 0) + (isUtilities ? 1 : 0)
   const totalItems = categoryAgents.length + extraItems
   const isSingleItem = totalItems === 1
   const isTwoItems = totalItems === 2
@@ -573,7 +656,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
         </h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {isAssetManagement 
-            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 2 tools`
+            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 3 tools`
             : isUtilities
             ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 1 tool`
             : `Select an agent to start chatting • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} available`
@@ -642,6 +725,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                     onOpenSpreadsheet={() => setIsSpreadsheetOpen(true)}
                   />
                 </div>
+                <div className="h-[280px]">
+                  <HygieneCard
+                    index={2}
+                    categoryGradient={categoryGradient}
+                    onOpenHygiene={() => setIsHygieneOpen(true)}
+                  />
+                </div>
               </>
             )}
             {isUtilities && (
@@ -686,6 +776,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                     index={categoryAgents.length + 1}
                     categoryGradient={categoryGradient}
                     onOpenSpreadsheet={() => setIsSpreadsheetOpen(true)}
+                  />
+                </div>
+                <div className="h-[280px]">
+                  <HygieneCard
+                    index={categoryAgents.length + 2}
+                    categoryGradient={categoryGradient}
+                    onOpenHygiene={() => setIsHygieneOpen(true)}
                   />
                 </div>
               </>
@@ -749,6 +846,15 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                     />
                   </div>
                 </CarouselItem>
+                <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
+                  <div className="h-[280px]">
+                    <HygieneCard
+                      index={categoryAgents.length + 2}
+                      categoryGradient={categoryGradient}
+                      onOpenHygiene={() => setIsHygieneOpen(true)}
+                    />
+                  </div>
+                </CarouselItem>
               </>
             )}
             {isUtilities && (
@@ -780,6 +886,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
       <AssetMemorySpreadsheet
         isOpen={isSpreadsheetOpen}
         onClose={() => setIsSpreadsheetOpen(false)}
+        endpoint={selectedEndpoint}
+      />
+
+      {/* Hygiene Essentials Spreadsheet Modal */}
+      <HygieneEssentialsSpreadsheet
+        isOpen={isHygieneOpen}
+        onClose={() => setIsHygieneOpen(false)}
         endpoint={selectedEndpoint}
       />
 
