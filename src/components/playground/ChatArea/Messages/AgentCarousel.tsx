@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import {
   Carousel,
@@ -20,6 +20,7 @@ import type { ComboboxAgent } from '@/types/playground'
 import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
 import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
+import { toast } from 'sonner'
 
 // Generate consistent gradient based on category name hash
 const GRADIENT_PALETTES = [
@@ -64,6 +65,59 @@ const AgentCard: React.FC<AgentCardProps> = ({
   categoryGradient,
   isSingleCard = false,
 }) => {
+  // Copy selected text or entire line on double-click
+  const handleDoubleClickCopy = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    
+    // Check if there's selected text first
+    const selection = window.getSelection()
+    const selectedText = selection?.toString().trim()
+    
+    if (selectedText) {
+      // Copy the selected text
+      navigator.clipboard.writeText(selectedText).then(() => {
+        const displayText = selectedText.length > 50 
+          ? selectedText.substring(0, 50) + '...' 
+          : selectedText
+        toast.success(`Copied: "${displayText}"`, { duration: 2000 })
+      }).catch(() => {
+        toast.error('Failed to copy to clipboard')
+      })
+      return
+    }
+    
+    // No selection - copy the entire line/element
+    const target = e.target as HTMLElement
+    const copyableElement = target.closest('li, p, code, strong') as HTMLElement | null
+    
+    if (copyableElement) {
+      let textToCopy = copyableElement.textContent?.trim() || ''
+      textToCopy = textToCopy.replace(/^[•\-\*]\s*/, '')
+      
+      if (textToCopy) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          const displayText = textToCopy.length > 50 
+            ? textToCopy.substring(0, 50) + '...' 
+            : textToCopy
+          toast.success(`Copied: "${displayText}"`, { duration: 2000 })
+        }).catch(() => {
+          toast.error('Failed to copy to clipboard')
+        })
+      }
+    }
+  }, [])
+
+  // Handle card click - only select if not clicking on text area
+  const handleCardClick = useCallback((e: React.MouseEvent) => {
+    // Check if clicked inside the text selection area
+    const target = e.target as HTMLElement
+    if (target.closest('[data-text-area]')) {
+      // Don't trigger card selection when clicking in text area
+      return
+    }
+    onSelect()
+  }, [onSelect])
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -71,10 +125,14 @@ const AgentCard: React.FC<AgentCardProps> = ({
       transition={{ duration: 0.4, delay: index * 0.1 }}
       className={cn('h-full', isSingleCard && 'w-full max-w-md mx-auto')}
     >
-      <button
-        onClick={onSelect}
+      {/* Use div instead of button to allow text selection */}
+      <div
+        onClick={handleCardClick}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect() }}
         className={cn(
-          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
+          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300 cursor-pointer',
           `bg-gradient-to-br ${categoryGradient}`,
           isSelected
             ? 'border-primary/50 shadow-lg shadow-primary/10'
@@ -82,7 +140,7 @@ const AgentCard: React.FC<AgentCardProps> = ({
         )}
       >
         {/* Background pattern */}
-        <div className="absolute inset-0 opacity-5">
+        <div className="absolute inset-0 opacity-5 pointer-events-none">
           <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
           <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
         </div>
@@ -115,11 +173,27 @@ const AgentCard: React.FC<AgentCardProps> = ({
             </div>
           </div>
 
-          {/* Agent tip / description */}
+          {/* Agent tip / description - TEXT SELECTION ENABLED */}
           {agent.agent_tip ? (
-            <div className="flex-1 overflow-hidden">
-              <div className="text-xs leading-relaxed text-muted-foreground [&_p]:my-0 [&_ul]:my-1 [&_li]:my-0 [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mb-1 overflow-y-auto max-h-[140px] scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+            <div 
+              data-text-area
+              className="flex-1 overflow-hidden"
+              onDoubleClick={handleDoubleClickCopy}
+            >
+              <div className={cn(
+                "text-xs leading-relaxed text-muted-foreground overflow-y-auto max-h-[140px] scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent",
+                "[&_p]:my-0 [&_ul]:my-1 [&_li]:my-0 [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mb-1",
+                // Enable text selection - this is the key!
+                "select-text cursor-text [&_*]:select-text",
+                // Highlight on hover for visual feedback
+                "[&_li]:rounded [&_li]:transition-colors [&_li:hover]:bg-primary/5",
+                "[&_p]:rounded [&_p]:transition-colors [&_p:hover]:bg-primary/5",
+                "[&_code]:transition-colors [&_code:hover]:bg-primary/10"
+              )}>
                 <MarkdownRenderer>{agent.agent_tip}</MarkdownRenderer>
+              </div>
+              <div className="mt-1 text-[9px] text-muted-foreground/40 text-right select-none pointer-events-none">
+                Select text to copy (Ctrl+C) or double-click line
               </div>
             </div>
           ) : (
@@ -159,7 +233,7 @@ const AgentCard: React.FC<AgentCardProps> = ({
             transition={{ duration: 0.2 }}
           />
         )}
-      </button>
+      </div>
     </motion.div>
   )
 }
@@ -215,8 +289,8 @@ const AssetGraphCard: React.FC<AssetGraphCardProps> = ({
           </div>
 
           {/* Description */}
-          <div className="flex-1 overflow-hidden">
-            <div className="text-xs leading-relaxed text-muted-foreground">
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
               <p className="mb-2">
                 <strong>Interactive visualization</strong> of your organization&apos;s assets, vulnerabilities, and threat relationships.
               </p>
@@ -287,7 +361,7 @@ const AssetSpreadsheetCard: React.FC<AssetSpreadsheetCardProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
-                Asset Memory
+                Asset Management
               </h3>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
                 Spreadsheet Editor
@@ -296,10 +370,10 @@ const AssetSpreadsheetCard: React.FC<AssetSpreadsheetCardProps> = ({
           </div>
 
           {/* Description */}
-          <div className="flex-1 overflow-hidden">
-            <div className="text-xs leading-relaxed text-muted-foreground">
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
               <p className="mb-2">
-                <strong>Spreadsheet-like interface</strong> for managing asset agentic memory with full CRUD operations.
+                <strong>Spreadsheet-like interface</strong> for managing asset details with full create, read, update, and delete (CRUD) operations.
               </p>
               <ul className="space-y-1 list-disc list-inside">
                 <li>Create and edit assets</li>
@@ -377,8 +451,8 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({
           </div>
 
           {/* Description */}
-          <div className="flex-1 overflow-hidden">
-            <div className="text-xs leading-relaxed text-muted-foreground">
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
               <p className="mb-2">
                 <strong>Manage security workflows</strong> for asset hygiene, access reviews, patching, and threat management.
               </p>
