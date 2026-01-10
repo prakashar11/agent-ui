@@ -117,3 +117,22 @@ export const ENVIRONMENT_COLORS: Record<string, string> = {
   unknown: 'bg-gray-500/10 text-gray-400',
 };
 
+// CSV import field mappings (support multiple field names)
+// All aliases should be lowercase for matching
+export const CSV_FIELD_MAPPINGS: Record<string, string[]> = {
+  hostname: ['hostname', 'host', 'host_name', 'hostnam', 'server', 'server_name', 'servername'],
+  name: ['name', 'asset_name', 'assetname', 'asset name', 'title', 'label'],
+  description: ['description', 'desc', 'details', 'notes', 'comment', 'comments'],
+  ip_addresses: ['ip_addresses', 'ipaddresses', 'ip addresses', 'ip', 'ips', 'ip_address', 'ipaddress', 'ip address'],
+  asset_type: ['asset_type', 'assettype', 'asset type', 'type', 'category', 'asset_category'],
+  criticality: ['criticality', 'critical', 'priority', 'importance', 'severity'],
+  environment: ['environment', 'env', 'stage', 'deployment'],
+  business_unit: ['business_unit', 'businessunit', 'business unit', 'bu', 'department', 'dept', 'team'],
+  tags: ['tags', 'tag', 'labels', 'keywords'],
+  technologies: ['technologies', 'technology', 'tech', 'stack', 'software', 'apps', 'applications'],
+  owner: ['owner', 'owners', 'contact', 'responsible', 'admin', 'administrator'],
+  risk_score: ['risk_score', 'riskscore', 'risk score', 'risk', 'score'],
+};
+
+// Fields that should be parsed as arrays (comma, semicolon, or pipe separated)
+export const ARRAY_FIELDS = ['ip_addresses', 'tags', 'technologies'];

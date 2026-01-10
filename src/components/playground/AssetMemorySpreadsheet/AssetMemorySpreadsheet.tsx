@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APIRoutes } from '@/api/routes';
+import { parseCSV, mapCSVHeaders } from '../utils';
 import {
   Asset,
   AssetListResponse,
@@ -38,6 +39,8 @@ import {
   SPREADSHEET_COLUMNS,
   CRITICALITY_COLORS,
   ENVIRONMENT_COLORS,
+  CSV_FIELD_MAPPINGS,
+  ARRAY_FIELDS,
 } from './types';
 
 // =============================================================================
@@ -712,32 +715,46 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
         const parsed = JSON.parse(text);
         assetsToImport = Array.isArray(parsed) ? parsed : parsed.assets || [];
       } else if (file.name.endsWith('.csv')) {
-        // Parse CSV
-        const lines = text.split('\n').filter((line) => line.trim());
-        if (lines.length < 2) {
+        // Use shared RFC 4180 compliant CSV parser
+        const parseResult = parseCSV(text, { debug: true });
+        const allRows = parseResult.rows;
+        
+        if (allRows.length < 2) {
           throw new Error('CSV file must have a header row and at least one data row');
         }
         
-        const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/['"]/g, ''));
+        const headers = allRows[0].map((h) => h.toLowerCase());
         
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map((v) => v.trim().replace(/^["']|["']$/g, ''));
+        // Map CSV headers using shared utility with flexible field matching
+        const headerMap = mapCSVHeaders(headers, CSV_FIELD_MAPPINGS);
+        
+        console.log('Asset CSV Import - Header mapping:', headerMap);
+        console.log('Asset CSV Import - Original headers:', headers);
+        
+        for (let i = 1; i < allRows.length; i++) {
+          const values = allRows[i];
           const asset: Record<string, string | string[]> = {};
           
-          headers.forEach((header, idx) => {
+          // Map values using header mapping
+          Object.entries(headerMap).forEach(([idxStr, fieldName]) => {
+            const idx = parseInt(idxStr, 10);
             const value = values[idx] || '';
-            // Handle array fields
-            if (['ip_addresses', 'tags', 'technologies'].includes(header)) {
-              asset[header] = value.split(/[;|]/).map((v) => v.trim()).filter(Boolean);
+            
+            // Handle array fields (ip_addresses, tags, technologies)
+            if (ARRAY_FIELDS.includes(fieldName)) {
+              asset[fieldName] = value.split(/[;|,]/).map((v) => v.trim()).filter(Boolean);
             } else {
-              asset[header] = value;
+              asset[fieldName] = value;
             }
           });
           
+          // Only add assets with hostname or name
           if (asset.hostname || asset.name) {
             assetsToImport.push(asset as Partial<Asset>);
           }
         }
+        
+        console.log(`Asset CSV Import - Parsed ${assetsToImport.length} valid assets from ${allRows.length - 1} rows`);
       } else {
         throw new Error('Unsupported file format. Please use CSV or JSON files.');
       }

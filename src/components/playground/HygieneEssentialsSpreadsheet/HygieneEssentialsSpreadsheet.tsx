@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APIRoutes } from '@/api/routes';
+import { parseCSV, mapCSVHeaders } from '../utils';
 import {
   HygieneEssential,
   HygieneEssentialListResponse,
@@ -708,158 +709,17 @@ export const HygieneEssentialsSpreadsheet: React.FC<HygieneEssentialsSpreadsheet
           return true;
         });
       } else if (file.name.endsWith('.csv')) {
-        // Parse entire CSV content properly, handling multi-line quoted fields
-        // RFC 4180 compliant CSV parser
-        const parseCSV = (csvText: string): string[][] => {
-          const rows: string[][] = [];
-          let currentRow: string[] = [];
-          let currentField = '';
-          let inQuotes = false;
-          let i = 0;
-          
-          // Normalize line endings to \n
-          const normalizedText = csvText.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-          
-          // Also normalize smart/curly quotes to straight quotes
-          const cleanedText = normalizedText
-            .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')  // Smart double quotes
-            .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'"); // Smart single quotes
-          
-          // Debug: Check for any non-standard quotes in original text
-          const smartQuoteMatches = csvText.match(/[\u201C\u201D\u201E\u201F\u2033\u2036\u2018\u2019\u201A\u201B\u2032\u2035]/g);
-          if (smartQuoteMatches) {
-            console.log('⚠️ Found smart/curly quotes in CSV - converting to straight quotes:', smartQuoteMatches.length, 'occurrences');
-          }
-          
-          while (i < cleanedText.length) {
-            const char = cleanedText[i];
-            const nextChar = cleanedText[i + 1];
-            
-            if (inQuotes) {
-              // Inside quotes - handle quote characters specially
-              if (char === '"') {
-                if (nextChar === '"') {
-                  // Escaped quote ("") - add single quote and skip next
-                  currentField += '"';
-                  i += 2;
-                  continue;
-                } else {
-                  // End of quoted field
-                  inQuotes = false;
-                  i++;
-                  continue;
-                }
-              }
-              // Any other character (including newlines) is part of the field
-              currentField += char;
-              i++;
-              continue;
-            }
-            
-            // Not inside quotes
-            if (char === '"') {
-              // Start of quoted field (only valid at start of field or after comma)
-              inQuotes = true;
-              i++;
-              continue;
-            }
-            
-            if (char === ',') {
-              // End of field
-              currentRow.push(currentField.trim());
-              currentField = '';
-              i++;
-              continue;
-            }
-            
-            if (char === '\n') {
-              // End of row
-              currentRow.push(currentField.trim());
-              if (currentRow.some(f => f.length > 0)) {
-                rows.push(currentRow);
-              }
-              currentRow = [];
-              currentField = '';
-              i++;
-              continue;
-            }
-            
-            // Regular character
-            currentField += char;
-            i++;
-          }
-          
-          // Handle last field/row
-          if (currentField.length > 0 || currentRow.length > 0) {
-            currentRow.push(currentField.trim());
-            if (currentRow.some(f => f.length > 0)) {
-              rows.push(currentRow);
-            }
-          }
-          
-          // Debug: Check if quote state was left open (indicates parsing issue)
-          if (inQuotes) {
-            console.warn('⚠️ CSV parsing ended with unclosed quote - possible malformed CSV');
-          }
-          
-          // Debug: Find rows with unexpected field counts (should match header count)
-          const headerCount = rows[0]?.length || 0;
-          const mismatchedRows = rows.slice(1).filter((row, idx) => row.length !== headerCount);
-          if (mismatchedRows.length > 0) {
-            console.warn(`⚠️ ${mismatchedRows.length} rows have different field count than header (${headerCount})`);
-          }
-          
-          // Debug: Log parsing results
-          console.log('CSV Parser - Total rows parsed:', rows.length);
-          console.log('CSV Parser - All rows with field lengths:');
-          rows.forEach((row, idx) => {
-            console.log(`  Row ${idx}: [${row.map(f => `"${f.substring(0, 30).replace(/\n/g, '\\n')}${f.length > 30 ? '...' : ''}" (${f.length})`).join(', ')}]`);
-          });
-          
-          // Check for any fields containing newlines (multi-line fields parsed correctly)
-          const multiLineFields = rows.flatMap((row, rowIdx) => 
-            row.map((field, fieldIdx) => ({ rowIdx, fieldIdx, field }))
-              .filter(({ field }) => field.includes('\n'))
-          );
-          if (multiLineFields.length > 0) {
-            console.log('CSV Parser - Multi-line fields detected:', multiLineFields.length);
-            multiLineFields.forEach(({ rowIdx, fieldIdx, field }) => {
-              console.log(`  Row ${rowIdx}, Field ${fieldIdx}: "${field.substring(0, 50).replace(/\n/g, '\\n')}..."`);
-            });
-          }
-          
-          return rows;
-        };
-
-        const allRows = parseCSV(text);
+        // Use shared RFC 4180 compliant CSV parser
+        const parseResult = parseCSV(text, { debug: true });
+        const allRows = parseResult.rows;
+        
         if (allRows.length < 2) throw new Error('CSV file is empty or has no data rows');
 
         const headers = allRows[0].map((h) => h.toLowerCase());
         toast.info(`Found ${allRows.length - 1} rows, parsing...`);
 
-        // Map CSV headers to our expected fields with flexible matching
-        const headerMap: Record<number, string> = {};
-        headers.forEach((header, idx) => {
-          const normalizedHeader = header.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
-          const compactHeader = header.replace(/[_\s]/g, '');
-          
-          for (const [field, aliases] of Object.entries(CSV_FIELD_MAPPINGS)) {
-            const matched = aliases.some(alias => {
-              const normalizedAlias = alias.replace(/[_\s]/g, '');
-              return (
-                alias === header ||
-                alias === normalizedHeader ||
-                normalizedAlias === compactHeader ||
-                header.includes(alias) ||
-                alias.includes(header)
-              );
-            });
-            if (matched) {
-              headerMap[idx] = field;
-              break;
-            }
-          }
-        });
+        // Map CSV headers using shared utility
+        const headerMap = mapCSVHeaders(headers, CSV_FIELD_MAPPINGS);
 
         // Track previous category for inheritance
         let previousCategory = '';
