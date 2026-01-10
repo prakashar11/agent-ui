@@ -6,6 +6,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
   ReactFlow,
   ReactFlowProvider,
   Node,
@@ -1179,8 +1186,6 @@ function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
   const [name, setName] = useState('');
   const [nodeType, setNodeType] = useState('Asset');
 
-  if (!isOpen) return null;
-
   const handleSubmit = () => {
     if (name.trim()) {
       onAdd(name.trim(), nodeType);
@@ -1191,18 +1196,19 @@ function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-neutral-900 rounded-xl border border-neutral-700 p-5 w-96 shadow-2xl"
-      >
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-green-400" />
-          Add New Node
-        </h3>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-md bg-neutral-900 border-neutral-700">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <Plus className="w-5 h-5 text-green-400" />
+            Add New Node
+          </DialogTitle>
+          <DialogDescription className="text-neutral-400">
+            Select a node type and enter a name for the new node.
+          </DialogDescription>
+        </DialogHeader>
         
-        <div className="space-y-4">
+        <div className="space-y-4 mt-2">
           {/* Node Type */}
           <div>
             <label className="block text-xs text-neutral-400 uppercase mb-2">Node Type</label>
@@ -1242,7 +1248,7 @@ function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
           </div>
         </div>
         
-        <div className="flex gap-2 mt-5">
+        <div className="flex gap-2 mt-4">
           <button
             onClick={onClose}
             className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
@@ -1257,8 +1263,8 @@ function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
             Add Node
           </button>
         </div>
-      </motion.div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1286,8 +1292,6 @@ function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }:
       setSourceId(selectedNodeId);
     }
   }, [selectedNodeId]);
-
-  if (!isOpen) return null;
 
   const filteredSourceNodes = nodes.filter(n => {
     const data = n.data as CustomNodeData;
@@ -1319,18 +1323,19 @@ function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }:
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-neutral-900 rounded-xl border border-neutral-700 p-5 w-[500px] shadow-2xl max-h-[80vh] overflow-y-auto"
-      >
-        <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-          <Plus className="w-5 h-5 text-blue-400" />
-          Add Relationship
-        </h3>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-[500px] max-h-[80vh] bg-neutral-900 border-neutral-700">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <Plus className="w-5 h-5 text-blue-400" />
+            Add Relationship
+          </DialogTitle>
+          <DialogDescription className="text-neutral-400">
+            Connect two nodes with a relationship type.
+          </DialogDescription>
+        </DialogHeader>
         
-        <div className="space-y-4">
+        <div className="space-y-4 mt-2">
           {/* Source Node */}
           <div>
             <label className="block text-xs text-neutral-400 uppercase mb-2">From Node</label>
@@ -1426,7 +1431,7 @@ function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }:
           )}
         </div>
         
-        <div className="flex gap-2 mt-5">
+        <div className="flex gap-2 mt-4">
           <button
             onClick={onClose}
             className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
@@ -1441,8 +1446,8 @@ function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }:
             Add Relationship
           </button>
         </div>
-      </motion.div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1499,7 +1504,7 @@ function EditRelationshipModal({ isOpen, onClose, onSave, edge, sourceNodeName, 
     }
   }, [edge]);
 
-  if (!isOpen || !edge) return null;
+  if (!edge) return null;
 
   const handleSubmit = () => {
     if (relType) {
@@ -1514,21 +1519,19 @@ function EditRelationshipModal({ isOpen, onClose, onSave, edge, sourceNodeName, 
   const hasRelTypeChanged = relType !== originalRelType;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-neutral-900 rounded-xl border border-neutral-700 p-5 w-[440px] shadow-2xl"
-      >
-        <h3 className="text-lg font-semibold text-white mb-1 flex items-center gap-2">
-          <Pencil className="w-5 h-5 text-blue-400" />
-          Edit Relationship
-        </h3>
-        <p className="text-xs text-neutral-400 mb-4">
-          <span className="text-blue-400">{sourceNodeName || 'Source'}</span>
-          {' → '}
-          <span className="text-green-400">{targetNodeName || 'Target'}</span>
-        </p>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-[440px] bg-neutral-900 border-neutral-700">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-white">
+            <Pencil className="w-5 h-5 text-blue-400" />
+            Edit Relationship
+          </DialogTitle>
+          <DialogDescription className="text-neutral-400">
+            <span className="text-blue-400">{sourceNodeName || 'Source'}</span>
+            {' → '}
+            <span className="text-green-400">{targetNodeName || 'Target'}</span>
+          </DialogDescription>
+        </DialogHeader>
         
         {/* Relationship Type */}
         <div className="mb-4">
@@ -1762,7 +1765,7 @@ function EditRelationshipModal({ isOpen, onClose, onSave, edge, sourceNodeName, 
           </div>
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex gap-2 mt-4">
           <button
             onClick={onClose}
             className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
@@ -1777,8 +1780,8 @@ function EditRelationshipModal({ isOpen, onClose, onSave, edge, sourceNodeName, 
             Save
           </button>
         </div>
-      </motion.div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1800,6 +1803,7 @@ interface NodeContextMenuProps {
   onEditProperties: () => void;
   onAddRelationship: () => void;
   onDeleteNode: () => void;
+  onSearchByLabel: () => void;
   editMode: boolean;
   nodeName?: string;
   nodeType?: string;
@@ -1812,6 +1816,7 @@ function NodeContextMenu({
   onEditProperties,
   onAddRelationship,
   onDeleteNode,
+  onSearchByLabel,
   editMode,
   nodeName,
   nodeType,
@@ -1910,6 +1915,18 @@ function NodeContextMenu({
           <span>View Details</span>
         </button>
 
+        {/* Search by Label */}
+        <button
+          onClick={() => {
+            onSearchByLabel();
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+        >
+          <Search className="w-4 h-4 text-neutral-400" />
+          <span>Search by Label</span>
+        </button>
+
         {/* Edit Properties */}
         <button
           onClick={() => {
@@ -1986,7 +2003,7 @@ function EditNodePropertiesModal({ isOpen, onClose, onSave, node }: EditNodeProp
     }
   }, [node]);
 
-  if (!isOpen || !node) return null;
+  if (!node) return null;
 
   const nodeData = node.data as CustomNodeData;
   const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
@@ -2041,23 +2058,20 @@ function EditNodePropertiesModal({ isOpen, onClose, onSave, node }: EditNodeProp
   };
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-neutral-900 rounded-xl border border-neutral-700 p-5 w-[500px] shadow-2xl max-h-[80vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          <div
-            className="w-3 h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: color }}
-          />
-          <div>
-            <h3 className="text-lg font-semibold text-white">Edit Properties</h3>
-            <p className="text-xs text-neutral-400">{nodeData.label} - {nodeData.nodeType}</p>
-          </div>
-        </div>
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-[500px] max-h-[80vh] bg-neutral-900 border-neutral-700 flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-3 text-white">
+            <div
+              className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ backgroundColor: color }}
+            />
+            Edit Properties
+          </DialogTitle>
+          <DialogDescription className="text-neutral-400">
+            {nodeData.label} - {nodeData.nodeType}
+          </DialogDescription>
+        </DialogHeader>
 
         {/* Properties List */}
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-1">
@@ -2132,8 +2146,8 @@ function EditNodePropertiesModal({ isOpen, onClose, onSave, node }: EditNodeProp
             Save Properties
           </button>
         </div>
-      </motion.div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -2154,23 +2168,21 @@ function RelationshipSelector({
   sourceNodeName,
   targetNodeName,
 }: RelationshipSelectorProps) {
-  if (!isOpen || !connection) return null;
+  if (!connection) return null;
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <motion.div
-        initial={{ scale: 0.9, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="bg-neutral-900 rounded-xl border border-neutral-700 p-4 w-80 shadow-2xl"
-      >
-        <h3 className="text-sm font-semibold text-white mb-1">Select Relationship Type</h3>
-        <p className="text-xs text-neutral-400 mb-4">
-          <span className="text-blue-400">{sourceNodeName}</span>
-          {' → '}
-          <span className="text-green-400">{targetNodeName}</span>
-        </p>
+    <Dialog open={isOpen} onOpenChange={onCancel}>
+      <DialogContent className="max-w-xs bg-neutral-900 border-neutral-700">
+        <DialogHeader>
+          <DialogTitle className="text-white">Select Relationship Type</DialogTitle>
+          <DialogDescription className="text-neutral-400">
+            <span className="text-blue-400">{sourceNodeName}</span>
+            {' → '}
+            <span className="text-green-400">{targetNodeName}</span>
+          </DialogDescription>
+        </DialogHeader>
         
-        <div className="max-h-64 overflow-y-auto space-y-1">
+        <div className="max-h-64 overflow-y-auto space-y-1 mt-2">
           {RELATIONSHIP_TYPES.map((rel) => (
             <button
               key={rel.value}
@@ -2192,8 +2204,8 @@ function RelationshipSelector({
         >
           Cancel
         </button>
-      </motion.div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -3353,6 +3365,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [contextMenuNode, editMode, handleDeleteNode]);
 
+  const handleContextSearchByLabel = useCallback(() => {
+    if (contextMenuNode) {
+      const nodeData = contextMenuNode.data as CustomNodeData;
+      const label = nodeData.label;
+      if (label) {
+        handleSearch(label);
+      }
+    }
+  }, [contextMenuNode, handleSearch]);
+
   // Handle saving node properties
   const handleSaveNodeProperties = useCallback(async (nodeId: string, properties: Record<string, unknown>) => {
     // Update the node in local state
@@ -3871,6 +3893,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           onEditProperties={handleContextEditProperties}
           onAddRelationship={handleContextAddRelationship}
           onDeleteNode={handleContextDeleteNode}
+          onSearchByLabel={handleContextSearchByLabel}
           editMode={editMode}
           nodeName={(contextMenuNode.data as CustomNodeData).label}
           nodeType={(contextMenuNode.data as CustomNodeData).nodeType}
