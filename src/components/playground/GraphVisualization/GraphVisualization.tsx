@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -661,9 +661,10 @@ interface FilterPanelProps {
   activeFilters: Set<string>;
   onToggleFilter: (type: string) => void;
   stats: Record<string, number>;
+  onClose: () => void;
 }
 
-function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats }: FilterPanelProps) {
+function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose }: FilterPanelProps) {
   // Sort node types by hierarchy
   const sortedTypes = [...nodeTypes].sort((a, b) => {
     const rankA = NODE_TYPE_HIERARCHY[a] ?? 99;
@@ -673,7 +674,15 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats }: Filter
 
   return (
     <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl">
-      <h4 className="text-xs text-neutral-400 uppercase mb-2 font-medium">Filter by Type</h4>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-xs text-neutral-400 uppercase font-medium">Filter by Type</h4>
+        <button
+          onClick={onClose}
+          className="p-1 hover:bg-neutral-700 rounded transition-colors"
+        >
+          <X className="w-3.5 h-3.5 text-neutral-400" />
+        </button>
+      </div>
       <div className="flex flex-wrap gap-2 max-w-xs">
         {sortedTypes.map((type) => {
           const isActive = activeFilters.size === 0 || activeFilters.has(type);
@@ -702,6 +711,201 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats }: Filter
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// DATE FILTER PANEL
+// =============================================================================
+
+interface DateFilterState {
+  mode: 'off' | 'single' | 'range';
+  singleDate: string; // YYYY-MM-DD format
+  startDate: string;  // YYYY-MM-DD format
+  endDate: string;    // YYYY-MM-DD format
+  applied: boolean;   // Whether the filter has been applied
+}
+
+interface DateFilterPanelProps {
+  dateFilter: DateFilterState;
+  onDateFilterChange: (filter: DateFilterState) => void;
+  onClose: () => void;
+  filteredCount: number;
+  totalCount: number;
+}
+
+function DateFilterPanel({ dateFilter, onDateFilterChange, onClose, filteredCount, totalCount }: DateFilterPanelProps) {
+  // Local state for editing (not applied until user clicks Apply)
+  const [localMode, setLocalMode] = useState<'off' | 'single' | 'range'>(dateFilter.mode);
+  const [localSingleDate, setLocalSingleDate] = useState(dateFilter.singleDate);
+  const [localStartDate, setLocalStartDate] = useState(dateFilter.startDate);
+  const [localEndDate, setLocalEndDate] = useState(dateFilter.endDate);
+
+  // Check if there are pending changes
+  const hasChanges = localMode !== dateFilter.mode ||
+    localSingleDate !== dateFilter.singleDate ||
+    localStartDate !== dateFilter.startDate ||
+    localEndDate !== dateFilter.endDate ||
+    !dateFilter.applied;
+
+  // Check if the current selection is valid for applying
+  const canApply = localMode === 'off' ||
+    (localMode === 'single' && localSingleDate) ||
+    (localMode === 'range' && localStartDate && localEndDate);
+
+  const handleApply = () => {
+    onDateFilterChange({
+      mode: localMode,
+      singleDate: localSingleDate,
+      startDate: localStartDate,
+      endDate: localEndDate,
+      applied: true,
+    });
+    onClose(); // Close the panel after applying
+  };
+
+  const handleClear = () => {
+    setLocalMode('off');
+    setLocalSingleDate('');
+    setLocalStartDate('');
+    setLocalEndDate('');
+    onDateFilterChange({
+      mode: 'off',
+      singleDate: '',
+      startDate: '',
+      endDate: '',
+      applied: true,
+    });
+  };
+
+  // Get today's date in YYYY-MM-DD format
+  const today = new Date().toISOString().split('T')[0];
+
+  return (
+    <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl min-w-[280px]">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-cyan-400" />
+          <h4 className="text-xs text-neutral-400 uppercase font-medium">Filter by Created Date</h4>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-1 hover:bg-neutral-700 rounded transition-colors"
+        >
+          <X className="w-3.5 h-3.5 text-neutral-400" />
+        </button>
+      </div>
+
+      {/* Mode Selection */}
+      <div className="flex gap-1 mb-3">
+        <button
+          onClick={() => setLocalMode('off')}
+          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+            localMode === 'off'
+              ? 'bg-neutral-700 text-white'
+              : 'bg-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          Off
+        </button>
+        <button
+          onClick={() => setLocalMode('single')}
+          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+            localMode === 'single'
+              ? 'bg-cyan-600 text-white'
+              : 'bg-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          Specific Date
+        </button>
+        <button
+          onClick={() => setLocalMode('range')}
+          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
+            localMode === 'range'
+              ? 'bg-cyan-600 text-white'
+              : 'bg-neutral-800 text-neutral-400 hover:text-white'
+          }`}
+        >
+          Date Range
+        </button>
+      </div>
+
+      {/* Single Date Input */}
+      {localMode === 'single' && (
+        <div className="space-y-2">
+          <label className="text-xs text-neutral-500">Select Date</label>
+          <input
+            type="date"
+            value={localSingleDate}
+            onChange={(e) => setLocalSingleDate(e.target.value)}
+            max={today}
+            className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
+          />
+        </div>
+      )}
+
+      {/* Date Range Inputs */}
+      {localMode === 'range' && (
+        <div className="space-y-2">
+          <div>
+            <label className="text-xs text-neutral-500">From</label>
+            <input
+              type="date"
+              value={localStartDate}
+              onChange={(e) => setLocalStartDate(e.target.value)}
+              max={localEndDate || today}
+              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-neutral-500">To</label>
+            <input
+              type="date"
+              value={localEndDate}
+              onChange={(e) => setLocalEndDate(e.target.value)}
+              min={localStartDate}
+              max={today}
+              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Apply and Clear Buttons */}
+      {localMode !== 'off' && (
+        <div className="mt-3 pt-3 border-t border-neutral-700/50 flex items-center gap-2">
+          <button
+            onClick={handleApply}
+            disabled={!canApply}
+            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+              canApply && hasChanges
+                ? 'bg-cyan-600 text-white hover:bg-cyan-700'
+                : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
+            }`}
+          >
+            Apply Filter
+          </button>
+          <button
+            onClick={handleClear}
+            className="px-3 py-2 rounded-lg text-xs font-medium bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Filter Stats */}
+      {dateFilter.applied && dateFilter.mode !== 'off' && (
+        <div className="mt-2 text-xs text-neutral-400">
+          Showing <span className="text-cyan-400 font-medium">{filteredCount}</span> of {totalCount} nodes
+        </div>
+      )}
+
+      {/* Help text */}
+      <p className="mt-3 text-[10px] text-neutral-500 leading-relaxed">
+        Filter nodes by their creation date. Note: Nodes only have a created date (not updated date).
+      </p>
     </div>
   );
 }
@@ -2232,30 +2436,30 @@ interface PendingChanges {
 
 const DEMO_GRAPH_DATA: GraphData = {
   nodes: [
-    // Asset Category
-    { id: 'cat-web', name: 'Web Servers', label: 'AssetCategory', properties: { description: 'Web application servers' } },
-    { id: 'cat-db', name: 'Databases', label: 'AssetCategory', properties: { description: 'Database systems' } },
-    // Assets
-    { id: 'asset-web1', name: 'web-prod-01', label: 'Asset', properties: { asset_type: 'web_server', criticality: 'high', ip_addresses: ['10.0.1.10'] } },
-    { id: 'asset-db1', name: 'db-prod-01', label: 'Asset', properties: { asset_type: 'database', criticality: 'critical', ip_addresses: ['10.0.2.10'] } },
-    // Identity
-    { id: 'id-admin', name: 'admin@company.com', label: 'Identity', properties: { identity_type: 'user', privileged: true, roles: ['admin'], has_mfa: true } },
-    { id: 'id-svc', name: 'svc-webapp', label: 'Identity', properties: { identity_type: 'service_account', privileged: false, roles: ['read'] } },
-    // Vulnerability
-    { id: 'vuln-1', name: 'CVE-2024-1234', label: 'Vulnerability', properties: { severity: 'critical', cvss: 9.8, description: 'Remote code execution' } },
-    // Control
-    { id: 'ctrl-1', name: 'Enable TLS 1.3', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'basic', status: 'implemented' } },
-    { id: 'ctrl-2', name: 'Database Encryption', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'intermediate', status: 'not_implemented' } },
-    // Threat
-    { id: 'threat-1', name: 'APT29 Campaign', label: 'Threat', properties: { threat_actor: 'APT29', threat_actor_type: 'nation-state', campaign: 'SolarWinds', tools: ['Cobalt Strike'], malware: ['SUNBURST'] } },
-    // Attack (MITRE ATT&CK)
-    { id: 'attack-1', name: 'T1566', label: 'Attack', properties: { technique_id: 'T1566', technique_name: 'Phishing', tactic: 'Initial Access', tactic_id: 'TA0001' } },
-    { id: 'attack-2', name: 'T1059', label: 'Attack', properties: { technique_id: 'T1059', technique_name: 'Command and Scripting Interpreter', tactic: 'Execution', tactic_id: 'TA0002' } },
-    // Indicator
-    { id: 'ioc-1', name: '192.168.1.100', label: 'Indicator', properties: { indicator_type: 'ip', source: 'threat_intel' } },
-    { id: 'ioc-2', name: 'malware.evil.com', label: 'Indicator', properties: { indicator_type: 'domain', source: 'threat_intel' } },
-    // LogEvent
-    { id: 'log-1', name: 'EVT-4625', label: 'LogEvent', properties: { event_type: 'authentication', source: 'windows_security', description: 'Failed login attempt' } },
+    // Asset Category - created 5 days ago
+    { id: 'cat-web', name: 'Web Servers', label: 'AssetCategory', properties: { description: 'Web application servers' }, created_at: '2026-01-06T10:00:00Z' },
+    { id: 'cat-db', name: 'Databases', label: 'AssetCategory', properties: { description: 'Database systems' }, created_at: '2026-01-06T10:00:00Z' },
+    // Assets - created 4 days ago
+    { id: 'asset-web1', name: 'web-prod-01', label: 'Asset', properties: { asset_type: 'web_server', criticality: 'high', ip_addresses: ['10.0.1.10'] }, created_at: '2026-01-07T14:30:00Z' },
+    { id: 'asset-db1', name: 'db-prod-01', label: 'Asset', properties: { asset_type: 'database', criticality: 'critical', ip_addresses: ['10.0.2.10'] }, created_at: '2026-01-07T14:30:00Z' },
+    // Identity - created 3 days ago
+    { id: 'id-admin', name: 'admin@company.com', label: 'Identity', properties: { identity_type: 'user', privileged: true, roles: ['admin'], has_mfa: true }, created_at: '2026-01-08T09:00:00Z' },
+    { id: 'id-svc', name: 'svc-webapp', label: 'Identity', properties: { identity_type: 'service_account', privileged: false, roles: ['read'] }, created_at: '2026-01-08T09:00:00Z' },
+    // Vulnerability - created 2 days ago
+    { id: 'vuln-1', name: 'CVE-2024-1234', label: 'Vulnerability', properties: { severity: 'critical', cvss: 9.8, description: 'Remote code execution' }, created_at: '2026-01-09T16:00:00Z' },
+    // Control - created yesterday
+    { id: 'ctrl-1', name: 'Enable TLS 1.3', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'basic', status: 'implemented' }, created_at: '2026-01-10T11:00:00Z' },
+    { id: 'ctrl-2', name: 'Database Encryption', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'intermediate', status: 'not_implemented' }, created_at: '2026-01-10T11:00:00Z' },
+    // Threat - created today
+    { id: 'threat-1', name: 'APT29 Campaign', label: 'Threat', properties: { threat_actor: 'APT29', threat_actor_type: 'nation-state', campaign: 'SolarWinds', tools: ['Cobalt Strike'], malware: ['SUNBURST'] }, created_at: '2026-01-11T08:00:00Z' },
+    // Attack (MITRE ATT&CK) - created today
+    { id: 'attack-1', name: 'T1566', label: 'Attack', properties: { technique_id: 'T1566', technique_name: 'Phishing', tactic: 'Initial Access', tactic_id: 'TA0001' }, created_at: '2026-01-11T08:30:00Z' },
+    { id: 'attack-2', name: 'T1059', label: 'Attack', properties: { technique_id: 'T1059', technique_name: 'Command and Scripting Interpreter', tactic: 'Execution', tactic_id: 'TA0002' }, created_at: '2026-01-11T08:30:00Z' },
+    // Indicator - created today
+    { id: 'ioc-1', name: '192.168.1.100', label: 'Indicator', properties: { indicator_type: 'ip', source: 'threat_intel' }, created_at: '2026-01-11T09:00:00Z' },
+    { id: 'ioc-2', name: 'malware.evil.com', label: 'Indicator', properties: { indicator_type: 'domain', source: 'threat_intel' }, created_at: '2026-01-11T09:00:00Z' },
+    // LogEvent - created today
+    { id: 'log-1', name: 'EVT-4625', label: 'LogEvent', properties: { event_type: 'authentication', source: 'windows_security', description: 'Failed login attempt' }, created_at: '2026-01-11T09:30:00Z' },
   ],
   edges: [
     // Asset -> Category
@@ -2333,6 +2537,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
   const [showMinimap, setShowMinimap] = useState(storedLayout?.preferences?.showMinimap ?? true);
   
+  // Date filter state
+  const [showDateFilter, setShowDateFilter] = useState(false);
+  const [dateFilter, setDateFilter] = useState<DateFilterState>({
+    mode: 'off',
+    singleDate: '',
+    startDate: '',
+    endDate: '',
+    applied: true,
+  });
+  
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
@@ -2379,6 +2593,49 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     pendingChanges.deletedNodeIds.length > 0 ||
     (pendingChanges.addedNodes?.length || 0) > 0;
 
+  // Helper function to check if a node matches the date filter
+  const nodeMatchesDateFilter = useCallback((node: { created_at?: string; properties?: Record<string, unknown> }) => {
+    // Only filter if applied flag is true
+    if (!dateFilter.applied) return true;
+    if (dateFilter.mode === 'off') return true;
+    
+    // Try to get created_at from node directly or from properties
+    let nodeCreatedAt = node.created_at;
+    
+    // If no direct created_at, check if it's in properties (some APIs embed it there)
+    if (!nodeCreatedAt && node.properties) {
+      nodeCreatedAt = node.properties.created_at as string | undefined;
+    }
+    
+    if (!nodeCreatedAt) {
+      // If no created_at field anywhere, include the node (don't filter it out)
+      return true;
+    }
+    
+    // Parse the node's created_at date (ISO format)
+    try {
+      const nodeDate = new Date(nodeCreatedAt);
+      if (isNaN(nodeDate.getTime())) {
+        // Invalid date, include the node
+        return true;
+      }
+      const nodeDateStr = nodeDate.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      if (dateFilter.mode === 'single' && dateFilter.singleDate) {
+        return nodeDateStr === dateFilter.singleDate;
+      }
+      
+      if (dateFilter.mode === 'range' && dateFilter.startDate && dateFilter.endDate) {
+        return nodeDateStr >= dateFilter.startDate && nodeDateStr <= dateFilter.endDate;
+      }
+    } catch {
+      // Date parsing failed, include the node
+      return true;
+    }
+    
+    return true; // If filter is incomplete, show all nodes
+  }, [dateFilter]);
+
   // Convert API data to ReactFlow format
   useEffect(() => {
     if (!graphData) return;
@@ -2395,6 +2652,9 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     if (searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0) {
       filteredApiNodes = filteredApiNodes.filter(n => searchFilteredNodeIds.has(n.id));
     }
+
+    // Apply date filter
+    filteredApiNodes = filteredApiNodes.filter(nodeMatchesDateFilter);
 
     const filteredNodeIds = new Set(filteredApiNodes.map(n => n.id));
 
@@ -2542,7 +2802,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
     // Fit view after layout
     setTimeout(() => fitView({ padding: 0.2 }), 100);
-  }, [graphData, activeFilters, searchFilteredNodeIds, setNodes, setEdges, fitView]);
+  }, [graphData, activeFilters, searchFilteredNodeIds, nodeMatchesDateFilter, setNodes, setEdges, fitView]);
 
   // ==========================================================================
   // SAVE LAYOUT TO BROWSER STORAGE
@@ -2792,11 +3052,24 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     return [...new Set(graphData.nodes.map(n => n.label))];
   }, [graphData]);
 
-  // Node type stats
+  // Node type stats - calculated from date-filtered nodes when date filter is active
   const nodeTypeStats = useMemo(() => {
+    if (!graphData) return {};
+    
+    // If date filter is active, calculate stats from filtered nodes
+    if (dateFilter.applied && dateFilter.mode !== 'off') {
+      const filteredNodes = graphData.nodes.filter(nodeMatchesDateFilter);
+      const counts: Record<string, number> = {};
+      filteredNodes.forEach(node => {
+        counts[node.label] = (counts[node.label] || 0) + 1;
+      });
+      return counts;
+    }
+    
+    // Otherwise use the original stats
     if (!stats) return {};
     return stats.nodes_by_label || {};
-  }, [stats]);
+  }, [graphData, stats, dateFilter, nodeMatchesDateFilter]);
 
   // MiniMap node color
   const minimapNodeColor = useCallback((node: CustomNode) => {
@@ -3611,11 +3884,67 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           {/* Filter Button */}
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`p-2 rounded-lg transition-colors ${showFilters ? 'bg-blue-600 text-white' : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'}`}
-            title="Filter"
+            className={`p-2 rounded-lg transition-colors ${
+              showFilters 
+                ? 'bg-blue-600 text-white' 
+                : activeFilters.size > 0
+                  ? 'bg-blue-600/30 border border-blue-500/50 text-blue-400'
+                  : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white'
+            }`}
+            title="Filter by Node Type"
           >
             <Filter className="w-4 h-4" />
           </button>
+
+          {/* Type filter indicator */}
+          {activeFilters.size > 0 && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-600/20 border border-blue-500/30 rounded-lg text-xs text-blue-400">
+              <span>{activeFilters.size} type{activeFilters.size > 1 ? 's' : ''}</span>
+              <button
+                onClick={() => setActiveFilters(new Set())}
+                className="p-0.5 hover:bg-blue-500/30 rounded"
+                title="Clear type filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Date Filter Button */}
+          <button
+            onClick={() => {
+              setShowDateFilter(!showDateFilter);
+              if (showFilters) setShowFilters(false); // Close type filter when opening date filter
+            }}
+            className={`p-2 rounded-lg transition-colors ${
+              showDateFilter 
+                ? 'bg-cyan-600 text-white' 
+                : dateFilter.applied && dateFilter.mode !== 'off'
+                  ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-400'
+                  : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-cyan-500/50'
+            }`}
+            title="Filter by Created Date"
+          >
+            <Calendar className="w-4 h-4" />
+          </button>
+
+          {/* Date filter indicator */}
+          {dateFilter.applied && dateFilter.mode !== 'off' && (dateFilter.singleDate || (dateFilter.startDate && dateFilter.endDate)) && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-cyan-600/20 border border-cyan-500/30 rounded-lg text-xs text-cyan-400">
+              <span>
+                {dateFilter.mode === 'single' 
+                  ? `Date: ${dateFilter.singleDate}` 
+                  : `${dateFilter.startDate} → ${dateFilter.endDate}`}
+              </span>
+              <button
+                onClick={() => setDateFilter({ mode: 'off', singleDate: '', startDate: '', endDate: '', applied: true })}
+                className="p-0.5 hover:bg-cyan-500/30 rounded"
+                title="Clear date filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          )}
 
           {/* Legend Toggle */}
           <button
@@ -3763,7 +4092,21 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
               nodeTypes={nodeTypesList}
               activeFilters={activeFilters}
               onToggleFilter={toggleFilter}
+              onClose={() => setShowFilters(false)}
               stats={nodeTypeStats}
+            />
+          </Panel>
+        )}
+
+        {/* Date Filter Panel */}
+        {showDateFilter && (
+          <Panel position="top-left" className="!top-16">
+            <DateFilterPanel
+              dateFilter={dateFilter}
+              onDateFilterChange={setDateFilter}
+              onClose={() => setShowDateFilter(false)}
+              filteredCount={nodes.length}
+              totalCount={graphData?.nodes?.length || 0}
             />
           </Panel>
         )}
@@ -3981,11 +4324,12 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
       const rawEdges = data.graph?.edges || data.edges || [];
       
       const transformedData: GraphData = {
-        nodes: rawNodes.map((n: ApiGraphNode) => ({
+        nodes: rawNodes.map((n: ApiGraphNode & { created_at?: string }) => ({
           id: n.id,
           name: n.name,
           label: n.label,
           properties: typeof n.properties === 'string' ? JSON.parse(n.properties) : (n.properties || {}),
+          created_at: n.created_at, // Include created_at for date filtering
         })),
         edges: rawEdges.map((e: ApiGraphEdge) => ({
           id: e.id,

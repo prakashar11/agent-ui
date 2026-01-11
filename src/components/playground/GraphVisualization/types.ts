@@ -15,6 +15,7 @@ export interface GraphNode {
   name: string;
   label: string; // Node type: Asset, Vulnerability, Threat, Attack, Identity, etc.
   properties: Record<string, unknown>;
+  created_at?: string; // ISO timestamp when node was created (nodes only have created_at, not updated_at)
   // Visual properties
   color?: string;
   size?: number;
