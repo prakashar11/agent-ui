@@ -27,7 +27,31 @@ export default {
       },
       fontFamily: {
         geist: 'var(--font-geist-sans)',
-        dmmono: 'var(--font-dm-mono)'
+        // System monospace fonts first (sharper native rendering), DM Mono as fallback
+        dmmono: [
+          'ui-monospace',
+          '"SF Mono"',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          '"Liberation Mono"',
+          '"Courier New"',
+          'var(--font-dm-mono)',
+          'monospace'
+        ],
+        // Also expose a pure system mono stack
+        mono: [
+          'ui-monospace',
+          '"SF Mono"',
+          'SFMono-Regular',
+          'Menlo',
+          'Monaco',
+          'Consolas',
+          '"Liberation Mono"',
+          '"Courier New"',
+          'monospace'
+        ]
       },
       borderRadius: {
         xl: '10px'

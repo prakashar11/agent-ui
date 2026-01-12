@@ -10,33 +10,27 @@
 
   body {
     @apply bg-background/80 text-secondary;
-    text-rendering: geometricPrecision;
+    /* Font rendering - antialiased for crisp edges without boldness */
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-smooth: never;
-    font-feature-settings: normal;
-    font-variant-ligatures: none;
-    -webkit-text-stroke: 0.01em transparent;
+    font-feature-settings: "kern" 1;
   }
 
-  /* Apply maximum font sharpness to all text elements */
+  /* Apply font sharpness to all text elements */
   * {
-    text-rendering: geometricPrecision;
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: normal;
-    font-variant-ligatures: none;
   }
   
-  /* Code and monospace fonts - extra sharp like code editors */
+  /* Code and monospace fonts - optimized for readability */
   code, pre, .font-mono, .font-dmmono, [class*="font-dmmono"], [class*="font-mono"] {
-    text-rendering: geometricPrecision;
+    text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    font-feature-settings: normal;
+    font-feature-settings: "kern" 1, "calt" 0;
     font-variant-ligatures: none;
-    letter-spacing: 0;
-    -webkit-text-stroke: 0.01em transparent;
   }
 }
 
