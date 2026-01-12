@@ -622,9 +622,23 @@ export const HygieneEssentialsSpreadsheet: React.FC<HygieneEssentialsSpreadsheet
 
   // Export
   const exportEssentials = async (format: 'json' | 'csv') => {
+    // Check if there are essentials to export
+    if (essentials.length === 0) {
+      toast.info('No essentials to export', {
+        description: 'Add some hygiene essentials first before exporting.',
+      });
+      return;
+    }
+
     try {
       const response = await fetch(`${baseUrl}/v1/asset-graph/hygiene-essentials/export?format=${format}`);
-      if (!response.ok) throw new Error('Export failed');
+      
+      if (!response.ok) {
+        toast.error('Export failed', {
+          description: 'Failed to export hygiene essentials. Please try again.',
+        });
+        return;
+      }
 
       const data = await response.json();
 
@@ -650,8 +664,15 @@ export const HygieneEssentialsSpreadsheet: React.FC<HygieneEssentialsSpreadsheet
         a.click();
         URL.revokeObjectURL(url);
       }
+
+      toast.success('Export complete', {
+        description: `Hygiene essentials exported as ${format.toUpperCase()} successfully.`,
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Export failed');
+      console.error('Export error:', err);
+      toast.error('Export failed', {
+        description: 'An unexpected error occurred during export.',
+      });
     }
   };
 
@@ -1262,17 +1283,17 @@ export const HygieneEssentialsSpreadsheet: React.FC<HygieneEssentialsSpreadsheet
                 <Download className="h-4 w-4" />
                 <span className="hidden sm:inline">Export</span>
               </button>
-              <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10">
+              <div className="absolute right-0 top-full mt-1 min-w-[140px] bg-zinc-900 border-2 border-zinc-700 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
                 <button
                   onClick={() => exportEssentials('csv')}
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-muted w-full text-left text-sm whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800 w-full text-left text-sm whitespace-nowrap text-zinc-100"
                 >
                   <FileText className="h-4 w-4" />
                   Export CSV
                 </button>
                 <button
                   onClick={() => exportEssentials('json')}
-                  className="flex items-center gap-2 px-4 py-2 hover:bg-muted w-full text-left text-sm whitespace-nowrap"
+                  className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800 w-full text-left text-sm whitespace-nowrap text-zinc-100"
                 >
                   <FileText className="h-4 w-4" />
                   Export JSON

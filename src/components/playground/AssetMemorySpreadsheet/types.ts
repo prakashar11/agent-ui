@@ -4,18 +4,18 @@
 
 export interface Asset {
   asset_id: string;
-  hostname: string;
-  name: string;
-  description: string;
-  ip_addresses: string[];
-  asset_type: string;
+  asset_name: string;
+  asset_category: string;
   criticality: string;
-  environment: string;
+  description: string;
   business_unit: string;
-  tags: string[];
-  technologies: string[];
   owner: string;
+  publicly_accessible: boolean;
+  data_handled: string;
+  compliance_scope: string;
+  technologies: string[];
   risk_score: number;
+  tags: string[];
   created_at?: number;
   updated_at?: number;
 }
@@ -80,19 +80,20 @@ export interface ColumnDef {
 }
 
 // Default columns for the spreadsheet
+// Order: asset_name, asset_category, criticality, description, business_unit, owner, publicly_accessible, data_handled, compliance_scope, technologies, risk_score, tags
 export const SPREADSHEET_COLUMNS: ColumnDef[] = [
-  { key: 'hostname', label: 'Hostname', width: '180px', editable: true, type: 'text' },
-  { key: 'name', label: 'Name', width: '150px', editable: true, type: 'text' },
-  { key: 'asset_type', label: 'Type', width: '140px', editable: true, type: 'select' },
+  { key: 'asset_name', label: 'Asset Name', width: '180px', editable: true, type: 'text' },
+  { key: 'asset_category', label: 'Category', width: '140px', editable: true, type: 'select' },
   { key: 'criticality', label: 'Criticality', width: '120px', editable: true, type: 'select' },
-  { key: 'environment', label: 'Environment', width: '120px', editable: true, type: 'select' },
-  { key: 'ip_addresses', label: 'IP Addresses', width: '150px', editable: true, type: 'array' },
-  { key: 'owner', label: 'Owner', width: '120px', editable: true, type: 'text' },
+  { key: 'description', label: 'Description', width: '200px', editable: true, type: 'text' },
   { key: 'business_unit', label: 'Business Unit', width: '130px', editable: true, type: 'text' },
-  { key: 'tags', label: 'Tags', width: '150px', editable: true, type: 'array' },
+  { key: 'owner', label: 'Owner', width: '120px', editable: true, type: 'text' },
+  { key: 'publicly_accessible', label: 'Public', width: '80px', editable: true, type: 'select' },
+  { key: 'data_handled', label: 'Data Handled', width: '140px', editable: true, type: 'text' },
+  { key: 'compliance_scope', label: 'Compliance Scope', width: '150px', editable: true, type: 'text' },
   { key: 'technologies', label: 'Technologies', width: '150px', editable: true, type: 'array' },
   { key: 'risk_score', label: 'Risk Score', width: '100px', editable: false, type: 'number' },
-  { key: 'description', label: 'Description', width: '200px', editable: true, type: 'text' },
+  { key: 'tags', label: 'Tags', width: '150px', editable: true, type: 'array' },
 ];
 
 // Criticality colors for badges
@@ -118,21 +119,22 @@ export const ENVIRONMENT_COLORS: Record<string, string> = {
 };
 
 // CSV import field mappings (support multiple field names)
+// Order: asset_name, asset_category, criticality, description, business_unit, owner, publicly_accessible, data_handled, compliance_scope, technologies, risk_score, tags
 // All aliases should be lowercase for matching
 export const CSV_FIELD_MAPPINGS: Record<string, string[]> = {
-  hostname: ['hostname', 'host', 'host_name', 'hostnam', 'server', 'server_name', 'servername'],
-  name: ['name', 'asset_name', 'assetname', 'asset name', 'title', 'label'],
-  description: ['description', 'desc', 'details', 'notes', 'comment', 'comments'],
-  ip_addresses: ['ip_addresses', 'ipaddresses', 'ip addresses', 'ip', 'ips', 'ip_address', 'ipaddress', 'ip address'],
-  asset_type: ['asset_type', 'assettype', 'asset type', 'type', 'category', 'asset_category'],
+  asset_name: ['asset_name', 'assetname', 'asset name', 'name', 'title', 'label'],
+  asset_category: ['asset_category', 'assetcategory', 'asset category', 'category', 'asset_type', 'assettype', 'asset type', 'type'],
   criticality: ['criticality', 'critical', 'priority', 'importance', 'severity'],
-  environment: ['environment', 'env', 'stage', 'deployment'],
+  description: ['description', 'desc', 'details', 'notes', 'comment', 'comments'],
   business_unit: ['business_unit', 'businessunit', 'business unit', 'bu', 'department', 'dept', 'team'],
-  tags: ['tags', 'tag', 'labels', 'keywords'],
-  technologies: ['technologies', 'technology', 'tech', 'stack', 'software', 'apps', 'applications'],
   owner: ['owner', 'owners', 'contact', 'responsible', 'admin', 'administrator'],
+  publicly_accessible: ['publicly_accessible', 'publiclyaccessible', 'publicly accessible', 'public', 'internet_facing', 'external'],
+  data_handled: ['data_handled', 'datahandled', 'data handled', 'data_type', 'data type', 'data_classification', 'data'],
+  compliance_scope: ['compliance_scope', 'compliancescope', 'compliance scope', 'compliace_scope', 'compliance', 'regulatory', 'regulations'],
+  technologies: ['technologies', 'technology', 'tech', 'stack', 'software', 'apps', 'applications'],
   risk_score: ['risk_score', 'riskscore', 'risk score', 'risk', 'score'],
+  tags: ['tags', 'tag', 'labels', 'keywords'],
 };
 
 // Fields that should be parsed as arrays (comma, semicolon, or pipe separated)
-export const ARRAY_FIELDS = ['ip_addresses', 'tags', 'technologies'];
+export const ARRAY_FIELDS = ['tags', 'technologies'];

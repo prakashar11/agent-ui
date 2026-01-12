@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   X,
   Search,
@@ -25,6 +26,7 @@ import {
   Copy,
   ChevronLeft,
   ChevronRight,
+  FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { APIRoutes } from '@/api/routes';
@@ -38,7 +40,6 @@ import {
   ColumnDef,
   SPREADSHEET_COLUMNS,
   CRITICALITY_COLORS,
-  ENVIRONMENT_COLORS,
   CSV_FIELD_MAPPINGS,
   ARRAY_FIELDS,
 } from './types';
@@ -54,10 +55,6 @@ const formatTimestamp = (timestamp?: number): string => {
 
 const getCriticalityBadgeClass = (criticality: string): string => {
   return CRITICALITY_COLORS[criticality.toLowerCase()] || CRITICALITY_COLORS.informational;
-};
-
-const getEnvironmentBadgeClass = (environment: string): string => {
-  return ENVIRONMENT_COLORS[environment.toLowerCase()] || ENVIRONMENT_COLORS.unknown;
 };
 
 // =============================================================================
@@ -196,7 +193,8 @@ const EditableCell: React.FC<EditableCellProps> = ({
     );
   }
 
-  if (column.key === 'environment') {
+  if (column.key === 'publicly_accessible') {
+    const isPublic = String(value) === 'true' || String(value).toLowerCase() === 'yes';
     return (
       <div
         className="px-3 py-2 cursor-pointer hover:bg-muted/50 rounded"
@@ -206,10 +204,12 @@ const EditableCell: React.FC<EditableCellProps> = ({
         <span
           className={cn(
             'inline-flex px-2 py-0.5 rounded text-xs font-medium',
-            getEnvironmentBadgeClass(String(value))
+            isPublic
+              ? 'bg-red-500/20 text-red-400'
+              : 'bg-green-500/20 text-green-400'
           )}
         >
-          {displayValue}
+          {isPublic ? 'Yes' : 'No'}
         </span>
       </div>
     );
@@ -234,65 +234,60 @@ interface CreateAssetModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (asset: Partial<Asset>) => Promise<void>;
-  assetTypes: string[];
+  assetCategories: string[];
   criticalities: string[];
-  environments: string[];
 }
 
 const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
   isOpen,
   onClose,
   onSave,
-  assetTypes,
+  assetCategories,
   criticalities,
-  environments,
 }) => {
   const [formData, setFormData] = useState<Partial<Asset>>({
-    hostname: '',
-    name: '',
-    asset_type: 'unknown',
+    asset_name: '',
+    asset_category: 'unknown',
     criticality: 'medium',
-    environment: 'unknown',
-    ip_addresses: [],
-    tags: [],
-    technologies: [],
-    owner: '',
-    business_unit: '',
     description: '',
+    business_unit: '',
+    owner: '',
+    publicly_accessible: false,
+    data_handled: '',
+    compliance_scope: '',
+    technologies: [],
+    tags: [],
   });
   const [saving, setSaving] = useState(false);
-  const [ipInput, setIpInput] = useState('');
   const [tagsInput, setTagsInput] = useState('');
   const [techInput, setTechInput] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.hostname) return;
+    if (!formData.asset_name) return;
 
     setSaving(true);
     try {
       await onSave({
         ...formData,
-        ip_addresses: ipInput.split(',').map((s) => s.trim()).filter(Boolean),
         tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
         technologies: techInput.split(',').map((s) => s.trim()).filter(Boolean),
       });
       onClose();
       // Reset form
       setFormData({
-        hostname: '',
-        name: '',
-        asset_type: 'unknown',
+        asset_name: '',
+        asset_category: 'unknown',
         criticality: 'medium',
-        environment: 'unknown',
-        ip_addresses: [],
-        tags: [],
-        technologies: [],
-        owner: '',
-        business_unit: '',
         description: '',
+        business_unit: '',
+        owner: '',
+        publicly_accessible: false,
+        data_handled: '',
+        compliance_scope: '',
+        technologies: [],
+        tags: [],
       });
-      setIpInput('');
       setTagsInput('');
       setTechInput('');
     } finally {
@@ -322,44 +317,34 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">
-                Hostname <span className="text-destructive">*</span>
+                Asset Name <span className="text-destructive">*</span>
               </label>
               <input
                 type="text"
-                value={formData.hostname || ''}
-                onChange={(e) => setFormData({ ...formData, hostname: e.target.value })}
+                value={formData.asset_name || ''}
+                onChange={(e) => setFormData({ ...formData, asset_name: e.target.value })}
                 className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="e.g., web-server-01"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Name</label>
-              <input
-                type="text"
-                value={formData.name || ''}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="Friendly name"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Asset Type</label>
+              <label className="block text-sm font-medium mb-1">Category</label>
               <select
-                value={formData.asset_type || 'unknown'}
-                onChange={(e) => setFormData({ ...formData, asset_type: e.target.value })}
+                value={formData.asset_category || 'unknown'}
+                onChange={(e) => setFormData({ ...formData, asset_category: e.target.value })}
                 className="w-full px-3 py-2 bg-background text-foreground border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
               >
-                {assetTypes.map((type) => (
-                  <option key={type} value={type} className="bg-background text-foreground">
-                    {type.replace(/_/g, ' ')}
+                {assetCategories.map((cat) => (
+                  <option key={cat} value={cat} className="bg-background text-foreground">
+                    {cat.replace(/_/g, ' ')}
                   </option>
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Criticality</label>
               <select
@@ -375,17 +360,14 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Environment</label>
+              <label className="block text-sm font-medium mb-1">Publicly Accessible</label>
               <select
-                value={formData.environment || 'unknown'}
-                onChange={(e) => setFormData({ ...formData, environment: e.target.value })}
+                value={formData.publicly_accessible ? 'yes' : 'no'}
+                onChange={(e) => setFormData({ ...formData, publicly_accessible: e.target.value === 'yes' })}
                 className="w-full px-3 py-2 bg-background text-foreground border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary cursor-pointer"
               >
-                {environments.map((env) => (
-                  <option key={env} value={env} className="bg-background text-foreground">
-                    {env}
-                  </option>
-                ))}
+                <option value="no" className="bg-background text-foreground">No</option>
+                <option value="yes" className="bg-background text-foreground">Yes</option>
               </select>
             </div>
           </div>
@@ -413,14 +395,37 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-1">Data Handled</label>
+              <input
+                type="text"
+                value={formData.data_handled || ''}
+                onChange={(e) => setFormData({ ...formData, data_handled: e.target.value })}
+                className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="e.g., PII, Financial, PHI"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Compliance Scope</label>
+              <input
+                type="text"
+                value={formData.compliance_scope || ''}
+                onChange={(e) => setFormData({ ...formData, compliance_scope: e.target.value })}
+                className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                placeholder="e.g., PCI-DSS, HIPAA, SOC2"
+              />
+            </div>
+          </div>
+
           <div>
-            <label className="block text-sm font-medium mb-1">IP Addresses</label>
+            <label className="block text-sm font-medium mb-1">Technologies</label>
             <input
               type="text"
-              value={ipInput}
-              onChange={(e) => setIpInput(e.target.value)}
+              value={techInput}
+              onChange={(e) => setTechInput(e.target.value)}
               className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Comma-separated: 192.168.1.1, 10.0.0.1"
+              placeholder="Comma-separated: nginx, python, postgres"
             />
           </div>
 
@@ -432,17 +437,6 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
               onChange={(e) => setTagsInput(e.target.value)}
               className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Comma-separated: web, critical, pci"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Technologies</label>
-            <input
-              type="text"
-              value={techInput}
-              onChange={(e) => setTechInput(e.target.value)}
-              className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Comma-separated: nginx, python, postgres"
             />
           </div>
 
@@ -467,7 +461,7 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={saving || !formData.hostname}
+              disabled={saving || !formData.asset_name}
               className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {saving ? (
@@ -514,20 +508,24 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [stats, setStats] = useState<AssetStatsResponse | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [filters, setFilters] = useState({ asset_type: '', criticality: '', environment: '' });
+  const [filters, setFilters] = useState({ asset_category: '', criticality: '' });
 
   // Metadata options with fallback defaults
-  const DEFAULT_ASSET_TYPES = ['web_server', 'database', 'application_server', 'api_server', 'file_server', 'firewall', 'load_balancer', 'container', 'cloud_instance', 'workstation', 'network_device', 'unknown'];
+  const DEFAULT_ASSET_CATEGORIES = ['web_server', 'database', 'application_server', 'api_server', 'file_server', 'firewall', 'load_balancer', 'container', 'cloud_instance', 'workstation', 'network_device', 'unknown'];
   const DEFAULT_CRITICALITIES = ['critical', 'high', 'medium', 'low', 'informational'];
-  const DEFAULT_ENVIRONMENTS = ['production', 'staging', 'development', 'testing', 'qa', 'sandbox', 'unknown'];
 
-  const [assetTypes, setAssetTypes] = useState<string[]>(DEFAULT_ASSET_TYPES);
+  const [assetCategories, setAssetCategories] = useState<string[]>(DEFAULT_ASSET_CATEGORIES);
   const [criticalities, setCriticalities] = useState<string[]>(DEFAULT_CRITICALITIES);
-  const [environments, setEnvironments] = useState<string[]>(DEFAULT_ENVIRONMENTS);
 
   // Import state
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Resize state
+  const [modalSize, setModalSize] = useState({ width: 1200, height: 700 });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeStartRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
+  const [resizeDirection, setResizeDirection] = useState<'top' | 'bottom' | null>(null);
 
   // ==========================================================================
   // API CALLS
@@ -545,9 +543,8 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
         page_size: String(pageSize),
       });
       if (searchQuery) params.append('search', searchQuery);
-      if (filters.asset_type) params.append('asset_type', filters.asset_type);
+      if (filters.asset_category) params.append('asset_category', filters.asset_category);
       if (filters.criticality) params.append('criticality', filters.criticality);
-      if (filters.environment) params.append('environment', filters.environment);
 
       const response = await fetch(`${APIRoutes.AssetMemoryList(endpoint)}?${params}`);
       
@@ -592,23 +589,18 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
     if (!endpoint) return;
 
     try {
-      const [typesRes, critRes, envRes] = await Promise.all([
+      const [typesRes, critRes] = await Promise.all([
         fetch(APIRoutes.AssetMemoryMetadataTypes(endpoint)),
         fetch(APIRoutes.AssetMemoryMetadataCriticalities(endpoint)),
-        fetch(APIRoutes.AssetMemoryMetadataEnvironments(endpoint)),
       ]);
 
       if (typesRes.ok) {
         const data = await typesRes.json();
-        setAssetTypes(data.asset_types || []);
+        setAssetCategories(data.asset_types || data.asset_categories || []);
       }
       if (critRes.ok) {
         const data = await critRes.json();
         setCriticalities(data.criticalities?.map((c: { value: string }) => c.value) || []);
-      }
-      if (envRes.ok) {
-        const data = await envRes.json();
-        setEnvironments(data.environments || []);
       }
     } catch (err) {
       console.error('Failed to fetch metadata:', err);
@@ -671,29 +663,53 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
   const exportAssets = async (format: 'json' | 'csv') => {
     if (!endpoint) return;
 
-    const response = await fetch(
-      `${APIRoutes.AssetMemoryExport(endpoint)}?format=${format}`
-    );
+    // Check if there are assets to export
+    if (totalAssets === 0) {
+      toast.info('No assets to export', {
+        description: 'Add some assets first before exporting.',
+      });
+      return;
+    }
 
-    if (!response.ok) throw new Error('Failed to export assets');
+    try {
+      const response = await fetch(
+        `${APIRoutes.AssetMemoryExport(endpoint)}?format=${format}`
+      );
 
-    if (format === 'csv') {
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'assets_export.csv';
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } else {
-      const data = await response.json();
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'assets_export.json';
-      a.click();
-      window.URL.revokeObjectURL(url);
+      if (!response.ok) {
+        toast.error('Export failed', {
+          description: 'Failed to export assets. Please try again.',
+        });
+        return;
+      }
+
+      if (format === 'csv') {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'assets_export.csv';
+        a.click();
+        window.URL.revokeObjectURL(url);
+      } else {
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'assets_export.json';
+        a.click();
+        window.URL.revokeObjectURL(url);
+      }
+
+      toast.success('Export complete', {
+        description: `Assets exported as ${format.toUpperCase()} successfully.`,
+      });
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Export failed', {
+        description: 'An unexpected error occurred during export.',
+      });
     }
   };
 
@@ -748,8 +764,8 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
             }
           });
           
-          // Only add assets with hostname or name
-          if (asset.hostname || asset.name) {
+          // Only add assets with asset_name
+          if (asset.asset_name) {
             assetsToImport.push(asset as Partial<Asset>);
           }
         }
@@ -817,6 +833,51 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, editingCell, showCreateModal, onClose]);
+
+  // Handle resize start
+  const handleResizeStart = useCallback((e: React.MouseEvent, direction: 'top' | 'bottom') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+    setResizeDirection(direction);
+    resizeStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      width: modalSize.width,
+      height: modalSize.height,
+    };
+  }, [modalSize]);
+
+  // Handle resize move
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const deltaX = e.clientX - resizeStartRef.current.x;
+      const deltaY = e.clientY - resizeStartRef.current.y;
+      
+      // For top resize, we invert the Y delta
+      const heightDelta = resizeDirection === 'top' ? -deltaY : deltaY;
+      
+      setModalSize({
+        width: Math.max(600, Math.min(window.innerWidth - 40, resizeStartRef.current.width + deltaX)),
+        height: Math.max(400, Math.min(window.innerHeight - 40, resizeStartRef.current.height + heightDelta)),
+      });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      setResizeDirection(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, resizeDirection]);
 
   // ==========================================================================
   // HANDLERS
@@ -916,12 +977,26 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
           transition={{ duration: 0.2 }}
+          style={isFullscreen ? undefined : { width: modalSize.width, height: modalSize.height }}
           className={cn(
-            'relative z-10 flex flex-col bg-background border border-border rounded-xl shadow-2xl',
-            isFullscreen ? 'w-screen h-screen rounded-none' : 'w-[95vw] h-[90vh] max-w-7xl'
+            'relative z-10 flex flex-col bg-background border border-border rounded-xl shadow-2xl overflow-hidden',
+            isFullscreen && 'w-[calc(100vw-2rem)] h-[calc(100vh-2rem)]'
           )}
           onClick={(e) => e.stopPropagation()}
         >
+          {/* Top-Right Resize Handle - only visible when not fullscreen */}
+          {!isFullscreen && (
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'top')}
+              className="absolute top-0 right-0 w-6 h-6 cursor-ne-resize flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-colors z-20"
+              title="Drag to resize"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor" className="rotate-90">
+                <path d="M9 4V9H4L9 4Z" />
+                <path d="M9 0V3H6L9 0Z" />
+              </svg>
+            </div>
+          )}
           {/* Header */}
           <div className="flex items-center justify-between px-6 py-4 border-b border-border">
             <div className="flex items-center gap-3">
@@ -1036,22 +1111,27 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
               </button>
 
               {/* Export */}
-              <div className="flex items-center">
-                <button
-                  onClick={() => exportAssets('csv')}
-                  className="flex items-center gap-2 px-3 py-2 rounded-l-lg border border-border bg-background hover:bg-muted transition-colors"
-                  title="Export to CSV"
-                >
+              <div className="relative group">
+                <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background hover:bg-muted transition-colors">
                   <Download className="h-4 w-4" />
-                  <span className="text-sm">CSV</span>
+                  <span className="text-sm">Export</span>
                 </button>
-                <button
-                  onClick={() => exportAssets('json')}
-                  className="flex items-center gap-2 px-3 py-2 rounded-r-lg border border-l-0 border-border bg-background hover:bg-muted transition-colors"
-                  title="Export to JSON"
-                >
-                  <span className="text-sm">JSON</span>
-                </button>
+                <div className="absolute right-0 top-full mt-1 min-w-[140px] bg-zinc-900 border-2 border-zinc-700 rounded-lg shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50 overflow-hidden">
+                  <button
+                    onClick={() => exportAssets('csv')}
+                    className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800 w-full text-left text-sm whitespace-nowrap text-zinc-100"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Export CSV
+                  </button>
+                  <button
+                    onClick={() => exportAssets('json')}
+                    className="flex items-center gap-2 px-4 py-2.5 hover:bg-zinc-800 w-full text-left text-sm whitespace-nowrap text-zinc-100"
+                  >
+                    <FileText className="h-4 w-4" />
+                    Export JSON
+                  </button>
+                </div>
               </div>
 
               {/* Create */}
@@ -1069,17 +1149,17 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
           {showFilters && (
             <div className="flex items-center gap-4 px-6 py-3 border-b border-border bg-muted/20">
               <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground">Type:</label>
+                <label className="text-sm text-muted-foreground">Category:</label>
                 <select
-                  value={filters.asset_type}
+                  value={filters.asset_category}
                   onChange={(e) => {
-                    setFilters({ ...filters, asset_type: e.target.value });
+                    setFilters({ ...filters, asset_category: e.target.value });
                     setPage(1);
                   }}
                   className="px-2 py-1 bg-background border border-border rounded text-sm"
                 >
                   <option value="">All</option>
-                  {assetTypes.map((t) => (
+                  {assetCategories.map((t) => (
                     <option key={t} value={t}>
                       {t.replace(/_/g, ' ')}
                     </option>
@@ -1104,27 +1184,9 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
                   ))}
                 </select>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-sm text-muted-foreground">Environment:</label>
-                <select
-                  value={filters.environment}
-                  onChange={(e) => {
-                    setFilters({ ...filters, environment: e.target.value });
-                    setPage(1);
-                  }}
-                  className="px-2 py-1 bg-background border border-border rounded text-sm"
-                >
-                  <option value="">All</option>
-                  {environments.map((e) => (
-                    <option key={e} value={e}>
-                      {e}
-                    </option>
-                  ))}
-                </select>
-              </div>
               <button
                 onClick={() => {
-                  setFilters({ asset_type: '', criticality: '', environment: '' });
+                  setFilters({ asset_category: '', criticality: '' });
                   setPage(1);
                 }}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
@@ -1233,12 +1295,12 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
                             onCancel={handleCellCancel}
                             onEdit={() => handleCellEdit(asset.asset_id, col.key)}
                             options={
-                              col.key === 'asset_type'
-                                ? assetTypes
+                              col.key === 'asset_category'
+                                ? assetCategories
                                 : col.key === 'criticality'
                                   ? criticalities
-                                  : col.key === 'environment'
-                                    ? environments
+                                  : col.key === 'publicly_accessible'
+                                    ? ['yes', 'no']
                                     : undefined
                             }
                           />
@@ -1289,10 +1351,10 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
             </div>
           )}
 
-          {/* Stats Bar */}
-          {stats && (
-            <div className="flex items-center gap-6 px-6 py-2 border-t border-border bg-muted/20 text-xs text-muted-foreground">
-              {Object.entries(stats.asset_stats.criticality_distribution || {}).map(([key, count]) => (
+          {/* Stats Bar with CSV Format Hint */}
+          <div className="flex items-center justify-between px-6 py-2 border-t border-border bg-muted/20 text-xs text-muted-foreground">
+            <div className="flex items-center gap-6">
+              {stats && Object.entries(stats.asset_stats.criticality_distribution || {}).map(([key, count]) => (
                 <div key={key} className="flex items-center gap-1.5">
                   <span
                     className={cn(
@@ -1313,6 +1375,23 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
                 </div>
               ))}
             </div>
+            <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground">
+              <span>CSV Format: asset_name, asset_category, criticality, description, business_unit, owner, publicly_accessible, data_handled, compliance_scope, technologies, risk_score, tags</span>
+            </div>
+          </div>
+
+          {/* Bottom-Right Resize Handle - only visible when not fullscreen */}
+          {!isFullscreen && (
+            <div
+              onMouseDown={(e) => handleResizeStart(e, 'bottom')}
+              className="absolute bottom-0 right-0 w-6 h-6 cursor-se-resize flex items-center justify-center text-muted-foreground/40 hover:text-muted-foreground transition-colors z-20"
+              title="Drag to resize"
+            >
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                <path d="M9 4V9H4L9 4Z" />
+                <path d="M9 0V3H6L9 0Z" />
+              </svg>
+            </div>
           )}
         </motion.div>
 
@@ -1321,9 +1400,8 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
           isOpen={showCreateModal}
           onClose={() => setShowCreateModal(false)}
           onSave={createAsset}
-          assetTypes={assetTypes}
+          assetCategories={assetCategories}
           criticalities={criticalities}
-          environments={environments}
         />
       </div>
     </AnimatePresence>
