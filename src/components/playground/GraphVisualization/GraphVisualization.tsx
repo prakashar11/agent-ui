@@ -3742,23 +3742,35 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
   return (
     <div className="flex-1 relative">
-      {/* Demo Data Banner */}
+      {/* Demo Data Banner - Prominent notification */}
       {isShowingDemoData && (
-        <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-amber-600/90 to-orange-600/90 backdrop-blur-sm px-4 py-2 flex items-center justify-center gap-3">
+        <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-amber-600 to-orange-600 backdrop-blur-sm px-4 py-3 flex items-center justify-center gap-3 shadow-lg border-b-2 border-amber-400/50">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-sm font-medium text-white">
-              Showing sample data — Backend does not have asset graph data yet
+            <div className="flex items-center justify-center w-6 h-6 bg-white/20 rounded-full animate-pulse">
+              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <span className="text-sm font-semibold text-white">
+              ⚠️ DEMO DATA — This is sample data for demonstration purposes only
             </span>
           </div>
           <button
             onClick={onRefresh}
-            className="text-xs px-2 py-1 bg-white/20 hover:bg-white/30 text-white rounded transition-colors"
+            className="text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-md transition-colors font-medium border border-white/30"
           >
-            Check Backend
+            Load Real Data
           </button>
+        </div>
+      )}
+      
+      {/* Floating Demo Badge on Graph */}
+      {isShowingDemoData && (
+        <div className="absolute bottom-4 left-4 z-20 bg-amber-600/95 backdrop-blur-sm px-3 py-2 rounded-lg shadow-lg border border-amber-400/50 flex items-center gap-2">
+          <div className="w-2 h-2 bg-amber-300 rounded-full animate-pulse" />
+          <span className="text-xs font-semibold text-white uppercase tracking-wide">
+            Demo Mode
+          </span>
         </div>
       )}
       
@@ -4405,8 +4417,8 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-semibold text-white">Asset Graph</h2>
               {isShowingDemoData && (
-                <span className="text-xs px-2 py-1 bg-amber-600/20 text-amber-400 rounded-md font-medium border border-amber-600/30">
-                  SAMPLE DATA
+                <span className="text-xs px-2.5 py-1 bg-amber-600 text-white rounded-md font-bold border border-amber-400 animate-pulse shadow-sm">
+                  ⚠️ DEMO DATA
                 </span>
               )}
               {stats && (
