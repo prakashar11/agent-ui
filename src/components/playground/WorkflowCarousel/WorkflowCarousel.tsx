@@ -41,6 +41,7 @@ import {
   Pencil,
   Trash2,
   RefreshCw,
+  ChevronLeft,
   ChevronRight,
   MoreHorizontal,
 } from 'lucide-react'
@@ -85,6 +86,18 @@ interface AssetOption {
   environment?: string
 }
 
+// Pagination info from backend
+interface WorkflowPaginationInfo {
+  page: number
+  per_page: number
+  total: number
+  total_filtered: number
+  total_pages: number
+  has_next: boolean
+  has_prev: boolean
+  filters?: Record<string, string>
+}
+
 export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
   isOpen,
   onClose,
@@ -96,6 +109,11 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingTask, setEditingTask] = useState<WorkflowTask | null>(null)
   const [filter, setFilter] = useState<WorkflowStatus | 'all'>('all')
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [perPage] = useState(25)
+  const [paginationInfo, setPaginationInfo] = useState<WorkflowPaginationInfo | null>(null)
 
   // Asset picker state
   const [availableAssets, setAvailableAssets] = useState<AssetOption[]>([])
@@ -112,17 +130,18 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
     priority: 'medium',
   })
 
-  // Fetch tasks
-  const fetchTasks = useCallback(async () => {
+  // Fetch tasks with pagination
+  const fetchTasks = useCallback(async (page: number = currentPage) => {
     if (!endpoint) return
 
     setLoading(true)
     try {
       const params = new URLSearchParams()
+      params.append('page', String(page))
+      params.append('per_page', String(perPage))
       if (filter !== 'all') {
         params.append('status', filter)
       }
-      params.append('limit', '50')
 
       const response = await fetch(
         `${APIRoutes.WorkflowTasksList(endpoint)}?${params.toString()}`
@@ -131,13 +150,53 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
 
       const data = await response.json()
       setTasks(data.tasks || [])
+      
+      // Store pagination info if available
+      if (data.pagination) {
+        setPaginationInfo(data.pagination)
+      } else {
+        // Fallback for legacy response format
+        setPaginationInfo({
+          page: page,
+          per_page: perPage,
+          total: data.total || 0,
+          total_filtered: data.total || 0,
+          total_pages: Math.ceil((data.total || 0) / perPage),
+          has_next: page < Math.ceil((data.total || 0) / perPage),
+          has_prev: page > 1,
+        })
+      }
     } catch (error) {
       console.error('Error fetching workflow tasks:', error)
       toast.error('Failed to load workflow tasks', { duration: 3000 })
     } finally {
       setLoading(false)
     }
-  }, [endpoint, filter])
+  }, [endpoint, filter, currentPage, perPage])
+
+  // Handle page navigation
+  const handleNextPage = useCallback(() => {
+    if (paginationInfo?.has_next) {
+      const nextPage = currentPage + 1
+      setCurrentPage(nextPage)
+      fetchTasks(nextPage)
+    }
+  }, [paginationInfo, currentPage, fetchTasks])
+
+  const handlePrevPage = useCallback(() => {
+    if (paginationInfo?.has_prev) {
+      const prevPage = currentPage - 1
+      setCurrentPage(prevPage)
+      fetchTasks(prevPage)
+    }
+  }, [paginationInfo, currentPage, fetchTasks])
+
+  const handleGoToPage = useCallback((page: number) => {
+    if (page >= 1 && page <= (paginationInfo?.total_pages || 1)) {
+      setCurrentPage(page)
+      fetchTasks(page)
+    }
+  }, [paginationInfo, fetchTasks])
 
   // Fetch dashboard stats
   const fetchStats = useCallback(async () => {
@@ -516,6 +575,70 @@ export const WorkflowCarousel: React.FC<WorkflowCarouselProps> = ({
                 <CarouselNext className="-right-4" />
                 <CarouselDots className="mt-4" />
               </Carousel>
+            )}
+
+            {/* Pagination Controls */}
+            {paginationInfo && paginationInfo.total_pages > 1 && (
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-zinc-700">
+                <div className="text-sm text-zinc-400">
+                  Showing {tasks.length} of {paginationInfo.total_filtered} tasks
+                  {paginationInfo.total_filtered !== paginationInfo.total && (
+                    <span className="ml-1">(filtered from {paginationInfo.total} total)</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePrevPage}
+                    disabled={!paginationInfo.has_prev || loading}
+                    className="border-zinc-600 text-zinc-100 hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {/* Page buttons */}
+                    {Array.from({ length: Math.min(5, paginationInfo.total_pages) }, (_, i) => {
+                      let pageNum: number
+                      if (paginationInfo.total_pages <= 5) {
+                        pageNum = i + 1
+                      } else if (currentPage <= 3) {
+                        pageNum = i + 1
+                      } else if (currentPage >= paginationInfo.total_pages - 2) {
+                        pageNum = paginationInfo.total_pages - 4 + i
+                      } else {
+                        pageNum = currentPage - 2 + i
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => handleGoToPage(pageNum)}
+                          disabled={loading}
+                          className={cn(
+                            'w-8 h-8 text-sm rounded-md transition-colors',
+                            currentPage === pageNum
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-zinc-300 hover:bg-zinc-700 hover:text-white'
+                          )}
+                        >
+                          {pageNum}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleNextPage}
+                    disabled={!paginationInfo.has_next || loading}
+                    className="border-zinc-600 text-zinc-100 hover:bg-zinc-700 hover:text-white disabled:opacity-50"
+                  >
+                    Next
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         </div>

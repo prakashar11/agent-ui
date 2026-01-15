@@ -543,17 +543,26 @@ export const AssetMemorySpreadsheet: React.FC<AssetMemorySpreadsheetProps> = ({
         page_size: String(pageSize),
       });
       if (searchQuery) params.append('search', searchQuery);
-      if (filters.asset_category) params.append('asset_category', filters.asset_category);
+      if (filters.asset_category) params.append('asset_type', filters.asset_category);
       if (filters.criticality) params.append('criticality', filters.criticality);
 
       const response = await fetch(`${APIRoutes.AssetMemoryList(endpoint)}?${params}`);
       
       // Handle response - even if not ok, try to parse and show empty state
       if (response.ok) {
-        const data: AssetListResponse = await response.json();
+        const data = await response.json();
         setAssets(data.assets || []);
-        setTotalAssets(data.total || 0);
-        setTotalPages(data.total_pages || 0);
+        
+        // Support both new pagination format and legacy format
+        if (data.pagination) {
+          // New pagination format
+          setTotalAssets(data.pagination.total || 0);
+          setTotalPages(data.pagination.total_pages || 0);
+        } else {
+          // Legacy format
+          setTotalAssets(data.total || 0);
+          setTotalPages(data.total_pages || 0);
+        }
       } else {
         // Server returned error - just show empty state, don't show error
         setAssets([]);
