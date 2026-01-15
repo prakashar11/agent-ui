@@ -136,8 +136,11 @@ const getNodeRank = (nodeType: string): number => {
 // This does NOT affect backend storage - only UI preferences
 
 const STORAGE_KEY = 'asset-graph-visualization-layout';
+const LAYOUT_VERSION = 2; // Increment this when layout algorithm changes significantly
 
 interface StoredLayout {
+  // Layout version - used to invalidate cache when algorithm changes
+  version?: number;
   // Node positions (id -> {x, y})
   nodePositions: Record<string, { x: number; y: number }>;
   // Edge handle positions (id -> {sourceHandle, targetHandle})
@@ -158,6 +161,14 @@ const getStoredLayout = (): StoredLayout | null => {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) {
       const layout = JSON.parse(stored) as StoredLayout;
+      
+      // Check layout version - invalidate if algorithm changed
+      if ((layout.version || 1) !== LAYOUT_VERSION) {
+        console.log(`[AssetGraph] Layout version changed (${layout.version || 1} -> ${LAYOUT_VERSION}), clearing cache`);
+        clearStoredLayout();
+        return null;
+      }
+      
       // Cache valid for 7 days
       const sevenDays = 7 * 24 * 60 * 60 * 1000;
       if (Date.now() - layout.savedAt < sevenDays) {
@@ -174,6 +185,7 @@ const saveLayout = (layout: Partial<StoredLayout>) => {
   if (typeof window === 'undefined') return;
   try {
     const existing = getStoredLayout() || {
+      version: LAYOUT_VERSION,
       nodePositions: {},
       edgeHandles: {},
       preferences: { showMinimap: true, showLegend: false },
@@ -182,6 +194,7 @@ const saveLayout = (layout: Partial<StoredLayout>) => {
     const updated: StoredLayout = {
       ...existing,
       ...layout,
+      version: LAYOUT_VERSION,
       savedAt: Date.now(),
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -205,61 +218,343 @@ const clearStoredLayout = () => {
 // HIERARCHICAL LAYOUT (Manual positioning by node type)
 // =============================================================================
 
-const NODE_WIDTH = 200;
-const NODE_HEIGHT = 70;
-const HORIZONTAL_GAP = 60;  // Gap between nodes in same row
-const VERTICAL_GAP = 140;   // Gap between hierarchy levels
-const MARGIN_X = 100;
-const MARGIN_Y = 80;
+const NODE_WIDTH = 160;
+const NODE_HEIGHT = 55;
+const DEFAULT_HORIZONTAL_GAP = 30;  // Gap between nodes in same row
+const DEFAULT_VERTICAL_GAP = 70;    // Gap between hierarchy levels within cluster
+const DEFAULT_SUB_ROW_GAP = 65;     // Gap between wrapped rows within same level
+const DEFAULT_CLUSTER_GAP_X = 120;  // Gap between clusters horizontally
+const DEFAULT_CLUSTER_GAP_Y = 140;  // Gap between cluster rows
+const MARGIN_X = 30;
+const MARGIN_Y = 30;
 
-const getLayoutedElements = (
-  nodes: Node[],
-  edges: Edge[],
-  _direction: 'TB' | 'LR' = 'TB'
-) => {
-  void _direction; // Reserved for future layout direction support
-  // Group nodes by their hierarchy level
-  const nodesByLevel: Record<number, Node[]> = {};
+// Responsive limits - will be calculated based on container size
+const DEFAULT_MAX_NODES_PER_ROW = 4;  // Default max nodes per row in a cluster level
+const DEFAULT_MAX_CLUSTERS_PER_ROW = 3; // Default max clusters per row
+
+// Layout settings interface for user customization
+interface LayoutSettings {
+  nodesPerRow: number;
+  clustersPerRow: number;
+  nodeSpacing: number;       // Horizontal gap between nodes
+  clusterSpacing: number;    // Gap between clusters
+  verticalSpacing: number;   // Vertical gap between levels
+}
+
+const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
+  nodesPerRow: 12,       // Optimized for large graphs
+  clustersPerRow: 5,     // Good balance for screen width
+  nodeSpacing: 80,       // Comfortable spacing between nodes
+  clusterSpacing: 120,   // Clear separation between clusters
+  verticalSpacing: 95,   // Readable vertical hierarchy
+};
+
+// =============================================================================
+// CLUSTER-BASED LAYOUT (Groups connected nodes together)
+// =============================================================================
+
+interface ClusterNode {
+  id: string;
+  node: Node;
+  level: number;
+}
+
+interface Cluster {
+  id: string;
+  nodes: ClusterNode[];
+  anchorNodeId: string; // The "root" node of this cluster (usually Asset or AssetCategory)
+  width: number;
+  height: number;
+}
+
+interface LayoutOptions {
+  containerWidth?: number;
+  containerHeight?: number;
+  maxNodesPerRow?: number;
+  maxClustersPerRow?: number;
+  // User-customizable spacing settings
+  nodeSpacing?: number;
+  clusterSpacing?: number;
+  verticalSpacing?: number;
+}
+
+// Calculate responsive layout parameters based on container size and user settings
+const getResponsiveParams = (options: LayoutOptions) => {
+  const containerWidth = options.containerWidth || 1200;
+  const nodeSpacing = options.nodeSpacing ?? DEFAULT_HORIZONTAL_GAP;
+  const clusterSpacing = options.clusterSpacing ?? DEFAULT_CLUSTER_GAP_X;
   
-  nodes.forEach((node) => {
+  // If user specified values, use them directly
+  if (options.maxNodesPerRow && options.maxNodesPerRow > 0) {
+    const maxNodesPerRow = options.maxNodesPerRow;
+    const maxClustersPerRow = options.maxClustersPerRow && options.maxClustersPerRow > 0 
+      ? options.maxClustersPerRow 
+      : Math.max(2, Math.floor(containerWidth / (maxNodesPerRow * (NODE_WIDTH + nodeSpacing) + clusterSpacing)));
+    return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
+  }
+  
+  // Auto-calculate based on container width
+  const avgClusterWidth = 3 * NODE_WIDTH + 2 * nodeSpacing + clusterSpacing;
+  let maxClustersPerRow = Math.max(2, Math.floor(containerWidth / avgClusterWidth));
+  if (options.maxClustersPerRow && options.maxClustersPerRow > 0) {
+    maxClustersPerRow = options.maxClustersPerRow;
+  } else {
+    maxClustersPerRow = Math.min(maxClustersPerRow, 6);
+  }
+  
+  // Calculate max nodes per row within a cluster
+  const targetClusterWidth = containerWidth / maxClustersPerRow - clusterSpacing;
+  let maxNodesPerRow = Math.max(2, Math.floor(targetClusterWidth / (NODE_WIDTH + nodeSpacing)));
+  maxNodesPerRow = Math.min(maxNodesPerRow, 8);
+  
+  return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
+};
+
+// Find connected components using Union-Find
+const findClusters = (nodes: Node[], edges: Edge[]): Map<string, Set<string>> => {
+  const parent: Map<string, string> = new Map();
+  
+  // Initialize each node as its own parent
+  nodes.forEach(n => parent.set(n.id, n.id));
+  
+  // Find with path compression
+  const find = (x: string): string => {
+    if (parent.get(x) !== x) {
+      parent.set(x, find(parent.get(x)!));
+    }
+    return parent.get(x)!;
+  };
+  
+  // Union
+  const union = (x: string, y: string) => {
+    const rootX = find(x);
+    const rootY = find(y);
+    if (rootX !== rootY) {
+      parent.set(rootX, rootY);
+    }
+  };
+  
+  // Connect nodes based on edges
+  edges.forEach(edge => {
+    if (parent.has(edge.source) && parent.has(edge.target)) {
+      union(edge.source, edge.target);
+    }
+  });
+  
+  // Group nodes by their root
+  const clusters = new Map<string, Set<string>>();
+  nodes.forEach(n => {
+    const root = find(n.id);
+    if (!clusters.has(root)) {
+      clusters.set(root, new Set());
+    }
+    clusters.get(root)!.add(n.id);
+  });
+  
+  return clusters;
+};
+
+// Layout nodes within a single cluster (hierarchical with wrapping)
+const layoutCluster = (
+  clusterNodes: Node[],
+  _edges: Edge[],
+  maxNodesPerRow: number,
+  nodeSpacing: number = DEFAULT_HORIZONTAL_GAP,
+  verticalSpacing: number = DEFAULT_VERTICAL_GAP
+): { nodes: Node[]; width: number; height: number } => {
+  void _edges; // Reserved for future edge-aware layout
+  
+  const subRowGap = Math.max(40, verticalSpacing - 5); // Slightly less than vertical for sub-rows
+  
+  if (clusterNodes.length === 0) {
+    return { nodes: [], width: 0, height: 0 };
+  }
+  
+  if (clusterNodes.length === 1) {
+    return {
+      nodes: [{ ...clusterNodes[0], position: { x: 0, y: 0 } }],
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+    };
+  }
+  
+  // Group by hierarchy level
+  const nodesByLevel: Record<number, Node[]> = {};
+  clusterNodes.forEach(node => {
     const nodeData = node.data as CustomNodeData;
     const level = getNodeRank(nodeData.nodeType);
-    
     if (!nodesByLevel[level]) {
       nodesByLevel[level] = [];
     }
     nodesByLevel[level].push(node);
   });
-
-  // Sort levels (0 = top, higher numbers = lower in graph)
+  
   const sortedLevels = Object.keys(nodesByLevel)
     .map(Number)
     .sort((a, b) => a - b);
-
-  // Calculate positions for each node
+  
   const layoutedNodes: Node[] = [];
+  let maxWidth = 0;
+  let currentY = 0;
   
   sortedLevels.forEach((level, levelIndex) => {
     const nodesInLevel = nodesByLevel[level];
-    const levelY = MARGIN_Y + levelIndex * (NODE_HEIGHT + VERTICAL_GAP);
     
-    // Calculate total width needed for this level
-    const totalWidth = nodesInLevel.length * NODE_WIDTH + (nodesInLevel.length - 1) * HORIZONTAL_GAP;
+    // Calculate how many rows needed for this level
+    const numRows = Math.ceil(nodesInLevel.length / maxNodesPerRow);
     
-    // Center the level horizontally (start from negative to center around 0)
-    const startX = -totalWidth / 2 + MARGIN_X;
+    // Track the max width for this level (across all rows)
+    let levelMaxWidth = 0;
     
     nodesInLevel.forEach((node, nodeIndex) => {
-      const x = startX + nodeIndex * (NODE_WIDTH + HORIZONTAL_GAP);
-      const y = levelY;
+      const rowIndex = Math.floor(nodeIndex / maxNodesPerRow);
+      const colIndex = nodeIndex % maxNodesPerRow;
+      
+      // Calculate nodes in this specific row
+      const nodesInThisRow = Math.min(
+        maxNodesPerRow,
+        nodesInLevel.length - rowIndex * maxNodesPerRow
+      );
+      
+      // Calculate row width and center it (using customizable nodeSpacing)
+      const rowWidth = nodesInThisRow * NODE_WIDTH + (nodesInThisRow - 1) * nodeSpacing;
+      levelMaxWidth = Math.max(levelMaxWidth, rowWidth);
+      
+      const startX = -rowWidth / 2;
       
       layoutedNodes.push({
         ...node,
-        position: { x, y },
+        position: {
+          x: startX + colIndex * (NODE_WIDTH + nodeSpacing),
+          y: currentY + rowIndex * (NODE_HEIGHT + subRowGap),
+        },
       });
     });
+    
+    maxWidth = Math.max(maxWidth, levelMaxWidth);
+    
+    // Move to next level
+    const levelHeight = numRows * NODE_HEIGHT + (numRows - 1) * subRowGap;
+    if (levelIndex < sortedLevels.length - 1) {
+      currentY += levelHeight + verticalSpacing;
+    } else {
+      currentY += levelHeight - NODE_HEIGHT; // Last level, just add height
+    }
   });
+  
+  return {
+    nodes: layoutedNodes,
+    width: maxWidth,
+    height: currentY + NODE_HEIGHT,
+  };
+};
 
+const getLayoutedElements = (
+  nodes: Node[],
+  edges: Edge[],
+  _direction: 'TB' | 'LR' = 'TB',
+  options: LayoutOptions = {}
+) => {
+  void _direction;
+  
+  if (nodes.length === 0) {
+    return { nodes: [], edges };
+  }
+  
+  // Get responsive layout parameters (includes spacing)
+  const { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing } = getResponsiveParams(options);
+  const verticalSpacing = options.verticalSpacing ?? DEFAULT_VERTICAL_GAP;
+  const clusterGapY = Math.max(100, clusterSpacing + 20); // Slightly more vertical gap between cluster rows
+  
+  // Step 1: Find connected clusters
+  const clusterMap = findClusters(nodes, edges);
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  
+  // Step 2: Create cluster objects and layout each cluster internally
+  const clusters: Cluster[] = [];
+  
+  clusterMap.forEach((nodeIds, clusterId) => {
+    const clusterNodes = [...nodeIds].map(id => nodeMap.get(id)!).filter(Boolean);
+    
+    // Find the anchor node (highest in hierarchy, preferring AssetCategory/Asset)
+    let anchorNode = clusterNodes[0];
+    let anchorRank = getNodeRank((anchorNode.data as CustomNodeData).nodeType);
+    
+    clusterNodes.forEach(node => {
+      const nodeData = node.data as CustomNodeData;
+      const rank = getNodeRank(nodeData.nodeType);
+      if (rank < anchorRank) {
+        anchorRank = rank;
+        anchorNode = node;
+      }
+    });
+    
+    // Layout this cluster's nodes with wrapping (pass spacing parameters)
+    const clusterEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+    const { nodes: layoutedClusterNodes, width, height } = layoutCluster(
+      clusterNodes, 
+      clusterEdges,
+      maxNodesPerRow,
+      nodeSpacing,
+      verticalSpacing
+    );
+    
+    clusters.push({
+      id: clusterId,
+      nodes: layoutedClusterNodes.map(n => ({
+        id: n.id,
+        node: n,
+        level: getNodeRank((n.data as CustomNodeData).nodeType),
+      })),
+      anchorNodeId: anchorNode.id,
+      width,
+      height,
+    });
+  });
+  
+  // Step 3: Sort clusters by size (larger clusters first) for better packing
+  clusters.sort((a, b) => b.nodes.length - a.nodes.length);
+  
+  // Step 4: Arrange clusters in a responsive grid pattern
+  const layoutedNodes: Node[] = [];
+  let clusterX = MARGIN_X;
+  let clusterY = MARGIN_Y;
+  let rowMaxHeight = 0;
+  let clustersInRow = 0;
+  let currentRowWidth = 0;
+  const containerWidth = options.containerWidth || 1600;
+  
+  clusters.forEach((cluster) => {
+    // Check if we need to wrap to next row (either by count or by width)
+    const wouldExceedWidth = currentRowWidth + cluster.width + clusterSpacing > containerWidth - MARGIN_X * 2;
+    const exceededClusterCount = clustersInRow >= maxClustersPerRow;
+    
+    if ((wouldExceedWidth || exceededClusterCount) && clustersInRow > 0) {
+      clusterX = MARGIN_X;
+      clusterY += rowMaxHeight + clusterGapY;
+      rowMaxHeight = 0;
+      clustersInRow = 0;
+      currentRowWidth = 0;
+    }
+    
+    // Position each node in the cluster, offset by cluster position
+    cluster.nodes.forEach(({ node }) => {
+      layoutedNodes.push({
+        ...node,
+        position: {
+          x: clusterX + node.position.x + cluster.width / 2,
+          y: clusterY + node.position.y,
+        },
+      });
+    });
+    
+    // Update for next cluster
+    clusterX += cluster.width + clusterSpacing;
+    currentRowWidth += cluster.width + clusterSpacing;
+    rowMaxHeight = Math.max(rowMaxHeight, cluster.height);
+    clustersInRow++;
+  });
+  
   return { nodes: layoutedNodes, edges };
 };
 
@@ -2514,17 +2809,53 @@ interface InternalFlowProps {
   stats: GraphStats | null;
   loading: boolean;
   error: string | null;
-  onRefresh: () => void;
+  onRefresh: () => void;  // Simple refresh - data is cached, filtering is client-side
   endpoint?: string;
   isShowingDemoData?: boolean;
   onLoadDemoData?: () => void;
+  loadingProgress?: { current: number; total: number } | null;
+  isBackgroundFetching?: boolean;
 }
 
-function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData }: InternalFlowProps) {
-  const { fitView, setCenter, getNode } = useReactFlow();
+// Minimum zoom level to ensure nodes are readable
+const MIN_READABLE_ZOOM = 0.4;
+const MAX_INITIAL_ZOOM = 1.2;
+const IDEAL_ZOOM = 0.8;
+
+function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData, loadingProgress, isBackgroundFetching }: InternalFlowProps) {
+  const { fitView, setCenter, getNode, setViewport, getViewport } = useReactFlow();
+  
+  // Track current zoom level for display
+  const [currentZoom, setCurrentZoom] = useState(1);
   
   // Load stored layout preferences on mount
   const storedLayout = useMemo(() => getStoredLayout(), []);
+  
+  // Track container dimensions for responsive layout
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerSize, setContainerSize] = useState({ width: 1200, height: 800 });
+  
+  // Observe container size changes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const updateSize = () => {
+      setContainerSize({
+        width: container.clientWidth || 1200,
+        height: container.clientHeight || 800,
+      });
+    };
+    
+    // Initial size
+    updateSize();
+    
+    // Observe resize
+    const resizeObserver = new ResizeObserver(updateSize);
+    resizeObserver.observe(container);
+    
+    return () => resizeObserver.disconnect();
+  }, []);
   
   const [nodes, setNodes, onNodesChange] = useNodesState<CustomNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -2546,6 +2877,90 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     endDate: '',
     applied: true,
   });
+  
+  // Quick time range presets - start with 'today' for fast initial load
+  type TimeRangePreset = 'today' | '3d' | 'week' | 'month' | 'all';
+  const [activeTimeRange, setActiveTimeRange] = useState<TimeRangePreset>('today');
+  const [initialFilterApplied, setInitialFilterApplied] = useState(false);
+  
+  // Layout settings state for customizing graph appearance
+  const [showLayoutSettings, setShowLayoutSettings] = useState(false);
+  const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>({
+    ...DEFAULT_LAYOUT_SETTINGS,
+  });
+  
+  // Update a single layout setting
+  const updateLayoutSetting = useCallback(<K extends keyof LayoutSettings>(
+    key: K,
+    value: LayoutSettings[K]
+  ) => {
+    setLayoutSettings(prev => ({ ...prev, [key]: value }));
+  }, []);
+  
+  // Helper to get date string N days ago
+  const getDateDaysAgo = useCallback((days: number): string => {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date.toISOString().split('T')[0];
+  }, []);
+  
+  // Apply quick time range - filtering is done client-side using cached data
+  const applyTimeRange = useCallback((range: TimeRangePreset) => {
+    setActiveTimeRange(range);
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (range === 'all') {
+      setDateFilter({
+        mode: 'off',
+        singleDate: '',
+        startDate: '',
+        endDate: '',
+        applied: true,
+      });
+    } else if (range === 'today') {
+      setDateFilter({
+        mode: 'single',
+        singleDate: today,
+        startDate: '',
+        endDate: '',
+        applied: true,
+      });
+    } else {
+      const daysMap: Record<TimeRangePreset, number> = {
+        'today': 0,
+        '3d': 3,
+        'week': 7,
+        'month': 30,
+        'all': 0,
+      };
+      const startDate = getDateDaysAgo(daysMap[range]);
+      setDateFilter({
+        mode: 'range',
+        singleDate: '',
+        startDate: startDate,
+        endDate: today,
+        applied: true,
+      });
+    }
+    // No backend call needed - filtering is applied client-side to cached data
+  }, [getDateDaysAgo]);
+  
+  // Apply initial 'today' filter on first load
+  useEffect(() => {
+    if (initialFilterApplied) return;
+    
+    // Apply 'today' filter as default for fast initial load
+    const today = new Date().toISOString().split('T')[0];
+    setDateFilter({
+      mode: 'single',
+      singleDate: today,
+      startDate: '',
+      endDate: '',
+      applied: true,
+    });
+    setInitialFilterApplied(true);
+    console.log('[AssetGraph] Applied initial "today" filter for fast load');
+  }, [initialFilterApplied]);
   
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
@@ -2637,24 +3052,109 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }, [dateFilter]);
 
   // Convert API data to ReactFlow format
+  // Helper function to get nodes within N hops using BFS
+  const getNodesWithinHops = useCallback((
+    startNodeIds: Set<string>,
+    maxHops: number,
+    allNodes: GraphData['nodes'],
+    allEdges: GraphData['edges']
+  ): Set<string> => {
+    if (!allNodes || !allEdges) return startNodeIds;
+    
+    const result = new Set(startNodeIds);
+    let frontier = new Set(startNodeIds);
+    
+    // Build adjacency list for faster traversal
+    const adjacency = new Map<string, Set<string>>();
+    allEdges.forEach(edge => {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+      if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+      adjacency.get(edge.source)!.add(edge.target);
+      adjacency.get(edge.target)!.add(edge.source);
+    });
+    
+    // BFS up to maxHops
+    for (let hop = 0; hop < maxHops; hop++) {
+      const nextFrontier = new Set<string>();
+      frontier.forEach(nodeId => {
+        const neighbors = adjacency.get(nodeId);
+        if (neighbors) {
+          neighbors.forEach(neighborId => {
+            if (!result.has(neighborId)) {
+              // Check if neighbor exists in our node set
+              if (allNodes.some(n => n.id === neighborId)) {
+                result.add(neighborId);
+                nextFrontier.add(neighborId);
+              }
+            }
+          });
+        }
+      });
+      frontier = nextFrontier;
+      if (frontier.size === 0) break;
+    }
+    
+    return result;
+  }, []);
+
   useEffect(() => {
     if (!graphData) return;
 
     // Get stored layout for position restoration
     const stored = getStoredLayout();
 
-    // Filter nodes based on active filters
-    let filteredApiNodes = activeFilters.size > 0
-      ? graphData.nodes.filter(n => activeFilters.has(n.label))
-      : graphData.nodes;
-
-    // Apply search filter if active (shows searched node + connected nodes)
-    if (searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0) {
-      filteredApiNodes = filteredApiNodes.filter(n => searchFilteredNodeIds.has(n.id));
+    // ==========================================================================
+    // UNIFIED FILTERING WITH HOPS
+    // 1. Apply all base filters (type, date, search) to get "seed" nodes
+    // 2. Expand seed nodes using hops setting to include related nodes
+    // ==========================================================================
+    
+    // Step 1: Apply all base filters to get seed nodes
+    let seedNodes = graphData.nodes;
+    const filtersActive: string[] = [];
+    
+    // Apply type filter
+    if (activeFilters.size > 0) {
+      seedNodes = seedNodes.filter(n => activeFilters.has(n.label));
+      filtersActive.push(`type(${activeFilters.size})`);
     }
-
+    
     // Apply date filter
-    filteredApiNodes = filteredApiNodes.filter(nodeMatchesDateFilter);
+    seedNodes = seedNodes.filter(nodeMatchesDateFilter);
+    if (dateFilter.applied && dateFilter.mode !== 'off') {
+      filtersActive.push('date');
+    }
+    
+    // Apply search filter if active
+    if (searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0) {
+      seedNodes = seedNodes.filter(n => searchFilteredNodeIds.has(n.id));
+      filtersActive.push('search');
+    }
+    
+    const seedNodeIds = new Set(seedNodes.map(n => n.id));
+    
+    // Step 2: Expand with hops if any filter is active and hops is set
+    let filteredApiNodes: typeof graphData.nodes;
+    const hasActiveFilter = filtersActive.length > 0;
+    
+    if (hasActiveFilter && filterMaxHops !== undefined && filterMaxHops > 0 && seedNodeIds.size > 0) {
+      // Expand seed nodes to include related nodes within N hops
+      const expandedNodeIds = getNodesWithinHops(
+        seedNodeIds,
+        filterMaxHops,
+        graphData.nodes,
+        graphData.edges
+      );
+      filteredApiNodes = graphData.nodes.filter(n => expandedNodeIds.has(n.id));
+      console.log(`[AssetGraph] Filters [${filtersActive.join(', ')}] with ${filterMaxHops} hops: ${seedNodes.length} seed -> ${filteredApiNodes.length} total`);
+    } else if (hasActiveFilter) {
+      // Filters active but no hops expansion (hops=0 or hops=undefined/"all")
+      filteredApiNodes = seedNodes;
+      console.log(`[AssetGraph] Filters [${filtersActive.join(', ')}] (no hops): ${filteredApiNodes.length} nodes`);
+    } else {
+      // No filters active - show all nodes
+      filteredApiNodes = graphData.nodes;
+    }
 
     const filteredNodeIds = new Set(filteredApiNodes.map(n => n.id));
 
@@ -2755,10 +3255,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         };
       });
 
+    // Check if any filters are active - if so, always recalculate layout
+    // to properly arrange the filtered subset of nodes
+    const hasActiveFilters = activeFilters.size > 0 || 
+      searchFilteredNodeIds !== null || 
+      (dateFilter.applied && dateFilter.mode !== 'off');
+
     // Check if stored positions are valid and match current nodes
     // This detects schema migrations where node IDs have changed
     let useStoredLayout = false;
-    if (stored?.nodePositions) {
+    
+    // Only consider stored layout when no filters are active
+    if (!hasActiveFilters && stored?.nodePositions) {
       const storedNodeIds = new Set(Object.keys(stored.nodePositions));
       const currentNodeIds = new Set(flowNodes.map(n => n.id));
       
@@ -2789,20 +3297,43 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       setEdges(flowEdges);
       console.log('[AssetGraph] Restored layout from browser storage');
     } else {
-      // Apply hierarchical layout for new/changed graphs
+      // Apply hierarchical layout for new/changed graphs or when filters are active
+      // Pass container dimensions and user layout settings for responsive layout
       const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
         flowNodes as Node[],
         flowEdges,
-        'TB'
+        'TB',
+        {
+          containerWidth: containerSize.width,
+          containerHeight: containerSize.height,
+          // Pass user-customizable layout settings (0 = auto)
+          maxNodesPerRow: layoutSettings.nodesPerRow > 0 ? layoutSettings.nodesPerRow : undefined,
+          maxClustersPerRow: layoutSettings.clustersPerRow > 0 ? layoutSettings.clustersPerRow : undefined,
+          nodeSpacing: layoutSettings.nodeSpacing,
+          clusterSpacing: layoutSettings.clusterSpacing,
+          verticalSpacing: layoutSettings.verticalSpacing,
+        }
       );
       setNodes(layoutedNodes as CustomNode[]);
       setEdges(layoutedEdges);
-      console.log('[AssetGraph] Applied fresh hierarchical layout');
+      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} (container: ${containerSize.width}x${containerSize.height}, nodesPerRow: ${layoutSettings.nodesPerRow || 'auto'})`);
     }
 
-    // Fit view after layout
-    setTimeout(() => fitView({ padding: 0.2 }), 100);
-  }, [graphData, activeFilters, searchFilteredNodeIds, nodeMatchesDateFilter, setNodes, setEdges, fitView]);
+    // Fit view after layout with smart zoom constraints
+    // Ensure nodes are readable (not too small) while fitting as much as possible
+    setTimeout(() => {
+      fitView({ 
+        padding: 0.15,
+        minZoom: MIN_READABLE_ZOOM,  // Don't zoom out too far - keeps nodes readable
+        maxZoom: MAX_INITIAL_ZOOM,   // Don't zoom in too much on small graphs
+        duration: 300,
+      });
+      // Update zoom display
+      setTimeout(() => {
+        setCurrentZoom(getViewport().zoom);
+      }, 350);
+    }, 100);
+  }, [graphData, activeFilters, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
 
   // ==========================================================================
   // SAVE LAYOUT TO BROWSER STORAGE
@@ -2941,18 +3472,27 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     return collectedNodeIds;
   }, [graphData]);
 
-  // Fetch all connected nodes from backend using graph traversal utility
+  // Fetch connected nodes from backend using graph traversal utility with pagination support
   const fetchConnectedNodes = useCallback(async (
     nodeId: string,
-    maxHops?: number
+    maxHops?: number,
+    options?: { page?: number; per_page?: number }
   ): Promise<Set<string>> => {
     try {
       const baseUrl = endpoint || 'http://localhost:7777';
-      // No max_hops param = get all connected nodes (entire connected component)
-      const hopsParam = maxHops !== undefined ? `?max_hops=${maxHops}` : '';
-      const response = await fetch(
-        `${baseUrl}/v1/asset-graph/metapath/connected/${nodeId}${hopsParam}`
-      );
+      
+      // Build query params
+      const params = new URLSearchParams();
+      if (maxHops !== undefined) params.append('max_hops', String(maxHops));
+      // Default to per_page=50 for faster response, use 0 to get all
+      const perPage = options?.per_page ?? 50;
+      params.append('per_page', String(perPage));
+      if (options?.page) params.append('page', String(options.page));
+      
+      const queryString = params.toString();
+      const url = `${baseUrl}/v1/asset-graph/metapath/connected/${nodeId}${queryString ? `?${queryString}` : ''}`;
+      
+      const response = await fetch(url);
       
       if (!response.ok) {
         // Fallback to local computation if API fails
@@ -2962,6 +3502,10 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       
       const data = await response.json();
       if (data.success && data.node_ids) {
+        // Log pagination info for debugging
+        if (data.pagination) {
+          console.log(`[AssetGraph] Connected nodes: ${data.node_count} of ${data.pagination.total} (page ${data.pagination.page}/${data.pagination.total_pages})`);
+        }
         return new Set<string>(data.node_ids);
       }
       
@@ -3691,7 +4235,20 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       <div className="flex-1 flex items-center justify-center bg-neutral-950">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span className="text-neutral-400">Loading graph...</span>
+          <span className="text-neutral-400">
+            {loadingProgress 
+              ? `Loading graph... (page ${loadingProgress.current}/${loadingProgress.total})`
+              : 'Loading graph...'
+            }
+          </span>
+          {loadingProgress && loadingProgress.total > 1 && (
+            <div className="w-48 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+              <div 
+                className="h-full bg-blue-500 transition-all duration-300"
+                style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
+              />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -3741,7 +4298,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }
 
   return (
-    <div className="flex-1 relative">
+    <div ref={containerRef} className="flex-1 relative">
       {/* Demo Data Banner - Prominent notification */}
       {isShowingDemoData && (
         <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-amber-600 to-orange-600 backdrop-blur-sm px-4 py-3 flex items-center justify-center gap-3 shadow-lg border-b-2 border-amber-400/50">
@@ -3792,13 +4349,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         onConnect={onConnect}
+        onMoveEnd={(_, viewport) => setCurrentZoom(viewport.zoom)}
         nodeTypes={nodeTypes}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: '#22c55e', strokeWidth: 2, strokeDasharray: '5,5' }}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ 
+          padding: 0.15, 
+          minZoom: MIN_READABLE_ZOOM, 
+          maxZoom: MAX_INITIAL_ZOOM 
+        }}
         minZoom={0.1}
-        maxZoom={2}
+        maxZoom={3}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: false,
@@ -3818,6 +4380,45 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           position="bottom-left"
           className="!bg-neutral-800 !border-neutral-700 !rounded-lg !shadow-xl [&>button]:!bg-neutral-800 [&>button]:!border-neutral-700 [&>button]:!text-neutral-300 [&>button:hover]:!bg-neutral-700"
         />
+        
+        {/* Zoom Percentage Indicator */}
+        <Panel position="bottom-left" className="!bottom-28 !left-3">
+          <div className="bg-neutral-800/95 backdrop-blur-sm rounded-lg border border-neutral-700 shadow-xl px-3 py-2 flex items-center gap-2">
+            <button
+              onClick={() => {
+                const newZoom = Math.max(0.1, currentZoom - 0.2);
+                setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
+                setCurrentZoom(newZoom);
+              }}
+              className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors"
+              title="Zoom Out"
+            >
+              −
+            </button>
+            <div 
+              className="text-sm font-mono text-neutral-300 min-w-[50px] text-center cursor-pointer hover:text-white"
+              onClick={() => {
+                // Reset to ideal zoom
+                setViewport({ ...getViewport(), zoom: IDEAL_ZOOM }, { duration: 200 });
+                setCurrentZoom(IDEAL_ZOOM);
+              }}
+              title="Click to reset zoom to 80%"
+            >
+              {Math.round(currentZoom * 100)}%
+            </div>
+            <button
+              onClick={() => {
+                const newZoom = Math.min(3, currentZoom + 0.2);
+                setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
+                setCurrentZoom(newZoom);
+              }}
+              className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors"
+              title="Zoom In"
+            >
+              +
+            </button>
+          </div>
+        </Panel>
 
         {showMinimap && (
           <MiniMap
@@ -3922,41 +4523,258 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             </div>
           )}
 
-          {/* Date Filter Button */}
-          <button
-            onClick={() => {
-              setShowDateFilter(!showDateFilter);
-              if (showFilters) setShowFilters(false); // Close type filter when opening date filter
-            }}
-            className={`p-2 rounded-lg transition-colors ${
-              showDateFilter 
-                ? 'bg-cyan-600 text-white' 
-                : dateFilter.applied && dateFilter.mode !== 'off'
-                  ? 'bg-cyan-600/30 border border-cyan-500/50 text-cyan-400'
-                  : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-cyan-500/50'
-            }`}
-            title="Filter by Created Date"
-          >
-            <Calendar className="w-4 h-4" />
-          </button>
-
-          {/* Date filter indicator */}
-          {dateFilter.applied && dateFilter.mode !== 'off' && (dateFilter.singleDate || (dateFilter.startDate && dateFilter.endDate)) && (
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-cyan-600/20 border border-cyan-500/30 rounded-lg text-xs text-cyan-400">
-              <span>
-                {dateFilter.mode === 'single' 
-                  ? `Date: ${dateFilter.singleDate}` 
-                  : `${dateFilter.startDate} → ${dateFilter.endDate}`}
-              </span>
-              <button
-                onClick={() => setDateFilter({ mode: 'off', singleDate: '', startDate: '', endDate: '', applied: true })}
-                className="p-0.5 hover:bg-cyan-500/30 rounded"
-                title="Clear date filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
+          {/* Quick Time Range Selector */}
+          <div className="flex items-center gap-1 bg-neutral-800/80 border border-neutral-700 rounded-lg p-1">
+            <Calendar className="w-3.5 h-3.5 text-neutral-500 ml-1" />
+            {(['today', '3d', 'week', 'month', 'all'] as const).map((range) => {
+              const labels: Record<typeof range, string> = {
+                today: 'Today',
+                '3d': '3d',
+                week: '7d',
+                month: '30d',
+                all: 'All',
+              };
+              const isActive = activeTimeRange === range;
+              return (
+                <button
+                  key={range}
+                  onClick={() => applyTimeRange(range)}
+                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+                  }`}
+                  title={`Show nodes from ${labels[range].toLowerCase()}`}
+                >
+                  {labels[range]}
+                </button>
+              );
+            })}
+            {/* Advanced date filter button */}
+            <button
+              onClick={() => {
+                setShowDateFilter(!showDateFilter);
+                if (showFilters) setShowFilters(false);
+              }}
+              className={`p-1 rounded transition-colors ${
+                showDateFilter ? 'bg-cyan-600 text-white' : 'text-neutral-500 hover:text-white hover:bg-neutral-700'
+              }`}
+              title="Custom date range"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+          </div>
+          
+          {/* Node count indicator */}
+          {graphData && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800/60 border border-neutral-700/50 rounded-lg text-xs">
+              <span className="text-neutral-500">Showing</span>
+              <span className="text-cyan-400 font-medium">{nodes.length}</span>
+              {nodes.length < graphData.nodes.length && (
+                <>
+                  <span className="text-neutral-500">of</span>
+                  <span className="text-neutral-300">{graphData.nodes.length}</span>
+                </>
+              )}
+              <span className="text-neutral-500">nodes</span>
+              {activeTimeRange !== 'all' && nodes.length < graphData.nodes.length && (
+                <span className="text-amber-400 ml-1" title="Expand time range to see more nodes">⚡</span>
+              )}
+              {/* Background loading indicator */}
+              {isBackgroundFetching && loadingProgress && (
+                <div className="flex items-center gap-1 ml-2 text-neutral-400" title={`Loading more data: ${loadingProgress.current}/${loadingProgress.total} pages`}>
+                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span className="text-[10px]">{loadingProgress.current}/{loadingProgress.total}</span>
+                </div>
+              )}
             </div>
           )}
+
+          {/* Layout Settings Button */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLayoutSettings(!showLayoutSettings)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg transition-colors ${
+                showLayoutSettings
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-purple-500/50'
+              }`}
+              title="Layout Settings"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+              <span className="text-xs font-medium">Layout</span>
+            </button>
+
+            {/* Layout Settings Panel */}
+            {showLayoutSettings && (
+              <div className="absolute top-full right-0 mt-2 w-72 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl shadow-2xl z-50 p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-white">Layout Settings</h3>
+                  <button
+                    onClick={() => {
+                      setLayoutSettings({ ...DEFAULT_LAYOUT_SETTINGS });
+                    }}
+                    className="text-xs text-neutral-400 hover:text-cyan-400 transition-colors"
+                  >
+                    Reset
+                  </button>
+                </div>
+
+                {/* Nodes Per Row */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-400">Nodes per Row</label>
+                    <span className="text-xs font-mono text-cyan-400">
+                      {layoutSettings.nodesPerRow === 0 ? 'Auto' : layoutSettings.nodesPerRow}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="12"
+                    step="1"
+                    value={layoutSettings.nodesPerRow}
+                    onChange={(e) => updateLayoutSetting('nodesPerRow', Number(e.target.value))}
+                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-cyan-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                    <span>Auto</span>
+                    <span>12</span>
+                  </div>
+                </div>
+
+                {/* Clusters Per Row */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-400">Clusters per Row</label>
+                    <span className="text-xs font-mono text-cyan-400">
+                      {layoutSettings.clustersPerRow === 0 ? 'Auto' : layoutSettings.clustersPerRow}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="8"
+                    step="1"
+                    value={layoutSettings.clustersPerRow}
+                    onChange={(e) => updateLayoutSetting('clustersPerRow', Number(e.target.value))}
+                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-cyan-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                    <span>Auto</span>
+                    <span>8</span>
+                  </div>
+                </div>
+
+                {/* Node Spacing */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-400">Node Spacing</label>
+                    <span className="text-xs font-mono text-purple-400">{layoutSettings.nodeSpacing}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="10"
+                    max="100"
+                    step="5"
+                    value={layoutSettings.nodeSpacing}
+                    onChange={(e) => updateLayoutSetting('nodeSpacing', Number(e.target.value))}
+                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                    <span>Compact</span>
+                    <span>Spread</span>
+                  </div>
+                </div>
+
+                {/* Cluster Spacing */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-400">Cluster Spacing</label>
+                    <span className="text-xs font-mono text-purple-400">{layoutSettings.clusterSpacing}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="40"
+                    max="250"
+                    step="10"
+                    value={layoutSettings.clusterSpacing}
+                    onChange={(e) => updateLayoutSetting('clusterSpacing', Number(e.target.value))}
+                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                    <span>Tight</span>
+                    <span>Wide</span>
+                  </div>
+                </div>
+
+                {/* Vertical Spacing */}
+                <div className="mb-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-400">Vertical Spacing</label>
+                    <span className="text-xs font-mono text-purple-400">{layoutSettings.verticalSpacing}px</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="30"
+                    max="150"
+                    step="5"
+                    value={layoutSettings.verticalSpacing}
+                    onChange={(e) => updateLayoutSetting('verticalSpacing', Number(e.target.value))}
+                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-purple-500"
+                  />
+                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                    <span>Dense</span>
+                    <span>Airy</span>
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="mt-4 pt-3 border-t border-neutral-700">
+                  <label className="text-xs text-neutral-500 mb-2 block">Quick Presets</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setLayoutSettings({
+                        nodesPerRow: 0,
+                        clustersPerRow: 0,
+                        nodeSpacing: 15,
+                        clusterSpacing: 60,
+                        verticalSpacing: 40,
+                      })}
+                      className="flex-1 px-2 py-1.5 text-xs rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+                    >
+                      Compact
+                    </button>
+                    <button
+                      onClick={() => setLayoutSettings({ ...DEFAULT_LAYOUT_SETTINGS })}
+                      className="flex-1 px-2 py-1.5 text-xs rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+                    >
+                      Default
+                    </button>
+                    <button
+                      onClick={() => setLayoutSettings({
+                        nodesPerRow: 8,
+                        clustersPerRow: 4,
+                        nodeSpacing: 60,
+                        clusterSpacing: 180,
+                        verticalSpacing: 100,
+                      })}
+                      className="flex-1 px-2 py-1.5 text-xs rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
+                    >
+                      Spacious
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Legend Toggle */}
           <button
@@ -4286,101 +5104,349 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 // MAIN COMPONENT
 // =============================================================================
 
+// Pagination info from backend
+interface PaginationInfo {
+  page: number;
+  per_page: number;
+  total_nodes: number;
+  total_filtered_nodes: number;
+  total_pages: number;
+  has_next: boolean;
+  has_prev: boolean;
+  filters?: {
+    since?: string;
+    until?: string;
+    node_type?: string;
+  };
+}
+
 export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualizationProps) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isShowingDemoData, setIsShowingDemoData] = useState(false);
+  
+  // Cached complete graph data - fetched once, filtered client-side
+  // Also persisted to localStorage for faster initial loads
+  const GRAPH_CACHE_KEY = 'asset_graph_cache';
+  const GRAPH_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  
+  // Check if we're in browser environment (not SSR)
+  const isBrowser = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  
+  // Load from localStorage on mount
+  const getPersistedCache = (): { data: GraphData; timestamp: number } | null => {
+    if (!isBrowser) return null;
+    try {
+      const cached = window.localStorage.getItem(GRAPH_CACHE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.timestamp && (Date.now() - parsed.timestamp) < GRAPH_CACHE_TTL) {
+          return parsed;
+        }
+        // Cache expired, remove it
+        window.localStorage.removeItem(GRAPH_CACHE_KEY);
+      }
+    } catch (e) {
+      console.warn('[AssetGraph] Failed to read cache from localStorage:', e);
+    }
+    return null;
+  };
+  
+  const persistCache = (data: GraphData, timestamp: number) => {
+    if (!isBrowser) return;
+    try {
+      // Only cache if data is reasonable size (< 5MB)
+      const payload = JSON.stringify({ data, timestamp });
+      if (payload.length < 5 * 1024 * 1024) {
+        window.localStorage.setItem(GRAPH_CACHE_KEY, payload);
+        console.log(`[AssetGraph] Persisted ${data.nodes.length} nodes to localStorage`);
+      }
+    } catch (e) {
+      console.warn('[AssetGraph] Failed to persist cache to localStorage:', e);
+    }
+  };
+  
+  // Initialize from localStorage
+  const persistedCache = getPersistedCache();
+  const [cachedGraphData, setCachedGraphData] = useState<GraphData | null>(persistedCache?.data || null);
+  const [cacheTimestamp, setCacheTimestamp] = useState<number | null>(persistedCache?.timestamp || null);
+  
+  // Helper to update cache (both in-memory and localStorage)
+  const updateCache = useCallback((data: GraphData | null) => {
+    const now = Date.now();
+    setCachedGraphData(data);
+    setCacheTimestamp(now);
+    if (data && data.nodes.length > 0) {
+      persistCache(data, now);
+    }
+  }, []);
+  
+  // Pagination state for server-side pagination
+  const [paginationInfo, setPaginationInfo] = useState<PaginationInfo | null>(null);
+  
+  // Loading progress for paginated fetch
+  const [loadingProgress, setLoadingProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Load demo/sample data when backend has no data
   const loadDemoData = useCallback(() => {
     console.log('[AssetGraph] Loading demo/sample data');
     setGraphData(DEMO_GRAPH_DATA);
+    setCachedGraphData(DEMO_GRAPH_DATA);
     setStats(DEMO_STATS);
     setIsShowingDemoData(true);
+    setPaginationInfo(null);
+    setCacheTimestamp(Date.now());
     setError(null);
   }, []);
 
-  // Fetch graph data from backend
-  const fetchGraphData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setIsShowingDemoData(false); // Reset demo state when fetching from backend
-
+  // Page size for paginated fetching
+  const PAGE_SIZE = 50; // Fetch 50 nodes per request for better UX
+  
+  // Fetch a single page of graph data
+  const fetchGraphPage = useCallback(async (page: number): Promise<{
+    nodes: GraphData['nodes'];
+    edges: GraphData['edges'];
+    pagination: PaginationInfo | null;
+    stats: GraphStats | null;
+  }> => {
+    const baseUrl = endpoint || 'http://localhost:7777';
+    const params = new URLSearchParams();
+    params.append('per_page', String(PAGE_SIZE));
+    params.append('page', String(page));
+    
+    const url = `${baseUrl}/v1/asset-graph/data?${params.toString()}`;
+    console.log(`[AssetGraph] Fetching: ${url}`);
+    
+    // Add timeout to prevent hanging (60 seconds for potentially slow queries)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+    
     try {
-      const baseUrl = endpoint || 'http://localhost:7777';
-      console.log(`[AssetGraph] Fetching from ${baseUrl}/v1/asset-graph/data`);
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeoutId);
       
-      const response = await fetch(`${baseUrl}/v1/asset-graph/data`);
-
+      console.log(`[AssetGraph] Response status: ${response.status}`);
+      
       if (!response.ok) {
         if (response.status === 404) {
-          console.log('[AssetGraph] Endpoint not found, showing empty state');
-          setGraphData({ nodes: [], edges: [] });
-          setStats({ node_count: 0, edge_count: 0, nodes_by_label: {}, edges_by_label: {} });
-          setLoading(false);
-          return;
+          return { nodes: [], edges: [], pagination: null, stats: null };
         }
-        throw new Error(`Failed to fetch graph data: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch: ${response.status}`);
       }
-
+      
       const data = await response.json();
-      console.log('[AssetGraph] Received data:', { 
-        nodeCount: data.graph?.nodes?.length || data.nodes?.length || 0,
-        edgeCount: data.graph?.edges?.length || data.edges?.length || 0,
+      console.log(`[AssetGraph] Page ${page} data received:`, {
+        nodesCount: (data.graph?.nodes || data.nodes || []).length,
+        edgesCount: (data.graph?.edges || data.edges || []).length,
+        pagination: data.pagination,
       });
       
-      // Transform API response - handle both graph.nodes/edges and direct nodes/edges
       const rawNodes = data.graph?.nodes || data.nodes || [];
       const rawEdges = data.graph?.edges || data.edges || [];
       
-      const transformedData: GraphData = {
-        nodes: rawNodes.map((n: ApiGraphNode & { created_at?: string }) => ({
-          id: n.id,
-          name: n.name,
-          label: n.label,
-          properties: typeof n.properties === 'string' ? JSON.parse(n.properties) : (n.properties || {}),
-          created_at: n.created_at, // Include created_at for date filtering
-        })),
-        edges: rawEdges.map((e: ApiGraphEdge) => ({
-          id: e.id,
-          // Handle both source/target and from_id/to_id from backend
-          source: e.source || (e as unknown as { from_id: string }).from_id,
-          target: e.target || (e as unknown as { to_id: string }).to_id,
-          label: e.label,
-          properties: typeof e.properties === 'string' ? JSON.parse(e.properties) : (e.properties || {}),
-        })),
+      const nodes = rawNodes.map((n: ApiGraphNode & { created_at?: string }) => ({
+        id: n.id,
+        name: n.name,
+        label: n.label,
+        properties: typeof n.properties === 'string' ? JSON.parse(n.properties) : (n.properties || {}),
+        created_at: n.created_at,
+      }));
+      
+      const edges = rawEdges.map((e: ApiGraphEdge) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.label,
+        properties: typeof e.properties === 'string' ? JSON.parse(e.properties) : (e.properties || {}),
+      }));
+      
+      return {
+        nodes,
+        edges,
+        pagination: data.pagination || null,
+        stats: data.stats || null,
       };
-
-      console.log('[AssetGraph] Transformed:', {
-        nodes: transformedData.nodes.length,
-        edges: transformedData.edges.length,
-      });
-
-      setGraphData(transformedData);
-      setStats(data.stats || { 
-        node_count: transformedData.nodes.length, 
-        edge_count: transformedData.edges.length,
-        nodes_by_label: {},
-        edges_by_label: {},
-      });
     } catch (err) {
-      toast.error('Failed to fetch graph data. Check if backend is running.', { duration: 3000 });
-      // Show error state instead of demo data
+      clearTimeout(timeoutId);
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new Error('Request timed out');
+      }
+      throw err;
+    }
+  }, [endpoint]);
+  
+  // Track if background fetch is in progress
+  const [isBackgroundFetching, setIsBackgroundFetching] = useState(false);
+  
+  // Fetch graph data with progressive loading:
+  // 1. First page loads immediately (user sees content fast)
+  // 2. Remaining pages load in background without blocking
+  const fetchAllGraphData = useCallback(async (forceRefresh: boolean = false) => {
+    // Check in-memory cache first
+    if (!forceRefresh && cachedGraphData && cacheTimestamp && (Date.now() - cacheTimestamp) < GRAPH_CACHE_TTL) {
+      console.log('[AssetGraph] Using in-memory cached data');
+      setGraphData(cachedGraphData);
+      setLoading(false);
+      return;
+    }
+    
+    // Check localStorage cache if no in-memory cache
+    if (!forceRefresh) {
+      const persisted = getPersistedCache();
+      if (persisted) {
+        console.log('[AssetGraph] Using localStorage cached data');
+        setCachedGraphData(persisted.data);
+        setCacheTimestamp(persisted.timestamp);
+        setGraphData(persisted.data);
+        setLoading(false);
+        return;
+      }
+    }
+    
+    setLoading(true);
+    setError(null);
+    setIsShowingDemoData(false);
+    setLoadingProgress({ current: 1, total: 1 }); // Start at page 1
+
+    try {
+      // Fetch first page immediately
+      console.log('[AssetGraph] Fetching first page...');
+      const firstResult = await fetchGraphPage(1);
+      console.log('[AssetGraph] First page received:', firstResult.nodes.length, 'nodes');
+      
+      if (firstResult.nodes.length === 0) {
+        // No data - show empty state
+        setGraphData({ nodes: [], edges: [] });
+        updateCache({ nodes: [], edges: [] });
+        setStats({ node_count: 0, edge_count: 0, nodes_by_label: {}, edges_by_label: {} });
+        setLoading(false);
+        setLoadingProgress(null);
+        return;
+      }
+      
+      // Show first page immediately - user sees content fast
+      const initialData: GraphData = { nodes: [...firstResult.nodes], edges: [...firstResult.edges] };
+      setGraphData(initialData);
+      updateCache(initialData);
+      setLoading(false); // Stop blocking loading state
+      
+      // Build initial stats
+      const initialStats: GraphStats = {
+        node_count: firstResult.nodes.length,
+        edge_count: firstResult.edges.length,
+        nodes_by_label: firstResult.nodes.reduce((acc, n) => {
+          acc[n.label] = (acc[n.label] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>),
+        edges_by_label: {},
+      };
+      setStats(initialStats);
+      
+      const totalPages = firstResult.pagination?.total_pages || 1;
+      
+      // If there are more pages, fetch them in background
+      if (totalPages > 1) {
+        setIsBackgroundFetching(true);
+        setLoadingProgress({ current: 1, total: totalPages });
+        
+        // Fetch remaining pages in background (non-blocking)
+        const allNodes = [...firstResult.nodes];
+        const allEdges = [...firstResult.edges];
+        const seenEdgeIds = new Set(firstResult.edges.map(e => e.id));
+        
+        // Use setTimeout to yield to the main thread between fetches
+        const fetchRemainingPages = async () => {
+          for (let page = 2; page <= totalPages; page++) {
+            try {
+              // Yield to main thread to prevent blocking
+              await new Promise(resolve => setTimeout(resolve, 10));
+              
+              console.log(`[AssetGraph] Background fetch: page ${page}/${totalPages}`);
+              setLoadingProgress({ current: page, total: totalPages });
+              
+              const pageResult = await fetchGraphPage(page);
+              allNodes.push(...pageResult.nodes);
+              pageResult.edges.forEach(e => {
+                if (!seenEdgeIds.has(e.id)) {
+                  seenEdgeIds.add(e.id);
+                  allEdges.push(e);
+                }
+              });
+              
+              // Update graph data progressively every page
+              const updatedData: GraphData = { nodes: [...allNodes], edges: [...allEdges] };
+              setGraphData(updatedData);
+              updateCache(updatedData);
+              
+              // Update stats
+              setStats({
+                node_count: allNodes.length,
+                edge_count: allEdges.length,
+                nodes_by_label: allNodes.reduce((acc, n) => {
+                  acc[n.label] = (acc[n.label] || 0) + 1;
+                  return acc;
+                }, {} as Record<string, number>),
+                edges_by_label: {},
+              });
+            } catch (err) {
+              console.warn(`[AssetGraph] Failed to fetch page ${page}:`, err);
+              // Continue with partial data
+            }
+          }
+          
+          setCacheTimestamp(Date.now());
+          setIsBackgroundFetching(false);
+          setLoadingProgress(null);
+          console.log(`[AssetGraph] Background fetch complete: ${allNodes.length} nodes, ${allEdges.length} edges`);
+        };
+        
+        // Start background fetch without await (non-blocking)
+        fetchRemainingPages();
+      } else {
+        // Only one page - we're done
+        setCacheTimestamp(Date.now());
+        setLoadingProgress(null);
+        console.log(`[AssetGraph] Single page load complete: ${firstResult.nodes.length} nodes`);
+      }
+      
+    } catch (err) {
+      console.error('[AssetGraph] Fetch error:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch graph data');
       setGraphData({ nodes: [], edges: [] });
       setStats(null);
-    } finally {
+      setCachedGraphData(null);
+      setCacheTimestamp(null);
+      setLoadingProgress(null);
       setLoading(false);
     }
-  }, [endpoint]);
+  }, [cachedGraphData, cacheTimestamp, fetchGraphPage, updateCache]);
+  
+  // Legacy fetchGraphData for compatibility - now just calls fetchAllGraphData
+  const fetchGraphData = useCallback(async (options?: { 
+    page?: number; 
+    per_page?: number; 
+    since?: string; 
+    until?: string;
+    node_type?: string;
+  }) => {
+    // Date filters are now applied client-side using cached data
+    // Just refresh the cache if needed
+    void options; // Options ignored - filtering done client-side
+    await fetchAllGraphData(false);
+  }, [fetchAllGraphData]);
+  
+  // Force refresh from backend
+  const refreshFromBackend = useCallback(async () => {
+    await fetchAllGraphData(true);
+  }, [fetchAllGraphData]);
 
   useEffect(() => {
     if (isOpen) {
-      fetchGraphData();
+      fetchAllGraphData(false);
     }
-  }, [isOpen, fetchGraphData]);
+  }, [isOpen, fetchAllGraphData]);
 
   // Keyboard handler
   useEffect(() => {
@@ -4430,7 +5496,7 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
 
             <div className="flex items-center gap-2">
               <button
-                onClick={fetchGraphData}
+                onClick={() => fetchGraphData()}
                 className="p-2 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
                 title="Refresh"
               >
@@ -4454,10 +5520,12 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
               stats={stats}
               loading={loading}
               error={error}
-              onRefresh={fetchGraphData}
+              onRefresh={refreshFromBackend}
               endpoint={endpoint}
               isShowingDemoData={isShowingDemoData}
               onLoadDemoData={loadDemoData}
+              loadingProgress={loadingProgress}
+              isBackgroundFetching={isBackgroundFetching}
             />
           </ReactFlowProvider>
         </motion.div>
