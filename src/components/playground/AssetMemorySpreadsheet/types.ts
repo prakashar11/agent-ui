@@ -2,6 +2,52 @@
  * Types for the Asset Memory Spreadsheet component
  */
 
+/**
+ * CIA Triad Impact levels (aligned with FIPS 199 / NIST SP 800-60)
+ */
+export type CIAImpact = 'low' | 'medium' | 'high' | 'unknown';
+
+/**
+ * A single dimension of the CIA Triad (Confidentiality, Integrity, or Availability)
+ */
+export interface CIADimension {
+  impact: CIAImpact;
+  justification?: string;
+}
+
+/**
+ * CIA Triad Profile for an asset.
+ * 
+ * The CIA Triad describes three core security objectives:
+ * - Confidentiality: Preventing unauthorized disclosure of information
+ * - Integrity: Preventing unauthorized modification of information
+ * - Availability: Ensuring authorized access to information when needed
+ */
+export interface CIAProfile {
+  confidentiality: CIADimension;
+  integrity: CIADimension;
+  availability: CIADimension;
+}
+
+/**
+ * Default CIA profile with unknown impacts
+ */
+export const DEFAULT_CIA_PROFILE: CIAProfile = {
+  confidentiality: { impact: 'unknown' },
+  integrity: { impact: 'unknown' },
+  availability: { impact: 'unknown' },
+};
+
+/**
+ * CIA Impact level options for dropdowns
+ */
+export const CIA_IMPACT_OPTIONS: { value: CIAImpact; label: string; color: string }[] = [
+  { value: 'unknown', label: 'Unknown', color: 'bg-gray-500/20 text-gray-400 border-gray-500/30' },
+  { value: 'low', label: 'Low', color: 'bg-green-500/20 text-green-400 border-green-500/30' },
+  { value: 'medium', label: 'Medium', color: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30' },
+  { value: 'high', label: 'High', color: 'bg-red-500/20 text-red-400 border-red-500/30' },
+];
+
 export interface Asset {
   asset_id: string;
   asset_name: string;
@@ -16,6 +62,7 @@ export interface Asset {
   technologies: string[];
   risk_score: number;
   tags: string[];
+  cia_profile?: CIAProfile;
   created_at?: number;
   updated_at?: number;
 }
@@ -75,16 +122,17 @@ export interface ColumnDef {
   label: string;
   width: string;
   editable: boolean;
-  type: 'text' | 'select' | 'array' | 'number';
+  type: 'text' | 'select' | 'array' | 'number' | 'cia_profile';
   options?: string[];
 }
 
 // Default columns for the spreadsheet
-// Order: asset_name, asset_category, criticality, description, business_unit, owner, publicly_accessible, data_handled, compliance_scope, technologies, risk_score, tags
+// Order: asset_name, asset_category, criticality, cia_profile, description, business_unit, owner, publicly_accessible, data_handled, compliance_scope, technologies, risk_score, tags
 export const SPREADSHEET_COLUMNS: ColumnDef[] = [
   { key: 'asset_name', label: 'Asset Name', width: '180px', editable: true, type: 'text' },
   { key: 'asset_category', label: 'Category', width: '140px', editable: true, type: 'select' },
   { key: 'criticality', label: 'Criticality', width: '120px', editable: true, type: 'select' },
+  { key: 'cia_profile', label: 'CIA Profile', width: '140px', editable: false, type: 'cia_profile' },
   { key: 'description', label: 'Description', width: '200px', editable: true, type: 'text' },
   { key: 'business_unit', label: 'Business Unit', width: '130px', editable: true, type: 'text' },
   { key: 'owner', label: 'Owner', width: '120px', editable: true, type: 'text' },

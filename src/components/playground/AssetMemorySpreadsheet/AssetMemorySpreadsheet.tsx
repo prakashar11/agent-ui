@@ -42,6 +42,10 @@ import {
   CRITICALITY_COLORS,
   CSV_FIELD_MAPPINGS,
   ARRAY_FIELDS,
+  CIAProfile,
+  CIAImpact,
+  DEFAULT_CIA_PROFILE,
+  CIA_IMPACT_OPTIONS,
 } from './types';
 
 // =============================================================================
@@ -55,6 +59,44 @@ const formatTimestamp = (timestamp?: number): string => {
 
 const getCriticalityBadgeClass = (criticality: string): string => {
   return CRITICALITY_COLORS[criticality.toLowerCase()] || CRITICALITY_COLORS.informational;
+};
+
+const getCIAImpactColor = (impact: CIAImpact): string => {
+  const option = CIA_IMPACT_OPTIONS.find(o => o.value === impact);
+  return option?.color || CIA_IMPACT_OPTIONS[0].color;
+};
+
+const formatCIAProfile = (profile?: CIAProfile): React.ReactNode => {
+  if (!profile) {
+    return <span className="text-muted-foreground/50">-</span>;
+  }
+
+  const getImpactLabel = (impact: CIAImpact): string => {
+    return impact === 'unknown' ? '?' : impact.charAt(0).toUpperCase();
+  };
+
+  return (
+    <div className="flex items-center gap-1">
+      <span
+        className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs font-bold border', getCIAImpactColor(profile.confidentiality?.impact || 'unknown'))}
+        title={`Confidentiality: ${profile.confidentiality?.impact || 'unknown'}${profile.confidentiality?.justification ? ` - ${profile.confidentiality.justification}` : ''}`}
+      >
+        C
+      </span>
+      <span
+        className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs font-bold border', getCIAImpactColor(profile.integrity?.impact || 'unknown'))}
+        title={`Integrity: ${profile.integrity?.impact || 'unknown'}${profile.integrity?.justification ? ` - ${profile.integrity.justification}` : ''}`}
+      >
+        I
+      </span>
+      <span
+        className={cn('inline-flex items-center justify-center w-5 h-5 rounded text-xs font-bold border', getCIAImpactColor(profile.availability?.impact || 'unknown'))}
+        title={`Availability: ${profile.availability?.impact || 'unknown'}${profile.availability?.justification ? ` - ${profile.availability.justification}` : ''}`}
+      >
+        A
+      </span>
+    </div>
+  );
 };
 
 // =============================================================================
@@ -108,6 +150,14 @@ const EditableCell: React.FC<EditableCellProps> = ({
   };
 
   if (!column.editable) {
+    // Special handling for CIA profile column
+    if (column.type === 'cia_profile') {
+      return (
+        <div className="px-3 py-2 text-sm">
+          {formatCIAProfile(value as unknown as CIAProfile)}
+        </div>
+      );
+    }
     return (
       <div className="px-3 py-2 text-sm text-muted-foreground">
         {column.type === 'number' ? (
@@ -257,10 +307,25 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
     compliance_scope: '',
     technologies: [],
     tags: [],
+    cia_profile: { ...DEFAULT_CIA_PROFILE },
   });
   const [saving, setSaving] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
   const [techInput, setTechInput] = useState('');
+
+  // CIA profile state management
+  const updateCIAProfile = (dimension: 'confidentiality' | 'integrity' | 'availability', field: 'impact' | 'justification', value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      cia_profile: {
+        ...prev.cia_profile || DEFAULT_CIA_PROFILE,
+        [dimension]: {
+          ...prev.cia_profile?.[dimension] || { impact: 'unknown' },
+          [field]: value,
+        },
+      },
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -272,6 +337,7 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
         ...formData,
         tags: tagsInput.split(',').map((s) => s.trim()).filter(Boolean),
         technologies: techInput.split(',').map((s) => s.trim()).filter(Boolean),
+        cia_profile: formData.cia_profile,
       });
       onClose();
       // Reset form
@@ -287,6 +353,7 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
         compliance_scope: '',
         technologies: [],
         tags: [],
+        cia_profile: { ...DEFAULT_CIA_PROFILE },
       });
       setTagsInput('');
       setTechInput('');
@@ -415,6 +482,84 @@ const CreateAssetModal: React.FC<CreateAssetModalProps> = ({
                 className="w-full px-3 py-2 bg-muted border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="e.g., PCI-DSS, HIPAA, SOC2"
               />
+            </div>
+          </div>
+
+          {/* CIA Triad Profile Section */}
+          <div className="border border-border rounded-lg p-4 bg-muted/20">
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <span className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">C</span>
+              <span className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">I</span>
+              <span className="w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">A</span>
+              CIA Triad Profile
+            </h3>
+            <div className="grid grid-cols-3 gap-4">
+              {/* Confidentiality */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">Confidentiality Impact</label>
+                <select
+                  value={formData.cia_profile?.confidentiality?.impact || 'unknown'}
+                  onChange={(e) => updateCIAProfile('confidentiality', 'impact', e.target.value)}
+                  className="w-full px-2 py-1.5 bg-background text-foreground border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm cursor-pointer"
+                >
+                  {CIA_IMPACT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-background text-foreground">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={formData.cia_profile?.confidentiality?.justification || ''}
+                  onChange={(e) => updateCIAProfile('confidentiality', 'justification', e.target.value)}
+                  className="w-full mt-1 px-2 py-1 bg-muted border border-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Justification..."
+                />
+              </div>
+              {/* Integrity */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">Integrity Impact</label>
+                <select
+                  value={formData.cia_profile?.integrity?.impact || 'unknown'}
+                  onChange={(e) => updateCIAProfile('integrity', 'impact', e.target.value)}
+                  className="w-full px-2 py-1.5 bg-background text-foreground border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm cursor-pointer"
+                >
+                  {CIA_IMPACT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-background text-foreground">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={formData.cia_profile?.integrity?.justification || ''}
+                  onChange={(e) => updateCIAProfile('integrity', 'justification', e.target.value)}
+                  className="w-full mt-1 px-2 py-1 bg-muted border border-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Justification..."
+                />
+              </div>
+              {/* Availability */}
+              <div>
+                <label className="block text-xs font-medium mb-1 text-muted-foreground">Availability Impact</label>
+                <select
+                  value={formData.cia_profile?.availability?.impact || 'unknown'}
+                  onChange={(e) => updateCIAProfile('availability', 'impact', e.target.value)}
+                  className="w-full px-2 py-1.5 bg-background text-foreground border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm cursor-pointer"
+                >
+                  {CIA_IMPACT_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-background text-foreground">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  value={formData.cia_profile?.availability?.justification || ''}
+                  onChange={(e) => updateCIAProfile('availability', 'justification', e.target.value)}
+                  className="w-full mt-1 px-2 py-1 bg-muted border border-border rounded text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  placeholder="Justification..."
+                />
+              </div>
             </div>
           </div>
 
