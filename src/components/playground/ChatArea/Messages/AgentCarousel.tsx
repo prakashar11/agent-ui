@@ -21,6 +21,7 @@ import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
 import { HygieneEssentialsSpreadsheet } from '@/components/playground/HygieneEssentialsSpreadsheet'
 import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
+import { ThreatIntelIngestionCarousel } from '@/components/playground/ThreatIntelIngestionCarousel'
 import { toast } from 'sonner'
 
 // Generate consistent gradient based on category name hash
@@ -482,6 +483,87 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({
   )
 }
 
+// Threat Intel Ingestion Card Component
+interface ThreatIntelIngestionCardProps {
+  index: number
+  categoryGradient: string
+  onOpenIngestion: () => void
+}
+
+const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
+  index,
+  categoryGradient,
+  onOpenIngestion,
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+      className="h-full"
+    >
+      <button
+        onClick={onOpenIngestion}
+        className={cn(
+          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
+          `bg-gradient-to-br ${categoryGradient}`,
+          'border-border/50 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5'
+        )}
+      >
+        {/* Background pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
+          <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Header with icon and name */}
+          <div className="mb-3 flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-background/80 transition-colors">
+              <Shield className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
+                Threat Intel Ingestion
+              </h3>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                RSS Feed Processing
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
+              <p className="mb-2">
+                <strong>Ingest threat intelligence</strong> from RSS feeds, analyze with LLM, and store in vector DB & asset graph.
+              </p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Fetch from 40+ RSS feeds</li>
+                <li>LLM threat analysis</li>
+                <li>Vector store caching</li>
+                <li>Asset graph sync</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer with action hint */}
+          <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
+            <div className="flex items-center gap-1.5">
+              <Shield className="h-3 w-3 text-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
+                Click to open
+              </span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground/30 transition-transform group-hover:translate-x-1" />
+          </div>
+        </div>
+      </button>
+    </motion.div>
+  )
+}
+
 // Hygiene Essentials Card Component
 interface HygieneCardProps {
   index: number
@@ -577,6 +659,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   const [isSpreadsheetOpen, setIsSpreadsheetOpen] = useState(false)
   const [isHygieneOpen, setIsHygieneOpen] = useState(false)
   const [isWorkflowOpen, setIsWorkflowOpen] = useState(false)
+  const [isIngestionOpen, setIsIngestionOpen] = useState(false)
   
   // Use category from URL for browser navigation support
   const selectedCategory = categoryParam
@@ -627,8 +710,8 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   
   // Calculate total items including special category tools
   // Asset Management gets +3 extra items: Asset Graph, Asset Memory Spreadsheet, and Hygiene Essentials
-  // Utilities gets +1 extra item: Workflow Tasks
-  const extraItems = (isAssetManagement ? 3 : 0) + (isUtilities ? 1 : 0)
+  // Utilities gets +2 extra items: Workflow Tasks + Threat Intel Ingestion
+  const extraItems = (isAssetManagement ? 3 : 0) + (isUtilities ? 2 : 0)
   const totalItems = categoryAgents.length + extraItems
   const isSingleItem = totalItems === 1
   const isTwoItems = totalItems === 2
@@ -658,7 +741,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
           {isAssetManagement 
             ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 3 tools`
             : isUtilities
-            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 1 tool`
+            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 2 tools`
             : `Select an agent to start chatting • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} available`
           }
         </p>
@@ -675,6 +758,8 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 onOpenGraph={() => setIsGraphOpen(true)}
               />
             ) : isUtilities && categoryAgents.length === 0 ? (
+              // This case shouldn't happen since we have 2 utility tools now
+              // But keeping for safety - show first tool
               <WorkflowCard
                 index={0}
                 categoryGradient={categoryGradient}
@@ -735,13 +820,22 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
               </>
             )}
             {isUtilities && (
-              <div className="h-[280px]">
-                <WorkflowCard
-                  index={categoryAgents.length}
-                  categoryGradient={categoryGradient}
-                  onOpenWorkflow={() => setIsWorkflowOpen(true)}
-                />
-              </div>
+              <>
+                <div className="h-[280px]">
+                  <WorkflowCard
+                    index={categoryAgents.length}
+                    categoryGradient={categoryGradient}
+                    onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                  />
+                </div>
+                <div className="h-[280px]">
+                  <ThreatIntelIngestionCard
+                    index={categoryAgents.length + 1}
+                    categoryGradient={categoryGradient}
+                    onOpenIngestion={() => setIsIngestionOpen(true)}
+                  />
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -788,13 +882,22 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
               </>
             )}
             {isUtilities && (
-              <div className="h-[280px]">
-                <WorkflowCard
-                  index={categoryAgents.length}
-                  categoryGradient={categoryGradient}
-                  onOpenWorkflow={() => setIsWorkflowOpen(true)}
-                />
-              </div>
+              <>
+                <div className="h-[280px]">
+                  <WorkflowCard
+                    index={categoryAgents.length}
+                    categoryGradient={categoryGradient}
+                    onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                  />
+                </div>
+                <div className="h-[280px]">
+                  <ThreatIntelIngestionCard
+                    index={categoryAgents.length + 1}
+                    categoryGradient={categoryGradient}
+                    onOpenIngestion={() => setIsIngestionOpen(true)}
+                  />
+                </div>
+              </>
             )}
           </div>
         </div>
@@ -858,15 +961,26 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
               </>
             )}
             {isUtilities && (
-              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
-                <div className="h-[280px]">
-                  <WorkflowCard
-                    index={categoryAgents.length}
-                    categoryGradient={categoryGradient}
-                    onOpenWorkflow={() => setIsWorkflowOpen(true)}
-                  />
-                </div>
-              </CarouselItem>
+              <>
+                <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
+                  <div className="h-[280px]">
+                    <WorkflowCard
+                      index={categoryAgents.length}
+                      categoryGradient={categoryGradient}
+                      onOpenWorkflow={() => setIsWorkflowOpen(true)}
+                    />
+                  </div>
+                </CarouselItem>
+                <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
+                  <div className="h-[280px]">
+                    <ThreatIntelIngestionCard
+                      index={categoryAgents.length + 1}
+                      categoryGradient={categoryGradient}
+                      onOpenIngestion={() => setIsIngestionOpen(true)}
+                    />
+                  </div>
+                </CarouselItem>
+              </>
             )}
           </CarouselContent>
           <CarouselPrevious className="-left-2 border-border/50 bg-background/80 hover:bg-accent" />
@@ -900,6 +1014,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
       <WorkflowCarousel
         isOpen={isWorkflowOpen}
         onClose={() => setIsWorkflowOpen(false)}
+        endpoint={selectedEndpoint}
+      />
+
+      {/* Threat Intel Ingestion Modal */}
+      <ThreatIntelIngestionCarousel
+        isOpen={isIngestionOpen}
+        onClose={() => setIsIngestionOpen(false)}
         endpoint={selectedEndpoint}
       />
     </div>

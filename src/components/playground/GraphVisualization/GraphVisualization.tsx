@@ -222,15 +222,12 @@ const NODE_WIDTH = 160;
 const NODE_HEIGHT = 55;
 const DEFAULT_HORIZONTAL_GAP = 30;  // Gap between nodes in same row
 const DEFAULT_VERTICAL_GAP = 70;    // Gap between hierarchy levels within cluster
-const DEFAULT_SUB_ROW_GAP = 65;     // Gap between wrapped rows within same level
 const DEFAULT_CLUSTER_GAP_X = 120;  // Gap between clusters horizontally
-const DEFAULT_CLUSTER_GAP_Y = 140;  // Gap between cluster rows
 const MARGIN_X = 30;
 const MARGIN_Y = 30;
 
-// Responsive limits - will be calculated based on container size
-const DEFAULT_MAX_NODES_PER_ROW = 4;  // Default max nodes per row in a cluster level
-const DEFAULT_MAX_CLUSTERS_PER_ROW = 3; // Default max clusters per row
+// Note: Previously had DATE_FILTER_EXEMPT_LABELS but removed for simplicity
+// All filters now apply uniformly to all node types
 
 // Layout settings interface for user customization
 interface LayoutSettings {
@@ -951,17 +948,32 @@ function HierarchyLegend() {
 // FILTER PANEL
 // =============================================================================
 
+// Primary seed node types - Threat, Vulnerability & Asset are the main seed types
+// These enable use cases like threat hunting, vulnerability management, or asset hygiene verification
+const PRIMARY_SEED_TYPES = new Set(['Threat', 'Vulnerability', 'Asset']);
+
 interface FilterPanelProps {
   nodeTypes: string[];
   activeFilters: Set<string>;
   onToggleFilter: (type: string) => void;
   stats: Record<string, number>;
   onClose: () => void;
+  onRefresh?: () => void;
+  primaryAnchorType?: string | null;
+  currentDepth?: number;
+  onDepthChange?: (depth: number) => void;
 }
 
-function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose }: FilterPanelProps) {
-  // Sort node types by hierarchy
+function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose, onRefresh, primaryAnchorType, currentDepth, onDepthChange }: FilterPanelProps) {
+  // Sort node types by hierarchy, with primary seed types (Threat, Vulnerability, Asset) first
   const sortedTypes = [...nodeTypes].sort((a, b) => {
+    // First sort by whether it's a primary seed type
+    const aIsSeed = PRIMARY_SEED_TYPES.has(a);
+    const bIsSeed = PRIMARY_SEED_TYPES.has(b);
+    if (aIsSeed && !bIsSeed) return -1;
+    if (!aIsSeed && bIsSeed) return 1;
+    
+    // Then sort by hierarchy
     const rankA = NODE_TYPE_HIERARCHY[a] ?? 99;
     const rankB = NODE_TYPE_HIERARCHY[b] ?? 99;
     return rankA - rankB;
@@ -971,16 +983,36 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose 
     <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl">
       <div className="flex items-center justify-between mb-2">
         <h4 className="text-xs text-neutral-400 uppercase font-medium">Filter by Type</h4>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-neutral-700 rounded transition-colors"
-        >
-          <X className="w-3.5 h-3.5 text-neutral-400" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              className="p-1 hover:bg-neutral-700 rounded transition-colors group"
+              title="Refresh graph with current filters"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-neutral-400 group-hover:text-blue-400 transition-colors" />
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="p-1 hover:bg-neutral-700 rounded transition-colors"
+          >
+            <X className="w-3.5 h-3.5 text-neutral-400" />
+          </button>
+        </div>
       </div>
+      <p className="text-[10px] text-neutral-500 mb-2">
+        {primaryAnchorType
+          ? <>Anchor: <span className="text-green-400 font-medium">{primaryAnchorType}</span> (date-filtered seed)</>
+          : 'Select a primary type to set anchor'
+        }
+      </p>
       <div className="flex flex-wrap gap-2 max-w-xs">
         {sortedTypes.map((type) => {
-          const isActive = activeFilters.size === 0 || activeFilters.has(type);
+          const isPrimarySeed = PRIMARY_SEED_TYPES.has(type);
+          const isAnchor = type === primaryAnchorType;
+          const isSelected = activeFilters.has(type);
+          const isActive = activeFilters.size === 0 || isSelected;
           const color = NODE_COLORS[type] || NODE_COLORS.default;
           const count = stats[type] || 0;
 
@@ -994,18 +1026,31 @@ function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose 
                   ? 'bg-neutral-700 text-white'
                   : 'bg-neutral-800/50 text-neutral-500 opacity-50'
                 }
+                ${isAnchor ? 'ring-2 ring-green-500' : isPrimarySeed ? 'ring-1 ring-blue-500/30' : ''}
               `}
+              title={isAnchor ? `${type} (anchor - date filter applies)` : isSelected && isPrimarySeed ? `${type} (connected to anchor)` : isPrimarySeed ? `${type} (primary seed type)` : `${type} (via hop expansion)`}
             >
               <div
                 className="w-2 h-2 rounded-full"
                 style={{ backgroundColor: color }}
               />
               <span>{type}</span>
+              {isAnchor && <span className="text-green-400 text-[10px]">⚓</span>}
               <span className="text-neutral-500">({count})</span>
             </button>
           );
         })}
       </div>
+      
+      {/* Footnote hint: suggest increasing depth when many types selected with low hops */}
+      {activeFilters.size >= 3 && currentDepth !== undefined && currentDepth < activeFilters.size - 1 && onDepthChange && (
+        <div 
+          className="mt-3 pt-2 border-t border-neutral-700/50 text-[10px] text-amber-400 cursor-pointer hover:text-amber-300 transition-colors"
+          onClick={() => onDepthChange(activeFilters.size - 1)}
+        >
+          💡 Tip: With {activeFilters.size} types, increase depth to {activeFilters.size - 1}+ hops to see full chain
+        </div>
+      )}
     </div>
   );
 }
@@ -1551,7 +1596,7 @@ interface AttackPathPanelProps {
   onClose: () => void;
 }
 
-function AttackPathPanel({ paths, threatId, targetAssetId, loading, onSelectNode, onClose }: AttackPathPanelProps) {
+function AttackPathPanel({ paths, loading, onSelectNode, onClose }: AttackPathPanelProps) {
   const getStepColor = (type: string) => {
     switch (type) {
       case 'threat': return 'bg-red-500';
@@ -2862,10 +2907,14 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [selectedNode, setSelectedNode] = useState<CustomNode | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilteredNodeIds, setSearchFilteredNodeIds] = useState<Set<string> | null>(null);
-  const [filterMaxHops, setFilterMaxHops] = useState<number | undefined>(2); // Default to 2 hops
+  const [filterMaxHops, setFilterMaxHops] = useState<number | undefined>(1); // Default to 1 hop for directly connected nodes
   const [showFilters, setShowFilters] = useState(false);
   const [showLegend, setShowLegend] = useState(storedLayout?.preferences?.showLegend ?? false);
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set());
+  // Primary anchor seed type - the FIRST selected primary seed type
+  // Only this type is used as seeds for date filtering
+  // All other selected types (including other primary types) only appear via hop expansion
+  const [primaryAnchorType, setPrimaryAnchorType] = useState<string | null>(null);
   const [showMinimap, setShowMinimap] = useState(storedLayout?.preferences?.showMinimap ?? true);
   
   // Date filter state
@@ -3009,7 +3058,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     (pendingChanges.addedNodes?.length || 0) > 0;
 
   // Helper function to check if a node matches the date filter
-  const nodeMatchesDateFilter = useCallback((node: { created_at?: string; properties?: Record<string, unknown> }) => {
+  // All node types are filtered uniformly by date
+  const nodeMatchesDateFilter = useCallback((node: { label?: string; created_at?: string; properties?: Record<string, unknown> }) => {
     // Only filter if applied flag is true
     if (!dateFilter.applied) return true;
     if (dateFilter.mode === 'off') return true;
@@ -3053,16 +3103,22 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
   // Convert API data to ReactFlow format
   // Helper function to get nodes within N hops using BFS
+  // Optional typeFilter: if provided, only traverse through nodes of these types
   const getNodesWithinHops = useCallback((
     startNodeIds: Set<string>,
     maxHops: number,
     allNodes: GraphData['nodes'],
-    allEdges: GraphData['edges']
+    allEdges: GraphData['edges'],
+    typeFilter?: Set<string>
   ): Set<string> => {
     if (!allNodes || !allEdges) return startNodeIds;
     
     const result = new Set(startNodeIds);
     let frontier = new Set(startNodeIds);
+    
+    // Build a map of node id -> node label for type checking
+    const nodeLabels = new Map<string, string>();
+    allNodes.forEach(n => nodeLabels.set(n.id, n.label));
     
     // Build adjacency list for faster traversal
     const adjacency = new Map<string, Set<string>>();
@@ -3082,7 +3138,14 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           neighbors.forEach(neighborId => {
             if (!result.has(neighborId)) {
               // Check if neighbor exists in our node set
-              if (allNodes.some(n => n.id === neighborId)) {
+              const neighborLabel = nodeLabels.get(neighborId);
+              if (neighborLabel) {
+                // If type filter is active, only include nodes of selected types
+                if (typeFilter && typeFilter.size > 0) {
+                  if (!typeFilter.has(neighborLabel)) {
+                    return; // Skip nodes that don't match type filter
+                  }
+                }
                 result.add(neighborId);
                 nextFrontier.add(neighborId);
               }
@@ -3104,58 +3167,167 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     const stored = getStoredLayout();
 
     // ==========================================================================
-    // UNIFIED FILTERING WITH HOPS
-    // 1. Apply all base filters (type, date, search) to get "seed" nodes
-    // 2. Expand seed nodes using hops setting to include related nodes
+    // GRAPH NAVIGATION LOGIC
+    // Two navigation modes:
+    // 1. Date Filter Navigation: Get primary seed nodes (Threat, Vulnerability, Asset)
+    //    matching date filter, then expand by hops to get connected nodes of ANY type
+    // 2. Search Navigation: Find nodes by label, ignore date filter, respect depth & type
     // ==========================================================================
     
-    // Step 1: Apply all base filters to get seed nodes
-    let seedNodes = graphData.nodes;
     const filtersActive: string[] = [];
+    const isDateFilterActive = dateFilter.applied && dateFilter.mode !== 'off';
+    const isSearchActive = searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0;
     
-    // Apply type filter
-    if (activeFilters.size > 0) {
-      seedNodes = seedNodes.filter(n => activeFilters.has(n.label));
-      filtersActive.push(`type(${activeFilters.size})`);
-    }
-    
-    // Apply date filter
-    seedNodes = seedNodes.filter(nodeMatchesDateFilter);
-    if (dateFilter.applied && dateFilter.mode !== 'off') {
-      filtersActive.push('date');
-    }
-    
-    // Apply search filter if active
-    if (searchFilteredNodeIds !== null && searchFilteredNodeIds.size > 0) {
-      seedNodes = seedNodes.filter(n => searchFilteredNodeIds.has(n.id));
-      filtersActive.push('search');
-    }
-    
-    const seedNodeIds = new Set(seedNodes.map(n => n.id));
-    
-    // Step 2: Expand with hops if any filter is active and hops is set
     let filteredApiNodes: typeof graphData.nodes;
-    const hasActiveFilter = filtersActive.length > 0;
     
-    if (hasActiveFilter && filterMaxHops !== undefined && filterMaxHops > 0 && seedNodeIds.size > 0) {
-      // Expand seed nodes to include related nodes within N hops
-      const expandedNodeIds = getNodesWithinHops(
-        seedNodeIds,
-        filterMaxHops,
-        graphData.nodes,
-        graphData.edges
-      );
-      filteredApiNodes = graphData.nodes.filter(n => expandedNodeIds.has(n.id));
-      console.log(`[AssetGraph] Filters [${filtersActive.join(', ')}] with ${filterMaxHops} hops: ${seedNodes.length} seed -> ${filteredApiNodes.length} total`);
-    } else if (hasActiveFilter) {
-      // Filters active but no hops expansion (hops=0 or hops=undefined/"all")
-      filteredApiNodes = seedNodes;
-      console.log(`[AssetGraph] Filters [${filtersActive.join(', ')}] (no hops): ${filteredApiNodes.length} nodes`);
+    if (isSearchActive) {
+      // =======================================================================
+      // SEARCH NAVIGATION MODE
+      // When user searches by node label:
+      // - Ignore date filter
+      // - Respect depth (hops) configuration
+      // - Respect filter by type for display filtering
+      // =======================================================================
+      filtersActive.push('search');
+      
+      // Get all nodes from search results (already includes connected nodes via backend)
+      const searchResultNodes = graphData.nodes.filter(n => searchFilteredNodeIds.has(n.id));
+      
+      // Apply type filter if active (filters displayed nodes from search results)
+      if (activeFilters.size > 0) {
+        filtersActive.push(`type(${activeFilters.size})`);
+        filteredApiNodes = searchResultNodes.filter(n => activeFilters.has(n.label));
+      } else {
+        filteredApiNodes = searchResultNodes;
+      }
+      
+      console.log(`[AssetGraph] Search navigation: ${searchFilteredNodeIds.size} search results -> ${filteredApiNodes.length} nodes displayed (type filter: ${activeFilters.size > 0 ? 'active' : 'off'})`);
+      
+    } else if (isDateFilterActive) {
+      // =======================================================================
+      // DATE FILTER NAVIGATION MODE
+      // Primary seed types: Threat, Vulnerability, Asset
+      // - When type filter is active: use FIRST selected primary type as anchor seed
+      // - Other types (including other primary types) only appear if connected via hops
+      // - This ensures e.g., Threats only show if connected to Vulnerabilities
+      // =======================================================================
+      filtersActive.push('date');
+      
+      // Use primary anchor type from state (the FIRST selected primary seed type)
+      // Only the primary anchor type nodes are seeds for date filtering
+      // All other selected types only appear if connected via hops
+      
+      // Step 1: Get seed nodes - ONLY primary anchor type matching date filter
+      const seedNodes = graphData.nodes.filter(n => {
+        // Apply date filter first
+        if (!nodeMatchesDateFilter(n)) return false;
+        
+        if (primaryAnchorType) {
+          // Only the primary anchor type nodes are seeds
+          return n.label === primaryAnchorType;
+        } else {
+          // No anchor set - use all primary seed types as seeds
+          return PRIMARY_SEED_TYPES.has(n.label);
+        }
+      });
+      
+      const seedNodeIds = new Set(seedNodes.map(n => n.id));
+      console.log(`[AssetGraph] Date filter: ${seedNodes.length} seed nodes (primary anchor: ${primaryAnchorType || 'all primary types'})`);
+      
+      // Step 2: CHAINED EXPANSION
+      // Expand from visible nodes, adding nodes of selected types only
+      // This creates a chain: Anchor → Type2 → Type3 (each connected via hops)
+      // filterMaxHops: undefined = 'all', 0 = no expansion, N = N hops
+      const shouldExpand = seedNodeIds.size > 0 && filterMaxHops !== 0;
+      
+      if (shouldExpand && activeFilters.size > 0) {
+        const effectiveHops = filterMaxHops ?? 100;
+        
+        // Build adjacency list for efficient traversal
+        const adjacency = new Map<string, Set<string>>();
+        graphData.edges.forEach(edge => {
+          if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+          if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+          adjacency.get(edge.source)!.add(edge.target);
+          adjacency.get(edge.target)!.add(edge.source);
+        });
+        
+        // Node labels map for type checking
+        const nodeLabels = new Map<string, string>();
+        graphData.nodes.forEach(n => nodeLabels.set(n.id, n.label));
+        
+        // Start with seed nodes (anchor type)
+        const visibleNodeIds = new Set(seedNodeIds);
+        
+        // Chained BFS: at each hop, expand from ALL visible nodes
+        // but only ADD nodes of SELECTED types
+        for (let hop = 0; hop < effectiveHops; hop++) {
+          const newNodes = new Set<string>();
+          
+          visibleNodeIds.forEach(nodeId => {
+            const neighbors = adjacency.get(nodeId);
+            if (neighbors) {
+              neighbors.forEach(neighborId => {
+                if (!visibleNodeIds.has(neighborId)) {
+                  const neighborLabel = nodeLabels.get(neighborId);
+                  // Only add if it's a selected type
+                  if (neighborLabel && activeFilters.has(neighborLabel)) {
+                    newNodes.add(neighborId);
+                  }
+                }
+              });
+            }
+          });
+          
+          if (newNodes.size === 0) break;
+          newNodes.forEach(id => visibleNodeIds.add(id));
+        }
+        
+        filtersActive.push(`type(${activeFilters.size})`);
+        filteredApiNodes = graphData.nodes.filter(n => visibleNodeIds.has(n.id));
+        console.log(`[AssetGraph] Chained expansion ${filterMaxHops ?? 'all'} hop(s): ${seedNodes.length} seeds -> ${filteredApiNodes.length} nodes (types: ${[...activeFilters].join(', ')})`);
+        
+      } else if (shouldExpand) {
+        // No type filter - expand to ALL connected nodes
+        const effectiveHops = filterMaxHops ?? 100;
+        const expandedNodeIds = getNodesWithinHops(
+          seedNodeIds,
+          effectiveHops,
+          graphData.nodes,
+          graphData.edges
+        );
+        filteredApiNodes = graphData.nodes.filter(n => expandedNodeIds.has(n.id));
+        console.log(`[AssetGraph] Expanded ${filterMaxHops ?? 'all'} hop(s): ${filteredApiNodes.length} total nodes`);
+        
+      } else {
+        // No hop expansion (hops = 0) - just show seed nodes (with optional type filter)
+        if (activeFilters.size > 0) {
+          filtersActive.push(`type(${activeFilters.size})`);
+          filteredApiNodes = seedNodes.filter(n => activeFilters.has(n.label));
+        } else {
+          filteredApiNodes = seedNodes;
+        }
+      }
+      
+      console.log(`[AssetGraph] Filters [${filtersActive.join(', ')}] with ${filterMaxHops ?? 'all'} hops: ${filteredApiNodes.length} nodes displayed`);
+      
     } else {
-      // No filters active - show all nodes
-      filteredApiNodes = graphData.nodes;
+      // =======================================================================
+      // NO DATE FILTER ACTIVE
+      // Show all nodes with optional type filter
+      // =======================================================================
+      if (activeFilters.size > 0) {
+        filtersActive.push(`type(${activeFilters.size})`);
+        filteredApiNodes = graphData.nodes.filter(n => activeFilters.has(n.label));
+        console.log(`[AssetGraph] Type filter only: ${filteredApiNodes.length} nodes`);
+      } else {
+        // No filters - show all nodes
+        filteredApiNodes = graphData.nodes;
+        console.log(`[AssetGraph] No filters: showing all ${filteredApiNodes.length} nodes`);
+      }
     }
 
+    // Create filteredNodeIds for edge filtering
     const filteredNodeIds = new Set(filteredApiNodes.map(n => n.id));
 
     // Convert to ReactFlow nodes - use stored positions if available
@@ -3180,6 +3352,52 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       nodePositionMap.set(node.id, { x: 0, y: 0, level });
     });
 
+    // Relationship type to handle side mapping
+    // This spreads edges across different sides of nodes based on relationship semantics
+    const getHandlesByRelationship = (relType: string, levelDiff: number): { source: string; target: string } => {
+      // Category relationships - use top/bottom (hierarchical)
+      if (relType.includes('CATEGORY') || relType === 'BELONGS_TO') {
+        return levelDiff >= 0 
+          ? { source: 'source-bottom', target: 'target-top' }
+          : { source: 'source-top', target: 'target-bottom' };
+      }
+      
+      // Vulnerability/Threat relationships - use right side
+      if (relType.includes('VULNERABILITY') || relType.includes('VULNERABLE') || 
+          relType === 'EXPLOITS' || relType === 'HAS_THREAT' || relType === 'TARGETS') {
+        return { source: 'source-right', target: 'target-left' };
+      }
+      
+      // Control/Mitigation relationships - use left side
+      if (relType.includes('CONTROL') || relType.includes('MITIGATED') || relType.includes('IMPLEMENTS')) {
+        return { source: 'source-left', target: 'target-right' };
+      }
+      
+      // Attack/MITRE relationships - use bottom-right diagonal
+      if (relType.includes('ATTACK') || relType === 'USES_ATTACK') {
+        return levelDiff >= 0
+          ? { source: 'source-bottom', target: 'target-left' }
+          : { source: 'source-right', target: 'target-top' };
+      }
+      
+      // Indicator/Detection relationships - use left
+      if (relType.includes('INDICATOR') || relType.includes('DETECTED') || relType.includes('LOG')) {
+        return { source: 'source-left', target: 'target-right' };
+      }
+      
+      // Asset connections - based on hierarchy level
+      if (relType === 'CONNECTED_TO' || relType === 'DEPENDS_ON' || relType.includes('SERVICE') || relType.includes('IDENTITY')) {
+        if (levelDiff > 0) return { source: 'source-bottom', target: 'target-top' };
+        if (levelDiff < 0) return { source: 'source-top', target: 'target-bottom' };
+        return { source: 'source-right', target: 'target-left' };
+      }
+      
+      // Default: based on hierarchy level
+      if (levelDiff > 0) return { source: 'source-bottom', target: 'target-top' };
+      if (levelDiff < 0) return { source: 'source-top', target: 'target-bottom' };
+      return { source: 'source-right', target: 'target-left' };
+    };
+
     // Convert to ReactFlow edges with relationship-based colors and smart handle selection
     const flowEdges: Edge[] = graphData.edges
       .filter(e => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target))
@@ -3191,27 +3409,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         let sourceHandle = storedHandles?.sourceHandle || 'source-bottom';
         let targetHandle = storedHandles?.targetHandle || 'target-top';
         
-        // If no stored handles, determine based on hierarchy levels
+        // If no stored handles, determine based on relationship type and hierarchy
         if (!storedHandles) {
           const sourceNode = nodePositionMap.get(edge.source);
           const targetNode = nodePositionMap.get(edge.target);
           
           if (sourceNode && targetNode) {
             const levelDiff = targetNode.level - sourceNode.level;
-            
-            if (levelDiff > 0) {
-              // Target is below source (normal hierarchy flow)
-              sourceHandle = 'source-bottom';
-              targetHandle = 'target-top';
-            } else if (levelDiff < 0) {
-              // Target is above source (reverse flow)
-              sourceHandle = 'source-top';
-              targetHandle = 'target-bottom';
-            } else {
-              // Same level - use horizontal handles
-              sourceHandle = 'source-right';
-              targetHandle = 'target-left';
-            }
+            const handles = getHandlesByRelationship(edge.label, levelDiff);
+            sourceHandle = handles.source;
+            targetHandle = handles.target;
           }
         }
         
@@ -3323,7 +3530,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     // Ensure nodes are readable (not too small) while fitting as much as possible
     setTimeout(() => {
       fitView({ 
-        padding: 0.15,
+        padding: 0.2,
         minZoom: MIN_READABLE_ZOOM,  // Don't zoom out too far - keeps nodes readable
         maxZoom: MAX_INITIAL_ZOOM,   // Don't zoom in too much on small graphs
         duration: 300,
@@ -3333,7 +3540,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         setCurrentZoom(getViewport().zoom);
       }, 350);
     }, 100);
-  }, [graphData, activeFilters, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
+  }, [graphData, activeFilters, primaryAnchorType, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
 
   // ==========================================================================
   // SAVE LAYOUT TO BROWSER STORAGE
@@ -3577,18 +3784,39 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }, 200);
   }, [graphData, nodes, fitView, fetchConnectedNodes, filterMaxHops]);
 
-  // Toggle filter
+  // Toggle filter - manages primary anchor dynamically
+  // Only the FIRST selected primary seed type becomes the anchor
+  // All other selected types only appear if connected to anchor via hops
   const toggleFilter = useCallback((type: string) => {
     setActiveFilters(prev => {
       const next = new Set(prev);
       if (next.has(type)) {
+        // Removing a type
         next.delete(type);
+        
+        // If removing the primary anchor, find next available primary seed type
+        if (type === primaryAnchorType) {
+          const remainingPrimaryTypes = [...next].filter(t => PRIMARY_SEED_TYPES.has(t));
+          setPrimaryAnchorType(remainingPrimaryTypes.length > 0 ? remainingPrimaryTypes[0] : null);
+        }
       } else {
+        // Adding a type
         next.add(type);
+        
+        // If this is a primary seed type and no anchor is set, make it the anchor
+        if (PRIMARY_SEED_TYPES.has(type) && !primaryAnchorType) {
+          setPrimaryAnchorType(type);
+        }
       }
+      
+      // If all filters cleared, clear anchor
+      if (next.size === 0) {
+        setPrimaryAnchorType(null);
+      }
+      
       return next;
     });
-  }, []);
+  }, [primaryAnchorType]);
 
   // Get unique node types
   const nodeTypesList = useMemo(() => {
@@ -3596,24 +3824,30 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     return [...new Set(graphData.nodes.map(n => n.label))];
   }, [graphData]);
 
-  // Node type stats - calculated from date-filtered nodes when date filter is active
+  // Node type stats - calculated from currently displayed nodes (after all filters)
+  // This shows the actual count of nodes visible on the graph
   const nodeTypeStats = useMemo(() => {
     if (!graphData) return {};
     
-    // If date filter is active, calculate stats from filtered nodes
-    if (dateFilter.applied && dateFilter.mode !== 'off') {
-      const filteredNodes = graphData.nodes.filter(nodeMatchesDateFilter);
+    const isAnyFilterActive = 
+      (dateFilter.applied && dateFilter.mode !== 'off') ||
+      activeFilters.size > 0 ||
+      searchFilteredNodeIds !== null;
+    
+    // If any filter is active, calculate stats from currently displayed nodes
+    if (isAnyFilterActive && nodes.length > 0) {
       const counts: Record<string, number> = {};
-      filteredNodes.forEach(node => {
-        counts[node.label] = (counts[node.label] || 0) + 1;
+      nodes.forEach(node => {
+        const nodeType = (node.data as CustomNodeData).nodeType;
+        counts[nodeType] = (counts[nodeType] || 0) + 1;
       });
       return counts;
     }
     
-    // Otherwise use the original stats
+    // Otherwise use the original stats (no filters active)
     if (!stats) return {};
     return stats.nodes_by_label || {};
-  }, [graphData, stats, dateFilter, nodeMatchesDateFilter]);
+  }, [graphData, stats, dateFilter, activeFilters, searchFilteredNodeIds, nodes]);
 
   // MiniMap node color
   const minimapNodeColor = useCallback((node: CustomNode) => {
@@ -3927,7 +4161,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       if (data.assets?.length === 0) {
         toast('No exploitability data available. Add assets with threats/vulnerabilities first.', { duration: 4000 });
       }
-    } catch (err) {
+    } catch {
       toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
     } finally {
       setAnalysisLoading(false);
@@ -3951,7 +4185,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       if (data.recommendations?.length === 0) {
         toast('No remediation recommendations available. Add vulnerabilities or threats first.', { duration: 4000 });
       }
-    } catch (err) {
+    } catch {
       toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
     } finally {
       setAnalysisLoading(false);
@@ -3959,6 +4193,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }, [endpoint]);
 
   // Fetch attack paths between threat and asset
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const fetchAttackPaths = useCallback(async (threatId: string, assetId: string) => {
     if (!threatId || !assetId) return;
     
@@ -3983,7 +4218,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       if (data.paths?.length === 0) {
         toast('No attack paths found between selected threat and asset.', { duration: 3000 });
       }
-    } catch (err) {
+    } catch {
       toast.error('Unable to connect to analysis service. Ensure backend is running.', { duration: 3000 });
     } finally {
       setAnalysisLoading(false);
@@ -4431,22 +4666,21 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         )}
 
         {/* Top Controls Panel */}
-        <Panel position="top-left" className="flex items-center gap-2">
-          {/* Search - filters to show searched node and connected nodes */}
+        <Panel position="top-left" className="flex flex-wrap items-center gap-2 max-w-[calc(100%-120px)] bg-neutral-900/95 backdrop-blur-sm rounded-lg p-2 border border-neutral-700/50 shadow-lg">
+          {/* Search */}
           <div className="relative">
-            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${searchFilteredNodeIds ? 'text-green-400' : 'text-neutral-500'}`} />
+            <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 ${searchFilteredNodeIds ? 'text-green-400' : 'text-neutral-500'}`} />
             <input
               type="text"
               placeholder="Search nodes..."
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className={`w-48 pl-9 pr-8 py-2 bg-neutral-800 border rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none ${
+              className={`w-40 pl-8 pr-7 py-1.5 bg-neutral-800 border rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none ${
                 searchFilteredNodeIds 
                   ? 'border-green-500/50 ring-1 ring-green-500/20' 
                   : 'border-neutral-700 focus:border-blue-500'
               }`}
             />
-            {/* Clear search button */}
             {searchQuery && (
               <button
                 onClick={() => {
@@ -4454,15 +4688,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                   setSearchFilteredNodeIds(null);
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
-                title="Clear search and show all nodes"
+                title="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
 
-          {/* Max Hops Selector */}
-          <div className="flex items-center gap-1.5">
+          {/* Depth Selector */}
+          <div 
+            className="flex items-center gap-1.5"
+            title="Chain depth: Number of relationship hops from anchor type. Each selected type adds a link in the chain. Increase depth to traverse longer type chains."
+          >
             <span className="text-xs text-neutral-500">Depth:</span>
             <select
               value={filterMaxHops ?? 'all'}
@@ -4470,14 +4707,11 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                 const val = e.target.value;
                 const newMaxHops = val === 'all' ? undefined : parseInt(val, 10);
                 setFilterMaxHops(newMaxHops);
-                // Re-trigger search with new depth if there's an active query
-                // Pass the new value directly since state update is async
                 if (searchQuery.trim()) {
                   handleSearch(searchQuery, newMaxHops === undefined ? null : newMaxHops);
                 }
               }}
               className="px-2 py-1.5 bg-neutral-800 border border-neutral-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500 cursor-pointer"
-              title="Maximum relationship depth for filtering"
             >
               <option value="1">1 hop</option>
               <option value="2">2 hops</option>
@@ -4486,13 +4720,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
               <option value="all">All</option>
             </select>
           </div>
-          
-          {/* Search filter indicator */}
-          {searchFilteredNodeIds && (
-            <div className="flex items-center gap-1.5 px-2 py-1 bg-green-600/20 border border-green-500/30 rounded-lg text-xs text-green-400">
-              <span>Filtered: {searchFilteredNodeIds.size} nodes</span>
-            </div>
-          )}
 
           {/* Filter Button */}
           <button
@@ -4514,7 +4741,10 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             <div className="flex items-center gap-1.5 px-2 py-1 bg-blue-600/20 border border-blue-500/30 rounded-lg text-xs text-blue-400">
               <span>{activeFilters.size} type{activeFilters.size > 1 ? 's' : ''}</span>
               <button
-                onClick={() => setActiveFilters(new Set())}
+                onClick={() => {
+                  setActiveFilters(new Set());
+                  setPrimaryAnchorType(null);
+                }}
                 className="p-0.5 hover:bg-blue-500/30 rounded"
                 title="Clear type filter"
               >
@@ -4523,7 +4753,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             </div>
           )}
 
-          {/* Quick Time Range Selector */}
+          {/* Time Range Buttons */}
           <div className="flex items-center gap-1 bg-neutral-800/80 border border-neutral-700 rounded-lg p-1">
             <Calendar className="w-3.5 h-3.5 text-neutral-500 ml-1" />
             {(['today', '3d', 'week', 'month', 'all'] as const).map((range) => {
@@ -4550,7 +4780,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                 </button>
               );
             })}
-            {/* Advanced date filter button */}
             <button
               onClick={() => {
                 setShowDateFilter(!showDateFilter);
@@ -4567,35 +4796,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             </button>
           </div>
           
-          {/* Node count indicator */}
-          {graphData && (
-            <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800/60 border border-neutral-700/50 rounded-lg text-xs">
-              <span className="text-neutral-500">Showing</span>
-              <span className="text-cyan-400 font-medium">{nodes.length}</span>
-              {nodes.length < graphData.nodes.length && (
-                <>
-                  <span className="text-neutral-500">of</span>
-                  <span className="text-neutral-300">{graphData.nodes.length}</span>
-                </>
-              )}
-              <span className="text-neutral-500">nodes</span>
-              {activeTimeRange !== 'all' && nodes.length < graphData.nodes.length && (
-                <span className="text-amber-400 ml-1" title="Expand time range to see more nodes">⚡</span>
-              )}
-              {/* Background loading indicator */}
-              {isBackgroundFetching && loadingProgress && (
-                <div className="flex items-center gap-1 ml-2 text-neutral-400" title={`Loading more data: ${loadingProgress.current}/${loadingProgress.total} pages`}>
-                  <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span className="text-[10px]">{loadingProgress.current}/{loadingProgress.total}</span>
-                </div>
-              )}
+          {/* Background fetching indicator */}
+          {isBackgroundFetching && loadingProgress && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800/60 border border-neutral-700/50 rounded-lg text-xs text-neutral-400">
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>Loading...</span>
             </div>
           )}
 
-          {/* Layout Settings Button */}
+          {/* Layout Settings */}
           <div className="relative">
             <button
               onClick={() => setShowLayoutSettings(!showLayoutSettings)}
@@ -4786,34 +4998,34 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           </button>
 
           {/* Analysis Separator */}
-          <div className="w-px h-6 bg-neutral-700" />
+          <div className="w-px h-4 bg-neutral-700" />
 
           {/* Exploitability Analysis Button */}
           <button
             onClick={toggleExploitabilityPanel}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+            className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
               showExploitabilityPanel 
                 ? 'bg-red-600 text-white' 
                 : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-red-500/50'
             }`}
             title="Exploitability Analysis"
           >
-            <Shield className="w-4 h-4" />
-            <span className="text-xs font-medium">Risk</span>
+            <Shield className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-medium">Risk</span>
           </button>
 
           {/* Remediation Priorities Button */}
           <button
             onClick={toggleRemediationPanel}
-            className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
+            className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
               showRemediationPanel 
                 ? 'bg-amber-600 text-white' 
                 : 'bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:border-amber-500/50'
             }`}
             title="Remediation Priorities"
           >
-            <AlertTriangle className="w-4 h-4" />
-            <span className="text-xs font-medium">Remediate</span>
+            <AlertTriangle className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-medium">Remediate</span>
           </button>
 
           {/* Minimap Toggle */}
@@ -4829,7 +5041,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           <button
             onClick={() => {
               clearStoredLayout();
-              onRefresh(); // Reload graph with fresh layout
+              onRefresh();
             }}
             className="p-2 rounded-lg transition-colors bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-orange-400 hover:border-orange-600/50"
             title="Reset Layout (clears saved positions)"
@@ -4924,6 +5136,10 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
               onToggleFilter={toggleFilter}
               onClose={() => setShowFilters(false)}
               stats={nodeTypeStats}
+              onRefresh={onRefresh}
+              primaryAnchorType={primaryAnchorType}
+              currentDepth={filterMaxHops}
+              onDepthChange={setFilterMaxHops}
             />
           </Panel>
         )}
@@ -4949,7 +5165,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         )}
 
         {/* Stats Panel */}
-        <Panel position="top-right">
+        <Panel position="top-right" className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-1 border border-neutral-700/50 shadow-lg">
           <div className="flex items-center gap-2">
             {/* Edit Mode Indicator */}
             {editMode && (
@@ -4963,7 +5179,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                 )}
               </div>
             )}
-            <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg px-3 py-2 border border-neutral-700 text-xs text-neutral-400">
+            <div className="px-2 py-1 text-xs text-neutral-400">
               <span className="text-white font-medium">{nodes.length}</span> nodes •{' '}
               <span className="text-white font-medium">{edges.length}</span> edges
             </div>
@@ -5135,8 +5351,8 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
   // Check if we're in browser environment (not SSR)
   const isBrowser = typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
   
-  // Load from localStorage on mount
-  const getPersistedCache = (): { data: GraphData; timestamp: number } | null => {
+  // Load from localStorage on mount - wrapped in useCallback for stable reference
+  const getPersistedCache = useCallback((): { data: GraphData; timestamp: number } | null => {
     if (!isBrowser) return null;
     try {
       const cached = window.localStorage.getItem(GRAPH_CACHE_KEY);
@@ -5152,9 +5368,9 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
       console.warn('[AssetGraph] Failed to read cache from localStorage:', e);
     }
     return null;
-  };
+  }, [isBrowser, GRAPH_CACHE_KEY, GRAPH_CACHE_TTL]);
   
-  const persistCache = (data: GraphData, timestamp: number) => {
+  const persistCache = useCallback((data: GraphData, timestamp: number) => {
     if (!isBrowser) return;
     try {
       // Only cache if data is reasonable size (< 5MB)
@@ -5166,10 +5382,10 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
     } catch (e) {
       console.warn('[AssetGraph] Failed to persist cache to localStorage:', e);
     }
-  };
+  }, [isBrowser, GRAPH_CACHE_KEY]);
   
   // Initialize from localStorage
-  const persistedCache = getPersistedCache();
+  const persistedCache = useMemo(() => getPersistedCache(), [getPersistedCache]);
   const [cachedGraphData, setCachedGraphData] = useState<GraphData | null>(persistedCache?.data || null);
   const [cacheTimestamp, setCacheTimestamp] = useState<number | null>(persistedCache?.timestamp || null);
   
@@ -5181,9 +5397,10 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
     if (data && data.nodes.length > 0) {
       persistCache(data, now);
     }
-  }, []);
+  }, [persistCache]);
   
   // Pagination state for server-side pagination
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [paginationInfo, setPaginationInfo] = useState<PaginationInfo | null>(null);
   
   // Loading progress for paginated fetch
@@ -5421,7 +5638,7 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
       setLoadingProgress(null);
       setLoading(false);
     }
-  }, [cachedGraphData, cacheTimestamp, fetchGraphPage, updateCache]);
+  }, [cachedGraphData, cacheTimestamp, fetchGraphPage, updateCache, GRAPH_CACHE_TTL, getPersistedCache]);
   
   // Legacy fetchGraphData for compatibility - now just calls fetchAllGraphData
   const fetchGraphData = useCallback(async (options?: { 
@@ -5478,37 +5695,37 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
           exit={{ scale: 0.95, opacity: 0 }}
           className="absolute inset-4 bg-neutral-950 rounded-xl overflow-hidden border border-neutral-800 flex flex-col"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800 bg-neutral-900/50">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-semibold text-white">Asset Graph</h2>
+          {/* Compact Header - title and actions only */}
+          <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-800 bg-neutral-900/50">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-white">Asset Graph</h2>
               {isShowingDemoData && (
-                <span className="text-xs px-2.5 py-1 bg-amber-600 text-white rounded-md font-bold border border-amber-400 animate-pulse shadow-sm">
-                  ⚠️ DEMO DATA
+                <span className="text-[10px] px-1.5 py-0.5 bg-amber-600 text-white rounded font-bold border border-amber-400 animate-pulse">
+                  DEMO
                 </span>
               )}
               {stats && (
-                <span className="text-sm text-neutral-400">
+                <span className="text-xs text-neutral-500">
                   {stats.node_count} nodes • {stats.edge_count} relationships
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => fetchGraphData()}
-                className="p-2 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                className="p-1.5 bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
                 title="Refresh"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
               </button>
               <button
                 onClick={onClose}
-                className="p-2 bg-neutral-800 rounded-lg text-neutral-400 hover:text-white transition-colors"
+                className="p-1.5 bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
               >
-                <X className="w-4 h-4" />
+                <X className="w-3.5 h-3.5" />
               </button>
             </div>
           </div>
