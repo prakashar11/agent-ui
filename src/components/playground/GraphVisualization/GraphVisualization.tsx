@@ -3819,10 +3819,26 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }, [primaryAnchorType]);
 
   // Get unique node types
+  // Always include primary seed types (Threat, Vulnerability, Asset) for filtering,
+  // plus any types from the API stats (all types in database) and current graph data
   const nodeTypesList = useMemo(() => {
-    if (!graphData) return [];
-    return [...new Set(graphData.nodes.map(n => n.label))];
-  }, [graphData]);
+    const typeSet = new Set<string>();
+    
+    // Always include primary seed types so they're available for filtering
+    PRIMARY_SEED_TYPES.forEach(type => typeSet.add(type));
+    
+    // Add types from stats (represents all types in the database from API)
+    if (stats?.nodes_by_label) {
+      Object.keys(stats.nodes_by_label).forEach(type => typeSet.add(type));
+    }
+    
+    // Add types from current graph data
+    if (graphData?.nodes) {
+      graphData.nodes.forEach(n => typeSet.add(n.label));
+    }
+    
+    return [...typeSet];
+  }, [graphData, stats]);
 
   // Node type stats - calculated from currently displayed nodes (after all filters)
   // This shows the actual count of nodes visible on the graph
