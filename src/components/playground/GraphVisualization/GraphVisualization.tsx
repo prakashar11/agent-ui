@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar, ScanSearch, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -27,12 +27,17 @@ import {
   MarkerType,
   ConnectionLineType,
   NodeProps,
+  EdgeProps,
   Handle,
   Position,
   useReactFlow,
+  useNodes,
   Connection,
   addEdge,
   OnConnect,
+  BaseEdge,
+  getSmoothStepPath,
+  EdgeLabelRenderer,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -351,18 +356,72 @@ const findClusters = (nodes: Node[], edges: Edge[]): Map<string, Set<string>> =>
   return clusters;
 };
 
-// Layout nodes within a single cluster (hierarchical with wrapping)
+// =============================================================================
+// FAST GRID-BASED LAYOUT (optimized for large graphs)
+// =============================================================================
+
+// Simulation node type (kept for compatibility)
+interface SimNode {
+  id: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  node: Node;
+}
+
+// For compatibility with incremental simulation (but we skip it for large graphs)
+const simNodesToLayout = (
+  simNodes: SimNode[]
+): { nodes: Node[]; width: number; height: number } => {
+  if (simNodes.length === 0) {
+    return { nodes: [], width: 0, height: 0 };
+  }
+  
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  
+  simNodes.forEach(n => {
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y);
+  });
+  
+  const layoutedNodes: Node[] = simNodes.map(simNode => ({
+    ...simNode.node,
+    position: {
+      x: simNode.x - minX,
+      y: simNode.y - minY,
+    },
+  }));
+  
+  const width = maxX - minX + NODE_WIDTH;
+  const height = maxY - minY + NODE_HEIGHT;
+  
+  return { nodes: layoutedNodes, width, height };
+};
+
+// Stub for compatibility - incremental simulation disabled for performance
+const continueSimulation = (
+  _simNodes: SimNode[],
+  _simEdges: Array<{ source: SimNode; target: SimNode }>,
+  _startIter: number,
+  totalIterations: number,
+  _batchSize: number
+): { done: boolean; nextIter: number } => {
+  // Skip simulation for large graphs - return done immediately
+  return { done: true, nextIter: totalIterations };
+};
+
+// Fast grid-based layout - groups by type, spreads evenly
 const layoutCluster = (
   clusterNodes: Node[],
-  _edges: Edge[],
+  clusterEdges: Edge[],
   maxNodesPerRow: number,
   nodeSpacing: number = DEFAULT_HORIZONTAL_GAP,
-  verticalSpacing: number = DEFAULT_VERTICAL_GAP
+  _verticalSpacing: number = DEFAULT_VERTICAL_GAP
 ): { nodes: Node[]; width: number; height: number } => {
-  void _edges; // Reserved for future edge-aware layout
-  
-  const subRowGap = Math.max(40, verticalSpacing - 5); // Slightly less than vertical for sub-rows
-  
   if (clusterNodes.length === 0) {
     return { nodes: [], width: 0, height: 0 };
   }
@@ -375,74 +434,98 @@ const layoutCluster = (
     };
   }
   
-  // Group by hierarchy level
-  const nodesByLevel: Record<number, Node[]> = {};
+  const nodeCount = clusterNodes.length;
+  
+  // Adaptive spacing based on node count
+  const baseSpacing = Math.max(250, 400 - nodeCount * 0.5);
+  const horizontalGap = Math.max(nodeSpacing, baseSpacing);
+  const verticalGap = Math.max(150, baseSpacing * 0.8);
+  
+  // Group nodes by type for organized layout
+  const nodesByType: Record<string, Node[]> = {};
   clusterNodes.forEach(node => {
     const nodeData = node.data as CustomNodeData;
-    const level = getNodeRank(nodeData.nodeType);
-    if (!nodesByLevel[level]) {
-      nodesByLevel[level] = [];
+    const type = nodeData.nodeType || 'Unknown';
+    if (!nodesByType[type]) {
+      nodesByType[type] = [];
     }
-    nodesByLevel[level].push(node);
+    nodesByType[type].push(node);
   });
   
-  const sortedLevels = Object.keys(nodesByLevel)
-    .map(Number)
-    .sort((a, b) => a - b);
+  // Sort types by hierarchy rank
+  const sortedTypes = Object.keys(nodesByType).sort((a, b) => getNodeRank(a) - getNodeRank(b));
+  
+  // Build adjacency for connected node ordering
+  const adjacency = new Map<string, Set<string>>();
+  clusterNodes.forEach(n => adjacency.set(n.id, new Set()));
+  clusterEdges.forEach(e => {
+    if (adjacency.has(e.source) && adjacency.has(e.target)) {
+      adjacency.get(e.source)!.add(e.target);
+      adjacency.get(e.target)!.add(e.source);
+    }
+  });
+  
+  // Calculate optimal columns per row (wider for more nodes)
+  const effectiveNodesPerRow = Math.max(
+    maxNodesPerRow,
+    Math.ceil(Math.sqrt(nodeCount) * 1.5)
+  );
   
   const layoutedNodes: Node[] = [];
-  let maxWidth = 0;
   let currentY = 0;
+  let maxWidth = 0;
   
-  sortedLevels.forEach((level, levelIndex) => {
-    const nodesInLevel = nodesByLevel[level];
+  // Position each type group
+  sortedTypes.forEach((type, typeIndex) => {
+    const nodesOfType = nodesByType[type];
     
-    // Calculate how many rows needed for this level
-    const numRows = Math.ceil(nodesInLevel.length / maxNodesPerRow);
+    // Sort nodes within type by connection count (more connected = more central)
+    nodesOfType.sort((a, b) => {
+      const aConnections = adjacency.get(a.id)?.size || 0;
+      const bConnections = adjacency.get(b.id)?.size || 0;
+      return bConnections - aConnections;
+    });
     
-    // Track the max width for this level (across all rows)
-    let levelMaxWidth = 0;
+    // Calculate rows needed for this type
+    const numRows = Math.ceil(nodesOfType.length / effectiveNodesPerRow);
     
-    nodesInLevel.forEach((node, nodeIndex) => {
-      const rowIndex = Math.floor(nodeIndex / maxNodesPerRow);
-      const colIndex = nodeIndex % maxNodesPerRow;
+    nodesOfType.forEach((node, nodeIndex) => {
+      const rowIndex = Math.floor(nodeIndex / effectiveNodesPerRow);
+      const colIndex = nodeIndex % effectiveNodesPerRow;
       
-      // Calculate nodes in this specific row
+      // Calculate nodes in this row
       const nodesInThisRow = Math.min(
-        maxNodesPerRow,
-        nodesInLevel.length - rowIndex * maxNodesPerRow
+        effectiveNodesPerRow,
+        nodesOfType.length - rowIndex * effectiveNodesPerRow
       );
       
-      // Calculate row width and center it (using customizable nodeSpacing)
-      const rowWidth = nodesInThisRow * NODE_WIDTH + (nodesInThisRow - 1) * nodeSpacing;
-      levelMaxWidth = Math.max(levelMaxWidth, rowWidth);
-      
+      // Center each row
+      const rowWidth = nodesInThisRow * NODE_WIDTH + (nodesInThisRow - 1) * horizontalGap;
+      maxWidth = Math.max(maxWidth, rowWidth);
       const startX = -rowWidth / 2;
       
       layoutedNodes.push({
         ...node,
         position: {
-          x: startX + colIndex * (NODE_WIDTH + nodeSpacing),
-          y: currentY + rowIndex * (NODE_HEIGHT + subRowGap),
+          x: startX + colIndex * (NODE_WIDTH + horizontalGap),
+          y: currentY + rowIndex * (NODE_HEIGHT + verticalGap * 0.6),
         },
       });
     });
     
-    maxWidth = Math.max(maxWidth, levelMaxWidth);
-    
-    // Move to next level
-    const levelHeight = numRows * NODE_HEIGHT + (numRows - 1) * subRowGap;
-    if (levelIndex < sortedLevels.length - 1) {
-      currentY += levelHeight + verticalSpacing;
+    // Move to next type group with larger gap
+    const typeHeight = numRows * NODE_HEIGHT + (numRows - 1) * verticalGap * 0.6;
+    if (typeIndex < sortedTypes.length - 1) {
+      currentY += typeHeight + verticalGap;
     } else {
-      currentY += levelHeight - NODE_HEIGHT; // Last level, just add height
+      currentY += typeHeight;
     }
   });
   
   return {
     nodes: layoutedNodes,
     width: maxWidth,
-    height: currentY + NODE_HEIGHT,
+    height: currentY,
   };
 };
 
@@ -553,6 +636,275 @@ const getLayoutedElements = (
   });
   
   return { nodes: layoutedNodes, edges };
+};
+
+// =============================================================================
+// SMART EDGE COMPONENT - Uses A* pathfinding to route around nodes
+// DISABLED: A* pathfinding is expensive for large graphs. Using smoothstep instead.
+// To re-enable: change edge type from 'smoothstep' to 'smart' in edge creation
+// =============================================================================
+
+// A* pathfinding constants (must match InternalFlow values)
+const SMART_EDGE_GRID_SIZE = 10;
+const SMART_EDGE_NODE_PADDING = 25;
+const SMART_EDGE_NODE_WIDTH = 200;
+const SMART_EDGE_NODE_HEIGHT = 60;
+
+// Simple priority queue for A*
+class SmartEdgePriorityQueue {
+  private items: Array<{ gx: number; gy: number; priority: number }> = [];
+  
+  push(gx: number, gy: number, priority: number) {
+    this.items.push({ gx, gy, priority });
+    this.items.sort((a, b) => a.priority - b.priority);
+  }
+  
+  pop() {
+    return this.items.shift();
+  }
+  
+  isEmpty() {
+    return this.items.length === 0;
+  }
+}
+
+// A* pathfinding for smart edges
+function findSmartEdgePath(
+  startX: number, startY: number,
+  endX: number, endY: number,
+  obstacles: Array<{ x: number; y: number; width: number; height: number }>
+): Array<{ x: number; y: number }> | null {
+  const gridSize = SMART_EDGE_GRID_SIZE;
+  const padding = SMART_EDGE_NODE_PADDING;
+  
+  const toGrid = (x: number, y: number) => ({
+    gx: Math.round(x / gridSize),
+    gy: Math.round(y / gridSize)
+  });
+  
+  const fromGrid = (gx: number, gy: number) => ({
+    x: gx * gridSize,
+    y: gy * gridSize
+  });
+  
+  const startGrid = toGrid(startX, startY);
+  const endGrid = toGrid(endX, endY);
+  
+  // Build obstacle set
+  const obstacleSet = new Set<string>();
+  obstacles.forEach(obs => {
+    const minGx = Math.floor((obs.x - padding) / gridSize);
+    const maxGx = Math.ceil((obs.x + obs.width + padding) / gridSize);
+    const minGy = Math.floor((obs.y - padding) / gridSize);
+    const maxGy = Math.ceil((obs.y + obs.height + padding) / gridSize);
+    
+    for (let gx = minGx; gx <= maxGx; gx++) {
+      for (let gy = minGy; gy <= maxGy; gy++) {
+        obstacleSet.add(`${gx},${gy}`);
+      }
+    }
+  });
+  
+  const heuristic = (gx: number, gy: number) => 
+    Math.abs(gx - endGrid.gx) + Math.abs(gy - endGrid.gy);
+  
+  const openSet = new SmartEdgePriorityQueue();
+  const cameFrom = new Map<string, { gx: number; gy: number }>();
+  const gScore = new Map<string, number>();
+  
+  const key = (gx: number, gy: number) => `${gx},${gy}`;
+  
+  gScore.set(key(startGrid.gx, startGrid.gy), 0);
+  openSet.push(startGrid.gx, startGrid.gy, heuristic(startGrid.gx, startGrid.gy));
+  
+  const directions = [
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: -1, dy: 0 },
+  ];
+  
+  // Calculate bounds
+  const allX = [startX, endX, ...obstacles.flatMap(o => [o.x, o.x + o.width])];
+  const allY = [startY, endY, ...obstacles.flatMap(o => [o.y, o.y + o.height])];
+  const minGx = Math.floor((Math.min(...allX) - 300) / gridSize);
+  const maxGx = Math.ceil((Math.max(...allX) + 300) / gridSize);
+  const minGy = Math.floor((Math.min(...allY) - 300) / gridSize);
+  const maxGy = Math.ceil((Math.max(...allY) + 300) / gridSize);
+  
+  let iterations = 0;
+  const maxIterations = 5000;
+  
+  while (!openSet.isEmpty() && iterations < maxIterations) {
+    iterations++;
+    const current = openSet.pop()!;
+    
+    if (current.gx === endGrid.gx && current.gy === endGrid.gy) {
+      const path: Array<{ x: number; y: number }> = [];
+      let curr: { gx: number; gy: number } | undefined = current;
+      
+      while (curr) {
+        path.unshift(fromGrid(curr.gx, curr.gy));
+        curr = cameFrom.get(key(curr.gx, curr.gy));
+      }
+      
+      // Simplify path
+      const simplified: Array<{ x: number; y: number }> = [path[0]];
+      for (let i = 1; i < path.length - 1; i++) {
+        const prev = path[i - 1];
+        const curr = path[i];
+        const next = path[i + 1];
+        
+        const dx1 = curr.x - prev.x;
+        const dy1 = curr.y - prev.y;
+        const dx2 = next.x - curr.x;
+        const dy2 = next.y - curr.y;
+        
+        if (dx1 !== dx2 || dy1 !== dy2) {
+          simplified.push(curr);
+        }
+      }
+      simplified.push(path[path.length - 1]);
+      
+      return simplified;
+    }
+    
+    for (const dir of directions) {
+      const nx = current.gx + dir.dx;
+      const ny = current.gy + dir.dy;
+      
+      if (nx < minGx || nx > maxGx || ny < minGy || ny > maxGy) continue;
+      
+      const nKey = key(nx, ny);
+      if (obstacleSet.has(nKey) && !(nx === endGrid.gx && ny === endGrid.gy)) continue;
+      
+      const tentativeG = (gScore.get(key(current.gx, current.gy)) || Infinity) + 1;
+      
+      if (tentativeG < (gScore.get(nKey) || Infinity)) {
+        cameFrom.set(nKey, current);
+        gScore.set(nKey, tentativeG);
+        openSet.push(nx, ny, tentativeG + heuristic(nx, ny));
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Convert path to SVG path string
+function pathToSvgD(path: Array<{ x: number; y: number }>): string {
+  if (path.length === 0) return '';
+  
+  let d = `M ${path[0].x} ${path[0].y}`;
+  
+  for (let i = 1; i < path.length; i++) {
+    d += ` L ${path[i].x} ${path[i].y}`;
+  }
+  
+  return d;
+}
+
+// Smart Edge Component
+function SmartEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  label,
+  labelStyle,
+  labelBgStyle,
+  labelBgPadding,
+  labelBgBorderRadius,
+}: EdgeProps) {
+  const nodes = useNodes();
+  
+  // Build obstacles from all nodes
+  const obstacles = useMemo(() => {
+    return nodes.map(node => ({
+      x: node.position.x,
+      y: node.position.y,
+      width: (node.measured?.width || node.width || SMART_EDGE_NODE_WIDTH) as number,
+      height: (node.measured?.height || node.height || SMART_EDGE_NODE_HEIGHT) as number,
+    }));
+  }, [nodes]);
+  
+  // Find path using A*
+  const path = useMemo(() => {
+    // Filter out source and target nodes from obstacles
+    const filteredObstacles = obstacles.filter(obs => {
+      const isSource = Math.abs(obs.x + obs.width / 2 - sourceX) < obs.width && 
+                       Math.abs(obs.y + obs.height / 2 - sourceY) < obs.height;
+      const isTarget = Math.abs(obs.x + obs.width / 2 - targetX) < obs.width && 
+                       Math.abs(obs.y + obs.height / 2 - targetY) < obs.height;
+      return !isSource && !isTarget;
+    });
+    
+    return findSmartEdgePath(sourceX, sourceY, targetX, targetY, filteredObstacles);
+  }, [sourceX, sourceY, targetX, targetY, obstacles]);
+  
+  // Fallback to smoothstep if no path found
+  const [edgePath, labelX, labelY] = useMemo(() => {
+    if (path && path.length > 1) {
+      const svgPath = pathToSvgD(path);
+      // Calculate label position at midpoint
+      const midIdx = Math.floor(path.length / 2);
+      return [svgPath, path[midIdx].x, path[midIdx].y];
+    }
+    
+    // Fallback to smoothstep
+    return getSmoothStepPath({
+      sourceX,
+      sourceY,
+      sourcePosition,
+      targetX,
+      targetY,
+      targetPosition,
+      borderRadius: 20,
+    });
+  }, [path, sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition]);
+  
+  return (
+    <>
+      <path
+        id={id}
+        className="react-flow__edge-path"
+        d={edgePath}
+        style={style}
+        markerEnd={markerEnd as string}
+      />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+              padding: labelBgPadding ? `${(labelBgPadding as [number, number])[1]}px ${(labelBgPadding as [number, number])[0]}px` : '4px 6px',
+              borderRadius: labelBgBorderRadius || 4,
+              fontSize: 9,
+              fontWeight: 600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              ...(labelBgStyle as React.CSSProperties),
+              ...(labelStyle as React.CSSProperties),
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+// Register custom edge types
+const edgeTypes = {
+  smart: SmartEdge,
 };
 
 // =============================================================================
@@ -2348,6 +2700,7 @@ interface NodeContextMenuProps {
   onAddRelationship: () => void;
   onDeleteNode: () => void;
   onSearchByLabel: () => void;
+  onRunCVEAnalysis?: () => void;
   editMode: boolean;
   nodeName?: string;
   nodeType?: string;
@@ -2361,6 +2714,7 @@ function NodeContextMenu({
   onAddRelationship,
   onDeleteNode,
   onSearchByLabel,
+  onRunCVEAnalysis,
   editMode,
   nodeName,
   nodeType,
@@ -2470,6 +2824,20 @@ function NodeContextMenu({
           <Search className="w-4 h-4 text-neutral-400" />
           <span>Search by Label</span>
         </button>
+
+        {/* Run CVE Analysis - only for Vulnerability nodes */}
+        {nodeType === 'Vulnerability' && onRunCVEAnalysis && (
+          <button
+            onClick={() => {
+              onRunCVEAnalysis();
+              onClose();
+            }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
+          >
+            <ScanSearch className="w-4 h-4 text-amber-400" />
+            <span>Run CVE Analysis</span>
+          </button>
+        )}
 
         {/* Edit Properties */}
         <button
@@ -2863,8 +3231,26 @@ interface InternalFlowProps {
 }
 
 // Minimum zoom level to ensure nodes are readable
-const MIN_READABLE_ZOOM = 0.4;
+// Zoom constraints - adaptive based on node count
+const MIN_READABLE_ZOOM = 0.15;  // Allow more zoom out for large graphs
 const MAX_INITIAL_ZOOM = 1.2;
+
+// Calculate optimal initial zoom based on node count
+const getOptimalZoom = (nodeCount: number): { minZoom: number; maxZoom: number; targetZoom: number } => {
+  if (nodeCount <= 20) {
+    return { minZoom: 0.5, maxZoom: 1.2, targetZoom: 0.9 };
+  } else if (nodeCount <= 50) {
+    return { minZoom: 0.4, maxZoom: 1.0, targetZoom: 0.7 };
+  } else if (nodeCount <= 100) {
+    return { minZoom: 0.3, maxZoom: 0.8, targetZoom: 0.5 };
+  } else if (nodeCount <= 200) {
+    return { minZoom: 0.2, maxZoom: 0.6, targetZoom: 0.35 };
+  } else if (nodeCount <= 400) {
+    return { minZoom: 0.15, maxZoom: 0.4, targetZoom: 0.25 };
+  } else {
+    return { minZoom: 0.1, maxZoom: 0.3, targetZoom: 0.15 };
+  }
+};
 const IDEAL_ZOOM = 0.8;
 
 function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData, loadingProgress, isBackgroundFetching }: InternalFlowProps) {
@@ -3352,50 +3738,42 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       nodePositionMap.set(node.id, { x: 0, y: 0, level });
     });
 
-    // Relationship type to handle side mapping
-    // This spreads edges across different sides of nodes based on relationship semantics
+    // Hash-based handle distribution - automatically spreads edges across different sides
+    // No hardcoding needed - each relationship type gets a consistent position based on its name
     const getHandlesByRelationship = (relType: string, levelDiff: number): { source: string; target: string } => {
-      // Category relationships - use top/bottom (hierarchical)
-      if (relType.includes('CATEGORY') || relType === 'BELONGS_TO') {
-        return levelDiff >= 0 
-          ? { source: 'source-bottom', target: 'target-top' }
-          : { source: 'source-top', target: 'target-bottom' };
+      // Generate a simple hash from relationship type name
+      let hash = 0;
+      for (let i = 0; i < relType.length; i++) {
+        hash = ((hash << 5) - hash) + relType.charCodeAt(i);
+        hash = hash & hash; // Convert to 32bit integer
       }
       
-      // Vulnerability/Threat relationships - use right side
-      if (relType.includes('VULNERABILITY') || relType.includes('VULNERABLE') || 
-          relType === 'EXPLOITS' || relType === 'HAS_THREAT' || relType === 'TARGETS') {
-        return { source: 'source-right', target: 'target-left' };
+      // Handle configurations: [sourceHandle, targetHandle]
+      // We have 4 sides, creating 8 meaningful source→target combinations
+      const handleConfigs: Array<{ source: string; target: string }> = [
+        { source: 'source-bottom', target: 'target-top' },    // 0: vertical down
+        { source: 'source-top', target: 'target-bottom' },    // 1: vertical up
+        { source: 'source-right', target: 'target-left' },    // 2: horizontal right
+        { source: 'source-left', target: 'target-right' },    // 3: horizontal left
+        { source: 'source-bottom', target: 'target-left' },   // 4: diagonal down-right
+        { source: 'source-bottom', target: 'target-right' },  // 5: diagonal down-left
+        { source: 'source-top', target: 'target-left' },      // 6: diagonal up-right
+        { source: 'source-top', target: 'target-right' },     // 7: diagonal up-left
+      ];
+      
+      // Use hash to select a configuration
+      // But also consider hierarchy level to prefer vertical for hierarchical relationships
+      const configIndex = Math.abs(hash) % handleConfigs.length;
+      let config = handleConfigs[configIndex];
+      
+      // For significant level differences, prefer vertical handles for cleaner hierarchy
+      if (Math.abs(levelDiff) >= 2) {
+        // Remap to vertical configs (0 or 1) while keeping some variation
+        const verticalIndex = levelDiff > 0 ? 0 : 1;
+        config = handleConfigs[verticalIndex];
       }
       
-      // Control/Mitigation relationships - use left side
-      if (relType.includes('CONTROL') || relType.includes('MITIGATED') || relType.includes('IMPLEMENTS')) {
-        return { source: 'source-left', target: 'target-right' };
-      }
-      
-      // Attack/MITRE relationships - use bottom-right diagonal
-      if (relType.includes('ATTACK') || relType === 'USES_ATTACK') {
-        return levelDiff >= 0
-          ? { source: 'source-bottom', target: 'target-left' }
-          : { source: 'source-right', target: 'target-top' };
-      }
-      
-      // Indicator/Detection relationships - use left
-      if (relType.includes('INDICATOR') || relType.includes('DETECTED') || relType.includes('LOG')) {
-        return { source: 'source-left', target: 'target-right' };
-      }
-      
-      // Asset connections - based on hierarchy level
-      if (relType === 'CONNECTED_TO' || relType === 'DEPENDS_ON' || relType.includes('SERVICE') || relType.includes('IDENTITY')) {
-        if (levelDiff > 0) return { source: 'source-bottom', target: 'target-top' };
-        if (levelDiff < 0) return { source: 'source-top', target: 'target-bottom' };
-        return { source: 'source-right', target: 'target-left' };
-      }
-      
-      // Default: based on hierarchy level
-      if (levelDiff > 0) return { source: 'source-bottom', target: 'target-top' };
-      if (levelDiff < 0) return { source: 'source-top', target: 'target-bottom' };
-      return { source: 'source-right', target: 'target-left' };
+      return config;
     };
 
     // Convert to ReactFlow edges with relationship-based colors and smart handle selection
@@ -3526,21 +3904,156 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} (container: ${containerSize.width}x${containerSize.height}, nodesPerRow: ${layoutSettings.nodesPerRow || 'auto'})`);
     }
 
-    // Fit view after layout with smart zoom constraints
-    // Ensure nodes are readable (not too small) while fitting as much as possible
+    // Fit view after layout with adaptive zoom based on node count
+    const nodeCount = flowNodes.length;
+    const { minZoom, maxZoom, targetZoom } = getOptimalZoom(nodeCount);
+    
+    console.log(`[AssetGraph] Adaptive zoom for ${nodeCount} nodes: min=${minZoom}, max=${maxZoom}, target=${targetZoom}`);
+    
     setTimeout(() => {
       fitView({ 
-        padding: 0.2,
-        minZoom: MIN_READABLE_ZOOM,  // Don't zoom out too far - keeps nodes readable
-        maxZoom: MAX_INITIAL_ZOOM,   // Don't zoom in too much on small graphs
+        padding: 0.1,
+        minZoom,
+        maxZoom,
         duration: 300,
       });
-      // Update zoom display
-      setTimeout(() => {
-        setCurrentZoom(getViewport().zoom);
-      }, 350);
+      
+      // For large graphs, set a specific zoom level for better readability
+      if (nodeCount > 100) {
+        setTimeout(() => {
+          const viewport = getViewport();
+          setViewport({ ...viewport, zoom: targetZoom }, { duration: 200 });
+          setCurrentZoom(targetZoom);
+        }, 350);
+      } else {
+        setTimeout(() => {
+          setCurrentZoom(getViewport().zoom);
+        }, 350);
+      }
     }, 100);
   }, [graphData, activeFilters, primaryAnchorType, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
+
+  // ==========================================================================
+  // INCREMENTAL FORCE SIMULATION (DISABLED - kept for future use)
+  // Force simulation is disabled for performance. Grid-based layout is used instead.
+  // To re-enable: remove the early return below.
+  // ==========================================================================
+  
+  // State for incremental simulation
+  const simulationStateRef = useRef<{
+    simNodes: SimNode[];
+    simEdges: Array<{ source: SimNode; target: SimNode }>;
+    currentIter: number;
+    totalIterations: number;
+    isRunning: boolean;
+    graphKey: string;
+  } | null>(null);
+  
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simulationProgress, setSimulationProgress] = useState(0);
+  
+  // Start incremental simulation for large graphs
+  // DISABLED: Force simulation is too slow for large graphs. Grid-based layout is used instead.
+  // To re-enable: uncomment the useEffect below and comment out the empty one.
+  useEffect(() => {
+    // Force simulation disabled - using fast grid layout
+    void simulationStateRef; // Suppress unused warning
+    void setIsSimulating;
+    void setSimulationProgress;
+    void simNodesToLayout;
+    void continueSimulation;
+  }, []);
+  
+  /*
+  // ORIGINAL FORCE SIMULATION CODE (kept for future use):
+  useEffect(() => {
+    if (!graphData || nodes.length <= 50) return;
+    
+    const graphKey = `${nodes.length}-${edges.length}`;
+    
+    if (simulationStateRef.current?.graphKey === graphKey && simulationStateRef.current.isRunning) {
+      return;
+    }
+    
+    const simNodes: SimNode[] = nodes.map(node => ({
+      id: node.id,
+      x: node.position.x,
+      y: node.position.y,
+      vx: 0,
+      vy: 0,
+      node: node as Node,
+    }));
+    
+    const nodeMap = new Map(simNodes.map(n => [n.id, n]));
+    
+    const simEdges = edges
+      .filter(e => nodeMap.has(e.source) && nodeMap.has(e.target))
+      .map(e => ({
+        source: nodeMap.get(e.source)!,
+        target: nodeMap.get(e.target)!,
+      }));
+    
+    const totalIterations = Math.min(150, Math.max(50, 200 - nodes.length / 2));
+    
+    simulationStateRef.current = {
+      simNodes,
+      simEdges,
+      currentIter: 0,
+      totalIterations,
+      isRunning: true,
+      graphKey,
+    };
+    
+    setIsSimulating(true);
+    setSimulationProgress(0);
+    console.log(`[AssetGraph] Starting incremental force simulation for ${nodes.length} nodes (${totalIterations} iterations)`);
+    
+    const batchSize = Math.max(5, Math.floor(20 - nodes.length / 50));
+    
+    const runBatch = () => {
+      const state = simulationStateRef.current;
+      if (!state || !state.isRunning) return;
+      
+      const { simNodes, simEdges, currentIter, totalIterations } = state;
+      
+      const { done, nextIter } = continueSimulation(simNodes, simEdges, currentIter, totalIterations, batchSize);
+      
+      state.currentIter = nextIter;
+      setSimulationProgress(Math.round((nextIter / totalIterations) * 100));
+      
+      const result = simNodesToLayout(simNodes);
+      const updatedNodes = result.nodes.map(n => ({
+        ...n,
+        data: simNodes.find(sn => sn.id === n.id)?.node.data || n.data,
+      }));
+      
+      setNodes(updatedNodes as CustomNode[]);
+      
+      if (done) {
+        state.isRunning = false;
+        setIsSimulating(false);
+        console.log(`[AssetGraph] Force simulation complete`);
+        
+        setTimeout(() => {
+          fitView({ padding: 0.2, duration: 300 });
+        }, 50);
+      } else {
+        requestAnimationFrame(runBatch);
+      }
+    };
+    
+    const timer = setTimeout(() => {
+      requestAnimationFrame(runBatch);
+    }, 200);
+    
+    return () => {
+      clearTimeout(timer);
+      if (simulationStateRef.current) {
+        simulationStateRef.current.isRunning = false;
+      }
+    };
+  }, [nodes.length, edges.length, graphData, setNodes, fitView]);
+  */
 
   // ==========================================================================
   // SAVE LAYOUT TO BROWSER STORAGE
@@ -3548,8 +4061,375 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   
   // Save node positions when they change (debounced)
   const saveNodePositionsRef = useRef<NodeJS.Timeout | null>(null);
+  const updateEdgeHandlesRef = useRef<NodeJS.Timeout | null>(null);
   
-  // Custom onNodesChange handler that also saves positions
+  // ==========================================================================
+  // A* PATHFINDING FOR EDGE ROUTING (inspired by react-flow-smart-edge)
+  // ==========================================================================
+  
+  // Grid and node configuration - tuned for better collision avoidance
+  const NODE_WIDTH = 200;
+  const NODE_HEIGHT = 60;
+  const GRID_SIZE = 10; // Smaller grid = more precise pathfinding (was 20)
+  const NODE_PADDING = 25; // Larger padding = more clearance around nodes (was 15)
+  
+  // A* Priority Queue implementation (min-heap)
+  class PriorityQueue<T> {
+    private items: Array<{ item: T; priority: number }> = [];
+    
+    push(item: T, priority: number) {
+      this.items.push({ item, priority });
+      this.items.sort((a, b) => a.priority - b.priority);
+    }
+    
+    pop(): T | undefined {
+      return this.items.shift()?.item;
+    }
+    
+    isEmpty(): boolean {
+      return this.items.length === 0;
+    }
+  }
+  
+  // A* pathfinding algorithm
+  const findPathAStar = useCallback((
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    obstacles: Array<{ x: number; y: number; width: number; height: number }>,
+    bounds: { minX: number; maxX: number; minY: number; maxY: number }
+  ): Array<{ x: number; y: number }> | null => {
+    // Convert to grid coordinates
+    const toGrid = (p: { x: number; y: number }) => ({
+      gx: Math.round(p.x / GRID_SIZE),
+      gy: Math.round(p.y / GRID_SIZE)
+    });
+    
+    const fromGrid = (gx: number, gy: number) => ({
+      x: gx * GRID_SIZE,
+      y: gy * GRID_SIZE
+    });
+    
+    const startGrid = toGrid(start);
+    const endGrid = toGrid(end);
+    
+    // Create obstacle set for O(1) lookup
+    const obstacleSet = new Set<string>();
+    obstacles.forEach(obs => {
+      const minGx = Math.floor((obs.x - NODE_PADDING) / GRID_SIZE);
+      const maxGx = Math.ceil((obs.x + obs.width + NODE_PADDING) / GRID_SIZE);
+      const minGy = Math.floor((obs.y - NODE_PADDING) / GRID_SIZE);
+      const maxGy = Math.ceil((obs.y + obs.height + NODE_PADDING) / GRID_SIZE);
+      
+      for (let gx = minGx; gx <= maxGx; gx++) {
+        for (let gy = minGy; gy <= maxGy; gy++) {
+          obstacleSet.add(`${gx},${gy}`);
+        }
+      }
+    });
+    
+    // Heuristic: Manhattan distance
+    const heuristic = (gx: number, gy: number) => 
+      Math.abs(gx - endGrid.gx) + Math.abs(gy - endGrid.gy);
+    
+    // A* setup
+    const openSet = new PriorityQueue<{ gx: number; gy: number }>();
+    const cameFrom = new Map<string, { gx: number; gy: number }>();
+    const gScore = new Map<string, number>();
+    const fScore = new Map<string, number>();
+    
+    const key = (gx: number, gy: number) => `${gx},${gy}`;
+    
+    gScore.set(key(startGrid.gx, startGrid.gy), 0);
+    fScore.set(key(startGrid.gx, startGrid.gy), heuristic(startGrid.gx, startGrid.gy));
+    openSet.push(startGrid, heuristic(startGrid.gx, startGrid.gy));
+    
+    // Directions: 4-way (orthogonal) for cleaner paths
+    const directions = [
+      { dx: 0, dy: -1 }, // up
+      { dx: 1, dy: 0 },  // right
+      { dx: 0, dy: 1 },  // down
+      { dx: -1, dy: 0 }, // left
+    ];
+    
+    // Expand search bounds significantly for better routing around obstacles
+    const minGx = Math.floor(bounds.minX / GRID_SIZE) - 20;
+    const maxGx = Math.ceil(bounds.maxX / GRID_SIZE) + 20;
+    const minGy = Math.floor(bounds.minY / GRID_SIZE) - 20;
+    const maxGy = Math.ceil(bounds.maxY / GRID_SIZE) + 20;
+    
+    let iterations = 0;
+    const maxIterations = 5000; // Increased for complex graphs
+    
+    while (!openSet.isEmpty() && iterations < maxIterations) {
+      iterations++;
+      const current = openSet.pop()!;
+      
+      // Goal reached
+      if (current.gx === endGrid.gx && current.gy === endGrid.gy) {
+        // Reconstruct path
+        const path: Array<{ x: number; y: number }> = [];
+        let curr: { gx: number; gy: number } | undefined = current;
+        
+        while (curr) {
+          path.unshift(fromGrid(curr.gx, curr.gy));
+          curr = cameFrom.get(key(curr.gx, curr.gy));
+        }
+        
+        // Simplify path (remove intermediate points on straight lines)
+        const simplified: Array<{ x: number; y: number }> = [path[0]];
+        for (let i = 1; i < path.length - 1; i++) {
+          const prev = path[i - 1];
+          const curr = path[i];
+          const next = path[i + 1];
+          
+          // Check if direction changes
+          const dx1 = curr.x - prev.x;
+          const dy1 = curr.y - prev.y;
+          const dx2 = next.x - curr.x;
+          const dy2 = next.y - curr.y;
+          
+          if (dx1 !== dx2 || dy1 !== dy2) {
+            simplified.push(curr);
+          }
+        }
+        simplified.push(path[path.length - 1]);
+        
+        return simplified;
+      }
+      
+      // Explore neighbors
+      for (const dir of directions) {
+        const nx = current.gx + dir.dx;
+        const ny = current.gy + dir.dy;
+        
+        // Bounds check
+        if (nx < minGx || nx > maxGx || ny < minGy || ny > maxGy) continue;
+        
+        // Obstacle check (allow end position even if in obstacle)
+        const nKey = key(nx, ny);
+        if (obstacleSet.has(nKey) && !(nx === endGrid.gx && ny === endGrid.gy)) continue;
+        
+        const tentativeG = (gScore.get(key(current.gx, current.gy)) || Infinity) + 1;
+        
+        if (tentativeG < (gScore.get(nKey) || Infinity)) {
+          cameFrom.set(nKey, current);
+          gScore.set(nKey, tentativeG);
+          const f = tentativeG + heuristic(nx, ny);
+          fScore.set(nKey, f);
+          openSet.push({ gx: nx, gy: ny }, f);
+        }
+      }
+    }
+    
+    // No path found
+    return null;
+  }, []);
+  
+  // Get handle position offset
+  const getHandleOffset = useCallback((handle: string): { x: number; y: number } => {
+    switch (handle) {
+      case 'source-top':
+      case 'target-top':
+        return { x: NODE_WIDTH / 2, y: 0 };
+      case 'source-bottom':
+      case 'target-bottom':
+        return { x: NODE_WIDTH / 2, y: NODE_HEIGHT };
+      case 'source-left':
+      case 'target-left':
+        return { x: 0, y: NODE_HEIGHT / 2 };
+      case 'source-right':
+      case 'target-right':
+        return { x: NODE_WIDTH, y: NODE_HEIGHT / 2 };
+      default:
+        return { x: NODE_WIDTH / 2, y: NODE_HEIGHT / 2 };
+    }
+  }, []);
+  
+  // Calculate optimal handle based on relative positions using A* pathfinding
+  const getOptimalHandles = useCallback((
+    sourceId: string,
+    targetId: string,
+    sourcePos: { x: number; y: number },
+    targetPos: { x: number; y: number },
+    allNodePositions: Map<string, { x: number; y: number }>
+  ): { sourceHandle: string; targetHandle: string; path?: Array<{ x: number; y: number }> } => {
+    // Calculate center positions for angle-based default
+    const sourceCenterX = sourcePos.x + NODE_WIDTH / 2;
+    const sourceCenterY = sourcePos.y + NODE_HEIGHT / 2;
+    const targetCenterX = targetPos.x + NODE_WIDTH / 2;
+    const targetCenterY = targetPos.y + NODE_HEIGHT / 2;
+    
+    const dx = targetCenterX - sourceCenterX;
+    const dy = targetCenterY - sourceCenterY;
+    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+    
+    // Get initial angle-based handles
+    let defaultHandles: { source: string; target: string };
+    if (angle >= -45 && angle < 45) {
+      defaultHandles = { source: 'source-right', target: 'target-left' };
+    } else if (angle >= 45 && angle < 135) {
+      defaultHandles = { source: 'source-bottom', target: 'target-top' };
+    } else if (angle >= 135 || angle < -135) {
+      defaultHandles = { source: 'source-left', target: 'target-right' };
+    } else {
+      defaultHandles = { source: 'source-top', target: 'target-bottom' };
+    }
+    
+    // Build obstacle list (other nodes)
+    const obstacles = [...allNodePositions.entries()]
+      .filter(([id]) => id !== sourceId && id !== targetId)
+      .map(([, pos]) => ({
+        x: pos.x,
+        y: pos.y,
+        width: NODE_WIDTH,
+        height: NODE_HEIGHT
+      }));
+    
+    // If no obstacles, return default handles
+    if (obstacles.length === 0) {
+      return { sourceHandle: defaultHandles.source, targetHandle: defaultHandles.target };
+    }
+    
+    // Calculate start/end points based on default handles
+    const srcOffset = getHandleOffset(defaultHandles.source);
+    const tgtOffset = getHandleOffset(defaultHandles.target);
+    const start = { x: sourcePos.x + srcOffset.x, y: sourcePos.y + srcOffset.y };
+    const end = { x: targetPos.x + tgtOffset.x, y: targetPos.y + tgtOffset.y };
+    
+    // Calculate bounds for A* search - generous margins for routing around obstacles
+    const allX = [start.x, end.x, ...obstacles.flatMap(o => [o.x, o.x + o.width])];
+    const allY = [start.y, end.y, ...obstacles.flatMap(o => [o.y, o.y + o.height])];
+    const bounds = {
+      minX: Math.min(...allX) - 300,
+      maxX: Math.max(...allX) + 300,
+      minY: Math.min(...allY) - 300,
+      maxY: Math.max(...allY) + 300
+    };
+    
+    // Try A* pathfinding
+    const path = findPathAStar(start, end, obstacles, bounds);
+    
+    if (path && path.length > 0) {
+      // Determine best handles based on the A* path direction
+      const firstMove = path.length > 1 
+        ? { dx: path[1].x - path[0].x, dy: path[1].y - path[0].y }
+        : { dx, dy };
+      const lastMove = path.length > 1
+        ? { dx: path[path.length - 1].x - path[path.length - 2].x, dy: path[path.length - 1].y - path[path.length - 2].y }
+        : { dx, dy };
+      
+      // Determine source handle from first move direction
+      let sourceHandle: string;
+      if (Math.abs(firstMove.dx) > Math.abs(firstMove.dy)) {
+        sourceHandle = firstMove.dx > 0 ? 'source-right' : 'source-left';
+      } else {
+        sourceHandle = firstMove.dy > 0 ? 'source-bottom' : 'source-top';
+      }
+      
+      // Determine target handle from last move direction
+      let targetHandle: string;
+      if (Math.abs(lastMove.dx) > Math.abs(lastMove.dy)) {
+        targetHandle = lastMove.dx > 0 ? 'target-left' : 'target-right';
+      } else {
+        targetHandle = lastMove.dy > 0 ? 'target-top' : 'target-bottom';
+      }
+      
+      return { sourceHandle, targetHandle, path };
+    }
+    
+    // Fallback to default handles if no path found
+    return { sourceHandle: defaultHandles.source, targetHandle: defaultHandles.target };
+  }, [findPathAStar, getHandleOffset]);
+  
+  // Update edge handles based on current node positions, avoiding collisions
+  const updateEdgeHandlesForPositions = useCallback(() => {
+    if (nodes.length === 0 || edges.length === 0) return;
+    
+    // Build a map of node positions
+    const nodePositions = new Map<string, { x: number; y: number }>();
+    nodes.forEach(node => {
+      nodePositions.set(node.id, { x: node.position.x, y: node.position.y });
+    });
+    
+    // Update edges with optimal handles (collision-aware)
+    const updatedEdges = edges.map(edge => {
+      const sourcePos = nodePositions.get(edge.source);
+      const targetPos = nodePositions.get(edge.target);
+      
+      if (!sourcePos || !targetPos) return edge;
+      
+      const { sourceHandle, targetHandle } = getOptimalHandles(
+        edge.source, 
+        edge.target, 
+        sourcePos, 
+        targetPos, 
+        nodePositions
+      );
+      
+      // Only update if handles changed
+      if (edge.sourceHandle === sourceHandle && edge.targetHandle === targetHandle) {
+        return edge;
+      }
+      
+      return {
+        ...edge,
+        sourceHandle,
+        targetHandle,
+      };
+    });
+    
+    // Check if any edges actually changed
+    const hasChanges = updatedEdges.some((edge, i) => 
+      edge.sourceHandle !== edges[i].sourceHandle || 
+      edge.targetHandle !== edges[i].targetHandle
+    );
+    
+    if (hasChanges) {
+      setEdges(updatedEdges);
+      
+      // Save edge handles to storage
+      const edgeHandles: Record<string, { sourceHandle: string; targetHandle: string }> = {};
+      updatedEdges.forEach(edge => {
+        if (edge.sourceHandle && edge.targetHandle) {
+          edgeHandles[edge.id] = { 
+            sourceHandle: edge.sourceHandle, 
+            targetHandle: edge.targetHandle 
+          };
+        }
+      });
+      saveLayout({ edgeHandles });
+    }
+  }, [nodes, edges, getOptimalHandles, setEdges]);
+  
+  // Apply A* pathfinding on initial render and when graph structure changes
+  // DISABLED: Too slow for large graphs. Edge handles are set during initial layout.
+  // To re-enable: uncomment the effect below
+  const initialPathfindingAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    // DISABLED - initial pathfinding is too slow for large graphs
+    void initialPathfindingAppliedRef; // Suppress unused warning
+  }, []);
+  
+  /*
+  // ORIGINAL INITIAL PATHFINDING CODE (kept for future use):
+  useEffect(() => {
+    const graphKey = `${nodes.length}-${edges.length}-${nodes.map(n => n.id).slice(0, 5).join(',')}`;
+    
+    if (initialPathfindingAppliedRef.current === graphKey || nodes.length === 0 || edges.length === 0) {
+      return;
+    }
+    
+    const timer = setTimeout(() => {
+      console.log('[AssetGraph] Applying A* pathfinding for initial edge routing...');
+      updateEdgeHandlesForPositions();
+      initialPathfindingAppliedRef.current = graphKey;
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [nodes.length, edges.length, updateEdgeHandlesForPositions]);
+  */
+  
+  // Custom onNodesChange handler that also saves positions and updates edge handles
   const handleNodesChange = useCallback((changes: Parameters<typeof onNodesChange>[0]) => {
     onNodesChange(changes);
     
@@ -3559,6 +4439,14 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     );
     
     if (hasPositionChange) {
+      // Debounce edge handle updates (faster response for better UX)
+      if (updateEdgeHandlesRef.current) {
+        clearTimeout(updateEdgeHandlesRef.current);
+      }
+      updateEdgeHandlesRef.current = setTimeout(() => {
+        updateEdgeHandlesForPositions();
+      }, 150); // Update handles 150ms after movement stops
+      
       // Debounce the save to avoid too many writes
       if (saveNodePositionsRef.current) {
         clearTimeout(saveNodePositionsRef.current);
@@ -3572,7 +4460,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         saveLayout({ nodePositions });
       }, 500); // Save 500ms after last move
     }
-  }, [nodes, onNodesChange]);
+  }, [nodes, onNodesChange, updateEdgeHandlesForPositions]);
 
   // Save UI preferences when they change
   useEffect(() => {
@@ -4443,6 +5331,93 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [contextMenuNode, handleSearch]);
 
+  // Handle CVE Analysis for Vulnerability nodes (toast-only notifications)
+  const handleContextRunCVEAnalysis = useCallback(() => {
+    if (!contextMenuNode) return;
+    
+    const nodeData = contextMenuNode.data as CustomNodeData;
+    if (nodeData.nodeType !== 'Vulnerability') return;
+    
+    const cveId = nodeData.label;
+    if (!cveId || !cveId.startsWith('CVE-')) {
+      toast.error('Invalid CVE ID', { description: 'Node name must be a valid CVE ID (e.g., CVE-2024-1234)' });
+      return;
+    }
+    
+    // Show toast that analysis is starting
+    toast.info(`Starting CVE Analysis: ${cveId}`, {
+      description: 'Analysis running in background. Graph will refresh when done.',
+      duration: 5000,
+    });
+    
+    // Start CVE analysis in background
+    const baseUrl = endpoint || 'http://localhost:7777';
+    
+    fetch(`${baseUrl}/v1/asset-graph/cve-analysis`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        cve_id: cveId,
+        node_id: contextMenuNode.id,
+      }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        toast.error(`CVE Analysis Failed: ${cveId}`, {
+          description: 'Could not start analysis. Check server logs.',
+          duration: 5000,
+        });
+        return;
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) return;
+      
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      // Process SSE stream for final result only
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              // Only show toast for final result
+              if (data.status === 'success') {
+                const severity = data.summary?.severity?.toUpperCase() || 'Unknown';
+                const exploitCount = data.summary?.exploit_count || 0;
+                toast.success(`CVE Analysis Complete: ${cveId}`, {
+                  description: `Severity: ${severity} | Exploits: ${exploitCount} found`,
+                  duration: 8000,
+                });
+                onRefresh();
+              } else if (data.status === 'error') {
+                toast.error(`CVE Analysis Failed: ${cveId}`, {
+                  description: data.error || 'Analysis encountered an error',
+                  duration: 8000,
+                });
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+    }).catch((err) => {
+      toast.error(`CVE Analysis Failed: ${cveId}`, {
+        description: String(err),
+        duration: 8000,
+      });
+    });
+  }, [contextMenuNode, endpoint, onRefresh]);
+
   // Handle saving node properties
   const handleSaveNodeProperties = useCallback(async (nodeId: string, properties: Record<string, unknown>) => {
     // Update the node in local state
@@ -4602,15 +5577,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         onConnect={onConnect}
         onMoveEnd={(_, viewport) => setCurrentZoom(viewport.zoom)}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: '#22c55e', strokeWidth: 2, strokeDasharray: '5,5' }}
         fitView
         fitViewOptions={{ 
-          padding: 0.15, 
-          minZoom: MIN_READABLE_ZOOM, 
-          maxZoom: MAX_INITIAL_ZOOM 
+          padding: 0.1, 
+          minZoom: 0.1, 
+          maxZoom: 1.2 
         }}
-        minZoom={0.1}
+        minZoom={0.05}
         maxZoom={3}
         defaultEdgeOptions={{
           type: 'smoothstep',
@@ -4820,6 +5796,23 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
               </svg>
               <span>Loading...</span>
+            </div>
+          )}
+          
+          {/* Force simulation progress indicator */}
+          {isSimulating && (
+            <div className="flex items-center gap-2 px-2 py-1 bg-purple-900/40 border border-purple-700/50 rounded-lg text-xs text-purple-300">
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span>Optimizing layout... {simulationProgress}%</span>
+              <div className="w-16 h-1.5 bg-purple-900/50 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-purple-500 transition-all duration-200" 
+                  style={{ width: `${simulationProgress}%` }}
+                />
+              </div>
             </div>
           )}
 
@@ -5299,6 +6292,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           onAddRelationship={handleContextAddRelationship}
           onDeleteNode={handleContextDeleteNode}
           onSearchByLabel={handleContextSearchByLabel}
+          onRunCVEAnalysis={handleContextRunCVEAnalysis}
           editMode={editMode}
           nodeName={(contextMenuNode.data as CustomNodeData).label}
           nodeType={(contextMenuNode.data as CustomNodeData).nodeType}
