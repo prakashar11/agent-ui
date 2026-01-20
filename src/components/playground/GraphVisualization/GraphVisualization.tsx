@@ -54,24 +54,42 @@ import {
   type AttackPathStep,
 } from './types';
 
-// =============================================================================
-// HIERARCHY CONFIGURATION
-// =============================================================================
-
-// Define the logical hierarchy for node types (lower number = higher in graph)
-// Consolidated to 9 node types to avoid schema bloat
-const NODE_TYPE_HIERARCHY: Record<string, number> = {
-  AssetCategory: 0,   // Top level - categories and groups
-  Asset: 1,           // Core assets - infrastructure, applications, endpoints
-  Service: 1,         // Services same level as assets
-  Identity: 1,        // Identities (embeds credentials) same level as assets
-  Vulnerability: 2,   // CVEs and security weaknesses
-  Control: 2,         // Security controls / hygiene essentials
-  Threat: 3,          // Consolidated threat (embeds: actor, campaign, tools, malware)
-  Indicator: 3,       // IOCs (IP, domain, hash) same level as threats
-  Attack: 4,          // Consolidated MITRE ATT&CK (embeds: technique + tactic)
-  LogEvent: 4,        // Security logs for detection correlation
-};
+// Import from utility files
+import {
+  NODE_TYPE_HIERARCHY,
+  getNodeRank,
+  SEED_NODE_TYPES,
+  PRIMARY_SEED_TYPES,
+} from './hierarchyUtils';
+import {
+  getStoredLayout,
+  saveLayout,
+  clearStoredLayout,
+  type StoredLayout,
+  LAYOUT_VERSION,
+} from './storageUtils';
+import {
+  getLayoutedElements,
+  DEFAULT_LAYOUT_SETTINGS,
+  NODE_WIDTH,
+  NODE_HEIGHT,
+  type LayoutSettings,
+  type LayoutOptions,
+  spreadNodesInRow,
+  spreadAllOverlappingNodes,
+} from './layoutUtils';
+import {
+  getOptimalHandles,
+  optimizeEdgeHandles,
+  findSmartEdgePath,
+  pathToSvgD,
+  SMART_EDGE_NODE_WIDTH,
+  SMART_EDGE_NODE_HEIGHT,
+} from './edgeUtils';
+import {
+  type SimNode,
+  simNodesToLayout,
+} from './forceSimulation';
 
 // Helper to detect if a string is a URL
 const isUrl = (value: unknown): boolean => {
@@ -130,681 +148,22 @@ const renderPropertyValue = (key: string, value: unknown): React.ReactNode => {
   return strValue;
 };
 
-const getNodeRank = (nodeType: string): number => {
-  return NODE_TYPE_HIERARCHY[nodeType] ?? 6; // Default to bottom for unknown types
-};
-
-// =============================================================================
-// BROWSER STORAGE FOR VISUALIZATION LAYOUT
-// =============================================================================
-// Stores visualization preferences in localStorage (browser-side only)
-// This does NOT affect backend storage - only UI preferences
-
-const STORAGE_KEY = 'asset-graph-visualization-layout';
-const LAYOUT_VERSION = 2; // Increment this when layout algorithm changes significantly
-
-interface StoredLayout {
-  // Layout version - used to invalidate cache when algorithm changes
-  version?: number;
-  // Node positions (id -> {x, y})
-  nodePositions: Record<string, { x: number; y: number }>;
-  // Edge handle positions (id -> {sourceHandle, targetHandle})
-  edgeHandles: Record<string, { sourceHandle: string; targetHandle: string }>;
-  // UI preferences
-  preferences: {
-    showMinimap: boolean;
-    showLegend: boolean;
-    lastZoom?: number;
-  };
-  // Timestamp for cache invalidation
-  savedAt: number;
-}
-
-const getStoredLayout = (): StoredLayout | null => {
-  if (typeof window === 'undefined') return null;
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const layout = JSON.parse(stored) as StoredLayout;
-      
-      // Check layout version - invalidate if algorithm changed
-      if ((layout.version || 1) !== LAYOUT_VERSION) {
-        console.log(`[AssetGraph] Layout version changed (${layout.version || 1} -> ${LAYOUT_VERSION}), clearing cache`);
-        clearStoredLayout();
-        return null;
-      }
-      
-      // Cache valid for 7 days
-      const sevenDays = 7 * 24 * 60 * 60 * 1000;
-      if (Date.now() - layout.savedAt < sevenDays) {
-        return layout;
-      }
-    }
-  } catch (e) {
-    console.warn('[AssetGraph] Failed to load stored layout:', e);
-  }
-  return null;
-};
-
-const saveLayout = (layout: Partial<StoredLayout>) => {
-  if (typeof window === 'undefined') return;
-  try {
-    const existing = getStoredLayout() || {
-      version: LAYOUT_VERSION,
-      nodePositions: {},
-      edgeHandles: {},
-      preferences: { showMinimap: true, showLegend: false },
-      savedAt: Date.now(),
-    };
-    const updated: StoredLayout = {
-      ...existing,
-      ...layout,
-      version: LAYOUT_VERSION,
-      savedAt: Date.now(),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-    console.log('[AssetGraph] Layout saved to browser storage');
-  } catch (e) {
-    console.warn('[AssetGraph] Failed to save layout:', e);
-  }
-};
-
-const clearStoredLayout = () => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-    console.log('[AssetGraph] Layout cleared from browser storage');
-  } catch (e) {
-    console.warn('[AssetGraph] Failed to clear layout:', e);
-  }
-};
-
-// =============================================================================
-// HIERARCHICAL LAYOUT (Manual positioning by node type)
-// =============================================================================
-
-const NODE_WIDTH = 160;
-const NODE_HEIGHT = 55;
-const DEFAULT_HORIZONTAL_GAP = 30;  // Gap between nodes in same row
-const DEFAULT_VERTICAL_GAP = 70;    // Gap between hierarchy levels within cluster
-const DEFAULT_CLUSTER_GAP_X = 120;  // Gap between clusters horizontally
-const MARGIN_X = 30;
-const MARGIN_Y = 30;
-
-// Note: Previously had DATE_FILTER_EXEMPT_LABELS but removed for simplicity
-// All filters now apply uniformly to all node types
-
-// Layout settings interface for user customization
-interface LayoutSettings {
-  nodesPerRow: number;
-  clustersPerRow: number;
-  nodeSpacing: number;       // Horizontal gap between nodes
-  clusterSpacing: number;    // Gap between clusters
-  verticalSpacing: number;   // Vertical gap between levels
-}
-
-const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
-  nodesPerRow: 12,       // Optimized for large graphs
-  clustersPerRow: 5,     // Good balance for screen width
-  nodeSpacing: 80,       // Comfortable spacing between nodes
-  clusterSpacing: 120,   // Clear separation between clusters
-  verticalSpacing: 95,   // Readable vertical hierarchy
-};
-
-// =============================================================================
-// CLUSTER-BASED LAYOUT (Groups connected nodes together)
-// =============================================================================
-
-interface ClusterNode {
-  id: string;
-  node: Node;
-  level: number;
-}
-
-interface Cluster {
-  id: string;
-  nodes: ClusterNode[];
-  anchorNodeId: string; // The "root" node of this cluster (usually Asset or AssetCategory)
-  width: number;
-  height: number;
-}
-
-interface LayoutOptions {
-  containerWidth?: number;
-  containerHeight?: number;
-  maxNodesPerRow?: number;
-  maxClustersPerRow?: number;
-  // User-customizable spacing settings
-  nodeSpacing?: number;
-  clusterSpacing?: number;
-  verticalSpacing?: number;
-}
-
-// Calculate responsive layout parameters based on container size and user settings
-const getResponsiveParams = (options: LayoutOptions) => {
-  const containerWidth = options.containerWidth || 1200;
-  const nodeSpacing = options.nodeSpacing ?? DEFAULT_HORIZONTAL_GAP;
-  const clusterSpacing = options.clusterSpacing ?? DEFAULT_CLUSTER_GAP_X;
-  
-  // If user specified values, use them directly
-  if (options.maxNodesPerRow && options.maxNodesPerRow > 0) {
-    const maxNodesPerRow = options.maxNodesPerRow;
-    const maxClustersPerRow = options.maxClustersPerRow && options.maxClustersPerRow > 0 
-      ? options.maxClustersPerRow 
-      : Math.max(2, Math.floor(containerWidth / (maxNodesPerRow * (NODE_WIDTH + nodeSpacing) + clusterSpacing)));
-    return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
-  }
-  
-  // Auto-calculate based on container width
-  const avgClusterWidth = 3 * NODE_WIDTH + 2 * nodeSpacing + clusterSpacing;
-  let maxClustersPerRow = Math.max(2, Math.floor(containerWidth / avgClusterWidth));
-  if (options.maxClustersPerRow && options.maxClustersPerRow > 0) {
-    maxClustersPerRow = options.maxClustersPerRow;
-  } else {
-    maxClustersPerRow = Math.min(maxClustersPerRow, 6);
-  }
-  
-  // Calculate max nodes per row within a cluster
-  const targetClusterWidth = containerWidth / maxClustersPerRow - clusterSpacing;
-  let maxNodesPerRow = Math.max(2, Math.floor(targetClusterWidth / (NODE_WIDTH + nodeSpacing)));
-  maxNodesPerRow = Math.min(maxNodesPerRow, 8);
-  
-  return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
-};
-
-// Find connected components using Union-Find
-const findClusters = (nodes: Node[], edges: Edge[]): Map<string, Set<string>> => {
-  const parent: Map<string, string> = new Map();
-  
-  // Initialize each node as its own parent
-  nodes.forEach(n => parent.set(n.id, n.id));
-  
-  // Find with path compression
-  const find = (x: string): string => {
-    if (parent.get(x) !== x) {
-      parent.set(x, find(parent.get(x)!));
-    }
-    return parent.get(x)!;
-  };
-  
-  // Union
-  const union = (x: string, y: string) => {
-    const rootX = find(x);
-    const rootY = find(y);
-    if (rootX !== rootY) {
-      parent.set(rootX, rootY);
-    }
-  };
-  
-  // Connect nodes based on edges
-  edges.forEach(edge => {
-    if (parent.has(edge.source) && parent.has(edge.target)) {
-      union(edge.source, edge.target);
-    }
-  });
-  
-  // Group nodes by their root
-  const clusters = new Map<string, Set<string>>();
-  nodes.forEach(n => {
-    const root = find(n.id);
-    if (!clusters.has(root)) {
-      clusters.set(root, new Set());
-    }
-    clusters.get(root)!.add(n.id);
-  });
-  
-  return clusters;
-};
-
-// =============================================================================
-// FAST GRID-BASED LAYOUT (optimized for large graphs)
-// =============================================================================
-
-// Simulation node type (kept for compatibility)
-interface SimNode {
-  id: string;
-  x: number;
-  y: number;
-  vx: number;
-  vy: number;
-  node: Node;
-}
-
-// For compatibility with incremental simulation (but we skip it for large graphs)
-const simNodesToLayout = (
-  simNodes: SimNode[]
-): { nodes: Node[]; width: number; height: number } => {
-  if (simNodes.length === 0) {
-    return { nodes: [], width: 0, height: 0 };
-  }
-  
-  let minX = Infinity, maxX = -Infinity;
-  let minY = Infinity, maxY = -Infinity;
-  
-  simNodes.forEach(n => {
-    minX = Math.min(minX, n.x);
-    maxX = Math.max(maxX, n.x);
-    minY = Math.min(minY, n.y);
-    maxY = Math.max(maxY, n.y);
-  });
-  
-  const layoutedNodes: Node[] = simNodes.map(simNode => ({
-    ...simNode.node,
-    position: {
-      x: simNode.x - minX,
-      y: simNode.y - minY,
-    },
-  }));
-  
-  const width = maxX - minX + NODE_WIDTH;
-  const height = maxY - minY + NODE_HEIGHT;
-  
-  return { nodes: layoutedNodes, width, height };
-};
-
-// Stub for compatibility - incremental simulation disabled for performance
-const continueSimulation = (
-  _simNodes: SimNode[],
-  _simEdges: Array<{ source: SimNode; target: SimNode }>,
-  _startIter: number,
-  totalIterations: number,
-  _batchSize: number
-): { done: boolean; nextIter: number } => {
-  // Skip simulation for large graphs - return done immediately
-  return { done: true, nextIter: totalIterations };
-};
-
-// Fast grid-based layout - groups by type, spreads evenly
-const layoutCluster = (
-  clusterNodes: Node[],
-  clusterEdges: Edge[],
-  maxNodesPerRow: number,
-  nodeSpacing: number = DEFAULT_HORIZONTAL_GAP,
-  _verticalSpacing: number = DEFAULT_VERTICAL_GAP
-): { nodes: Node[]; width: number; height: number } => {
-  if (clusterNodes.length === 0) {
-    return { nodes: [], width: 0, height: 0 };
-  }
-  
-  if (clusterNodes.length === 1) {
-    return {
-      nodes: [{ ...clusterNodes[0], position: { x: 0, y: 0 } }],
-      width: NODE_WIDTH,
-      height: NODE_HEIGHT,
-    };
-  }
-  
-  const nodeCount = clusterNodes.length;
-  
-  // Adaptive spacing based on node count
-  const baseSpacing = Math.max(250, 400 - nodeCount * 0.5);
-  const horizontalGap = Math.max(nodeSpacing, baseSpacing);
-  const verticalGap = Math.max(150, baseSpacing * 0.8);
-  
-  // Group nodes by type for organized layout
-  const nodesByType: Record<string, Node[]> = {};
-  clusterNodes.forEach(node => {
-    const nodeData = node.data as CustomNodeData;
-    const type = nodeData.nodeType || 'Unknown';
-    if (!nodesByType[type]) {
-      nodesByType[type] = [];
-    }
-    nodesByType[type].push(node);
-  });
-  
-  // Sort types by hierarchy rank
-  const sortedTypes = Object.keys(nodesByType).sort((a, b) => getNodeRank(a) - getNodeRank(b));
-  
-  // Build adjacency for connected node ordering
-  const adjacency = new Map<string, Set<string>>();
-  clusterNodes.forEach(n => adjacency.set(n.id, new Set()));
-  clusterEdges.forEach(e => {
-    if (adjacency.has(e.source) && adjacency.has(e.target)) {
-      adjacency.get(e.source)!.add(e.target);
-      adjacency.get(e.target)!.add(e.source);
-    }
-  });
-  
-  // Calculate optimal columns per row (wider for more nodes)
-  const effectiveNodesPerRow = Math.max(
-    maxNodesPerRow,
-    Math.ceil(Math.sqrt(nodeCount) * 1.5)
-  );
-  
-  const layoutedNodes: Node[] = [];
-  let currentY = 0;
-  let maxWidth = 0;
-  
-  // Position each type group
-  sortedTypes.forEach((type, typeIndex) => {
-    const nodesOfType = nodesByType[type];
-    
-    // Sort nodes within type by connection count (more connected = more central)
-    nodesOfType.sort((a, b) => {
-      const aConnections = adjacency.get(a.id)?.size || 0;
-      const bConnections = adjacency.get(b.id)?.size || 0;
-      return bConnections - aConnections;
-    });
-    
-    // Calculate rows needed for this type
-    const numRows = Math.ceil(nodesOfType.length / effectiveNodesPerRow);
-    
-    nodesOfType.forEach((node, nodeIndex) => {
-      const rowIndex = Math.floor(nodeIndex / effectiveNodesPerRow);
-      const colIndex = nodeIndex % effectiveNodesPerRow;
-      
-      // Calculate nodes in this row
-      const nodesInThisRow = Math.min(
-        effectiveNodesPerRow,
-        nodesOfType.length - rowIndex * effectiveNodesPerRow
-      );
-      
-      // Center each row
-      const rowWidth = nodesInThisRow * NODE_WIDTH + (nodesInThisRow - 1) * horizontalGap;
-      maxWidth = Math.max(maxWidth, rowWidth);
-      const startX = -rowWidth / 2;
-      
-      layoutedNodes.push({
-        ...node,
-        position: {
-          x: startX + colIndex * (NODE_WIDTH + horizontalGap),
-          y: currentY + rowIndex * (NODE_HEIGHT + verticalGap * 0.6),
-        },
-      });
-    });
-    
-    // Move to next type group with larger gap
-    const typeHeight = numRows * NODE_HEIGHT + (numRows - 1) * verticalGap * 0.6;
-    if (typeIndex < sortedTypes.length - 1) {
-      currentY += typeHeight + verticalGap;
-    } else {
-      currentY += typeHeight;
-    }
-  });
-  
-  return {
-    nodes: layoutedNodes,
-    width: maxWidth,
-    height: currentY,
-  };
-};
-
-const getLayoutedElements = (
-  nodes: Node[],
-  edges: Edge[],
-  _direction: 'TB' | 'LR' = 'TB',
-  options: LayoutOptions = {}
-) => {
-  void _direction;
-  
-  if (nodes.length === 0) {
-    return { nodes: [], edges };
-  }
-  
-  // Get responsive layout parameters (includes spacing)
-  const { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing } = getResponsiveParams(options);
-  const verticalSpacing = options.verticalSpacing ?? DEFAULT_VERTICAL_GAP;
-  const clusterGapY = Math.max(100, clusterSpacing + 20); // Slightly more vertical gap between cluster rows
-  
-  // Step 1: Find connected clusters
-  const clusterMap = findClusters(nodes, edges);
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  
-  // Step 2: Create cluster objects and layout each cluster internally
-  const clusters: Cluster[] = [];
-  
-  clusterMap.forEach((nodeIds, clusterId) => {
-    const clusterNodes = [...nodeIds].map(id => nodeMap.get(id)!).filter(Boolean);
-    
-    // Find the anchor node (highest in hierarchy, preferring AssetCategory/Asset)
-    let anchorNode = clusterNodes[0];
-    let anchorRank = getNodeRank((anchorNode.data as CustomNodeData).nodeType);
-    
-    clusterNodes.forEach(node => {
-      const nodeData = node.data as CustomNodeData;
-      const rank = getNodeRank(nodeData.nodeType);
-      if (rank < anchorRank) {
-        anchorRank = rank;
-        anchorNode = node;
-      }
-    });
-    
-    // Layout this cluster's nodes with wrapping (pass spacing parameters)
-    const clusterEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
-    const { nodes: layoutedClusterNodes, width, height } = layoutCluster(
-      clusterNodes, 
-      clusterEdges,
-      maxNodesPerRow,
-      nodeSpacing,
-      verticalSpacing
-    );
-    
-    clusters.push({
-      id: clusterId,
-      nodes: layoutedClusterNodes.map(n => ({
-        id: n.id,
-        node: n,
-        level: getNodeRank((n.data as CustomNodeData).nodeType),
-      })),
-      anchorNodeId: anchorNode.id,
-      width,
-      height,
-    });
-  });
-  
-  // Step 3: Sort clusters by size (larger clusters first) for better packing
-  clusters.sort((a, b) => b.nodes.length - a.nodes.length);
-  
-  // Step 4: Arrange clusters in a responsive grid pattern
-  const layoutedNodes: Node[] = [];
-  let clusterX = MARGIN_X;
-  let clusterY = MARGIN_Y;
-  let rowMaxHeight = 0;
-  let clustersInRow = 0;
-  let currentRowWidth = 0;
-  const containerWidth = options.containerWidth || 1600;
-  
-  clusters.forEach((cluster) => {
-    // Check if we need to wrap to next row (either by count or by width)
-    const wouldExceedWidth = currentRowWidth + cluster.width + clusterSpacing > containerWidth - MARGIN_X * 2;
-    const exceededClusterCount = clustersInRow >= maxClustersPerRow;
-    
-    if ((wouldExceedWidth || exceededClusterCount) && clustersInRow > 0) {
-      clusterX = MARGIN_X;
-      clusterY += rowMaxHeight + clusterGapY;
-      rowMaxHeight = 0;
-      clustersInRow = 0;
-      currentRowWidth = 0;
-    }
-    
-    // Position each node in the cluster, offset by cluster position
-    cluster.nodes.forEach(({ node }) => {
-      layoutedNodes.push({
-        ...node,
-        position: {
-          x: clusterX + node.position.x + cluster.width / 2,
-          y: clusterY + node.position.y,
-        },
-      });
-    });
-    
-    // Update for next cluster
-    clusterX += cluster.width + clusterSpacing;
-    currentRowWidth += cluster.width + clusterSpacing;
-    rowMaxHeight = Math.max(rowMaxHeight, cluster.height);
-    clustersInRow++;
-  });
-  
-  return { nodes: layoutedNodes, edges };
-};
-
 // =============================================================================
 // SMART EDGE COMPONENT - Uses A* pathfinding to route around nodes
 // DISABLED: A* pathfinding is expensive for large graphs. Using smoothstep instead.
 // To re-enable: change edge type from 'smoothstep' to 'smart' in edge creation
 // =============================================================================
 
-// A* pathfinding constants (must match InternalFlow values)
-const SMART_EDGE_GRID_SIZE = 10;
-const SMART_EDGE_NODE_PADDING = 25;
-const SMART_EDGE_NODE_WIDTH = 200;
-const SMART_EDGE_NODE_HEIGHT = 60;
+// NOTE: A* pathfinding utilities (findSmartEdgePath, pathToSvgD) are in edgeUtils.ts
+// Layout utilities (getLayoutedElements, layoutCluster, etc.) are in layoutUtils.ts
+// Force simulation is in forceSimulation.ts and quadtree.ts
+// Hierarchy and storage utilities are in their respective files
 
-// Simple priority queue for A*
-class SmartEdgePriorityQueue {
-  private items: Array<{ gx: number; gy: number; priority: number }> = [];
-  
-  push(gx: number, gy: number, priority: number) {
-    this.items.push({ gx, gy, priority });
-    this.items.sort((a, b) => a.priority - b.priority);
-  }
-  
-  pop() {
-    return this.items.shift();
-  }
-  
-  isEmpty() {
-    return this.items.length === 0;
-  }
-}
-
-// A* pathfinding for smart edges
-function findSmartEdgePath(
-  startX: number, startY: number,
-  endX: number, endY: number,
-  obstacles: Array<{ x: number; y: number; width: number; height: number }>
-): Array<{ x: number; y: number }> | null {
-  const gridSize = SMART_EDGE_GRID_SIZE;
-  const padding = SMART_EDGE_NODE_PADDING;
-  
-  const toGrid = (x: number, y: number) => ({
-    gx: Math.round(x / gridSize),
-    gy: Math.round(y / gridSize)
-  });
-  
-  const fromGrid = (gx: number, gy: number) => ({
-    x: gx * gridSize,
-    y: gy * gridSize
-  });
-  
-  const startGrid = toGrid(startX, startY);
-  const endGrid = toGrid(endX, endY);
-  
-  // Build obstacle set
-  const obstacleSet = new Set<string>();
-  obstacles.forEach(obs => {
-    const minGx = Math.floor((obs.x - padding) / gridSize);
-    const maxGx = Math.ceil((obs.x + obs.width + padding) / gridSize);
-    const minGy = Math.floor((obs.y - padding) / gridSize);
-    const maxGy = Math.ceil((obs.y + obs.height + padding) / gridSize);
-    
-    for (let gx = minGx; gx <= maxGx; gx++) {
-      for (let gy = minGy; gy <= maxGy; gy++) {
-        obstacleSet.add(`${gx},${gy}`);
-      }
-    }
-  });
-  
-  const heuristic = (gx: number, gy: number) => 
-    Math.abs(gx - endGrid.gx) + Math.abs(gy - endGrid.gy);
-  
-  const openSet = new SmartEdgePriorityQueue();
-  const cameFrom = new Map<string, { gx: number; gy: number }>();
-  const gScore = new Map<string, number>();
-  
-  const key = (gx: number, gy: number) => `${gx},${gy}`;
-  
-  gScore.set(key(startGrid.gx, startGrid.gy), 0);
-  openSet.push(startGrid.gx, startGrid.gy, heuristic(startGrid.gx, startGrid.gy));
-  
-  const directions = [
-    { dx: 0, dy: -1 },
-    { dx: 1, dy: 0 },
-    { dx: 0, dy: 1 },
-    { dx: -1, dy: 0 },
-  ];
-  
-  // Calculate bounds
-  const allX = [startX, endX, ...obstacles.flatMap(o => [o.x, o.x + o.width])];
-  const allY = [startY, endY, ...obstacles.flatMap(o => [o.y, o.y + o.height])];
-  const minGx = Math.floor((Math.min(...allX) - 300) / gridSize);
-  const maxGx = Math.ceil((Math.max(...allX) + 300) / gridSize);
-  const minGy = Math.floor((Math.min(...allY) - 300) / gridSize);
-  const maxGy = Math.ceil((Math.max(...allY) + 300) / gridSize);
-  
-  let iterations = 0;
-  const maxIterations = 5000;
-  
-  while (!openSet.isEmpty() && iterations < maxIterations) {
-    iterations++;
-    const current = openSet.pop()!;
-    
-    if (current.gx === endGrid.gx && current.gy === endGrid.gy) {
-      const path: Array<{ x: number; y: number }> = [];
-      let curr: { gx: number; gy: number } | undefined = current;
-      
-      while (curr) {
-        path.unshift(fromGrid(curr.gx, curr.gy));
-        curr = cameFrom.get(key(curr.gx, curr.gy));
-      }
-      
-      // Simplify path
-      const simplified: Array<{ x: number; y: number }> = [path[0]];
-      for (let i = 1; i < path.length - 1; i++) {
-        const prev = path[i - 1];
-        const curr = path[i];
-        const next = path[i + 1];
-        
-        const dx1 = curr.x - prev.x;
-        const dy1 = curr.y - prev.y;
-        const dx2 = next.x - curr.x;
-        const dy2 = next.y - curr.y;
-        
-        if (dx1 !== dx2 || dy1 !== dy2) {
-          simplified.push(curr);
-        }
-      }
-      simplified.push(path[path.length - 1]);
-      
-      return simplified;
-    }
-    
-    for (const dir of directions) {
-      const nx = current.gx + dir.dx;
-      const ny = current.gy + dir.dy;
-      
-      if (nx < minGx || nx > maxGx || ny < minGy || ny > maxGy) continue;
-      
-      const nKey = key(nx, ny);
-      if (obstacleSet.has(nKey) && !(nx === endGrid.gx && ny === endGrid.gy)) continue;
-      
-      const tentativeG = (gScore.get(key(current.gx, current.gy)) || Infinity) + 1;
-      
-      if (tentativeG < (gScore.get(nKey) || Infinity)) {
-        cameFrom.set(nKey, current);
-        gScore.set(nKey, tentativeG);
-        openSet.push(nx, ny, tentativeG + heuristic(nx, ny));
-      }
-    }
-  }
-  
-  return null;
-}
-
-// Convert path to SVG path string
-function pathToSvgD(path: Array<{ x: number; y: number }>): string {
-  if (path.length === 0) return '';
-  
-  let d = `M ${path[0].x} ${path[0].y}`;
-  
-  for (let i = 1; i < path.length; i++) {
-    d += ` L ${path[i].x} ${path[i].y}`;
-  }
-  
-  return d;
-}
-
-// Smart Edge Component
+// =============================================================================
+// SMART EDGE COMPONENT - Uses A* pathfinding to route around nodes
+// DISABLED: A* pathfinding is expensive for large graphs. Using smoothstep instead.
+// To re-enable: change edge type from 'smoothstep' to 'smart' in edge creation
+// =============================================================================
 function SmartEdge({
   id,
   sourceX,
@@ -1300,9 +659,7 @@ function HierarchyLegend() {
 // FILTER PANEL
 // =============================================================================
 
-// Primary seed node types - Threat, Vulnerability & Asset are the main seed types
-// These enable use cases like threat hunting, vulnerability management, or asset hygiene verification
-const PRIMARY_SEED_TYPES = new Set(['Threat', 'Vulnerability', 'Asset']);
+// PRIMARY_SEED_TYPES is imported from hierarchyUtils.ts
 
 interface FilterPanelProps {
   nodeTypes: string[];
@@ -3738,43 +3095,125 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       nodePositionMap.set(node.id, { x: 0, y: 0, level });
     });
 
-    // Hash-based handle distribution - automatically spreads edges across different sides
-    // No hardcoding needed - each relationship type gets a consistent position based on its name
-    const getHandlesByRelationship = (relType: string, levelDiff: number): { source: string; target: string } => {
-      // Generate a simple hash from relationship type name
-      let hash = 0;
-      for (let i = 0; i < relType.length; i++) {
-        hash = ((hash << 5) - hash) + relType.charCodeAt(i);
-        hash = hash & hash; // Convert to 32bit integer
+    // =======================================================================
+    // POSITION-BASED HANDLE OPTIMIZATION
+    // Chooses optimal source/target handles based on actual node positions
+    // to minimize edge overlap and create cleaner visual connections
+    // =======================================================================
+    
+    const getOptimalHandles = (
+      sourcePos: { x: number; y: number; level: number },
+      targetPos: { x: number; y: number; level: number },
+      _relType: string,
+      edgeIndex: number,
+      totalEdgesForPair: number
+    ): { source: string; target: string } => {
+      const dx = targetPos.x - sourcePos.x;
+      const dy = targetPos.y - sourcePos.y;
+      const absDx = Math.abs(dx);
+      const absDy = Math.abs(dy);
+      const levelDiff = targetPos.level - sourcePos.level;
+      
+      // Determine primary direction based on relative positions
+      // For hierarchy graphs, vertical relationships are primary
+      
+      if (levelDiff !== 0) {
+        // Different hierarchy levels - use vertical handles primarily
+        if (levelDiff > 0) {
+          // Target is below source (higher level number = lower in graph)
+          if (absDx < 100) {
+            // Mostly vertical - use straight bottom->top
+            return { source: 'source-bottom', target: 'target-top' };
+          } else if (dx > 0) {
+            // Target is down-right
+            // For multiple edges to same pair, spread across handles
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-bottom', target: 'target-top' }
+                : { source: 'source-right', target: 'target-left' };
+            }
+            return { source: 'source-bottom', target: 'target-top' };
+          } else {
+            // Target is down-left
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-bottom', target: 'target-top' }
+                : { source: 'source-left', target: 'target-right' };
+            }
+            return { source: 'source-bottom', target: 'target-top' };
+          }
+        } else {
+          // Target is above source
+          if (absDx < 100) {
+            return { source: 'source-top', target: 'target-bottom' };
+          } else if (dx > 0) {
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-top', target: 'target-bottom' }
+                : { source: 'source-right', target: 'target-left' };
+            }
+            return { source: 'source-top', target: 'target-bottom' };
+          } else {
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-top', target: 'target-bottom' }
+                : { source: 'source-left', target: 'target-right' };
+            }
+            return { source: 'source-top', target: 'target-bottom' };
+          }
+        }
+      } else {
+        // Same hierarchy level - use horizontal handles primarily
+        if (dx > 0) {
+          // Target is to the right
+          if (absDy < 50) {
+            return { source: 'source-right', target: 'target-left' };
+          } else if (dy > 0) {
+            // Slightly below and right
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-right', target: 'target-left' }
+                : { source: 'source-bottom', target: 'target-top' };
+            }
+            return { source: 'source-right', target: 'target-left' };
+          } else {
+            // Slightly above and right
+            return { source: 'source-right', target: 'target-left' };
+          }
+        } else {
+          // Target is to the left
+          if (absDy < 50) {
+            return { source: 'source-left', target: 'target-right' };
+          } else if (dy > 0) {
+            if (totalEdgesForPair > 1) {
+              const handleVariant = edgeIndex % 2;
+              return handleVariant === 0
+                ? { source: 'source-left', target: 'target-right' }
+                : { source: 'source-bottom', target: 'target-top' };
+            }
+            return { source: 'source-left', target: 'target-right' };
+          } else {
+            return { source: 'source-left', target: 'target-right' };
+          }
+        }
       }
-      
-      // Handle configurations: [sourceHandle, targetHandle]
-      // We have 4 sides, creating 8 meaningful source→target combinations
-      const handleConfigs: Array<{ source: string; target: string }> = [
-        { source: 'source-bottom', target: 'target-top' },    // 0: vertical down
-        { source: 'source-top', target: 'target-bottom' },    // 1: vertical up
-        { source: 'source-right', target: 'target-left' },    // 2: horizontal right
-        { source: 'source-left', target: 'target-right' },    // 3: horizontal left
-        { source: 'source-bottom', target: 'target-left' },   // 4: diagonal down-right
-        { source: 'source-bottom', target: 'target-right' },  // 5: diagonal down-left
-        { source: 'source-top', target: 'target-left' },      // 6: diagonal up-right
-        { source: 'source-top', target: 'target-right' },     // 7: diagonal up-left
-      ];
-      
-      // Use hash to select a configuration
-      // But also consider hierarchy level to prefer vertical for hierarchical relationships
-      const configIndex = Math.abs(hash) % handleConfigs.length;
-      let config = handleConfigs[configIndex];
-      
-      // For significant level differences, prefer vertical handles for cleaner hierarchy
-      if (Math.abs(levelDiff) >= 2) {
-        // Remap to vertical configs (0 or 1) while keeping some variation
-        const verticalIndex = levelDiff > 0 ? 0 : 1;
-        config = handleConfigs[verticalIndex];
-      }
-      
-      return config;
     };
+    
+    // Count edges between each node pair for handle spreading
+    const edgePairCounts = new Map<string, number>();
+    const edgePairIndices = new Map<string, number>();
+    
+    graphData.edges
+      .filter(e => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target))
+      .forEach(edge => {
+        const pairKey = [edge.source, edge.target].sort().join('|');
+        edgePairCounts.set(pairKey, (edgePairCounts.get(pairKey) || 0) + 1);
+      });
 
     // Convert to ReactFlow edges with relationship-based colors and smart handle selection
     const flowEdges: Edge[] = graphData.edges
@@ -3787,14 +3226,20 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         let sourceHandle = storedHandles?.sourceHandle || 'source-bottom';
         let targetHandle = storedHandles?.targetHandle || 'target-top';
         
-        // If no stored handles, determine based on relationship type and hierarchy
+        // If no stored handles, determine based on node positions and hierarchy
         if (!storedHandles) {
           const sourceNode = nodePositionMap.get(edge.source);
           const targetNode = nodePositionMap.get(edge.target);
           
           if (sourceNode && targetNode) {
-            const levelDiff = targetNode.level - sourceNode.level;
-            const handles = getHandlesByRelationship(edge.label, levelDiff);
+            // Get edge index for this pair (for spreading multiple edges)
+            const pairKey = [edge.source, edge.target].sort().join('|');
+            const edgeIndex = edgePairIndices.get(pairKey) || 0;
+            edgePairIndices.set(pairKey, edgeIndex + 1);
+            const totalEdges = edgePairCounts.get(pairKey) || 1;
+            
+            // Use position-based handle optimization
+            const handles = getOptimalHandles(sourceNode, targetNode, edge.label, edgeIndex, totalEdges);
             sourceHandle = handles.source;
             targetHandle = handles.target;
           }
@@ -3876,6 +3321,55 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       }
     }
 
+    // =====================================================================
+    // POST-LAYOUT EDGE HANDLE OPTIMIZATION
+    // Re-optimize edge handles based on actual node positions after layout
+    // =====================================================================
+    const optimizeEdgeHandles = (positionedNodes: Node[], edgesToOptimize: Edge[]): Edge[] => {
+      // Build position map from actual layouted positions
+      const actualPositions = new Map<string, { x: number; y: number; level: number }>();
+      positionedNodes.forEach(node => {
+        const nodeData = node.data as CustomNodeData;
+        const level = getNodeRank(nodeData.nodeType);
+        actualPositions.set(node.id, { 
+          x: node.position.x, 
+          y: node.position.y, 
+          level 
+        });
+      });
+      
+      // Count edges between pairs for spreading
+      const pairCounts = new Map<string, number>();
+      const pairIndices = new Map<string, number>();
+      edgesToOptimize.forEach(edge => {
+        const pairKey = [edge.source, edge.target].sort().join('|');
+        pairCounts.set(pairKey, (pairCounts.get(pairKey) || 0) + 1);
+      });
+      
+      // Optimize each edge's handles based on actual positions
+      return edgesToOptimize.map(edge => {
+        const sourcePos = actualPositions.get(edge.source);
+        const targetPos = actualPositions.get(edge.target);
+        
+        if (!sourcePos || !targetPos) return edge;
+        
+        // Get edge index for spreading
+        const pairKey = [edge.source, edge.target].sort().join('|');
+        const edgeIndex = pairIndices.get(pairKey) || 0;
+        pairIndices.set(pairKey, edgeIndex + 1);
+        const totalEdges = pairCounts.get(pairKey) || 1;
+        
+        // Calculate optimal handles based on actual positions
+        const handles = getOptimalHandles(sourcePos, targetPos, '', edgeIndex, totalEdges);
+        
+        return {
+          ...edge,
+          sourceHandle: handles.source,
+          targetHandle: handles.target,
+        };
+      });
+    };
+
     if (useStoredLayout) {
       // Use stored positions directly
       setNodes(flowNodes);
@@ -3899,9 +3393,13 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           verticalSpacing: layoutSettings.verticalSpacing,
         }
       );
+      
+      // Optimize edge handles based on actual layouted positions
+      const optimizedEdges = optimizeEdgeHandles(layoutedNodes, layoutedEdges);
+      
       setNodes(layoutedNodes as CustomNode[]);
-      setEdges(layoutedEdges);
-      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} (container: ${containerSize.width}x${containerSize.height}, nodesPerRow: ${layoutSettings.nodesPerRow || 'auto'})`);
+      setEdges(optimizedEdges);
+      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with optimized edge handles (container: ${containerSize.width}x${containerSize.height}, nodesPerRow: ${layoutSettings.nodesPerRow || 'auto'})`);
     }
 
     // Fit view after layout with adaptive zoom based on node count
@@ -3961,7 +3459,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     void setIsSimulating;
     void setSimulationProgress;
     void simNodesToLayout;
-    void continueSimulation;
   }, []);
   
   /*
@@ -4499,13 +3996,22 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       setContextMenu(prev => ({ ...prev, isOpen: false }));
       
       setSelectedNode(node);
-      // Center on the clicked node
-      const nodeData = getNode(node.id);
-      if (nodeData) {
-        setCenter(nodeData.position.x + 90, nodeData.position.y + 30, { zoom: 1.2, duration: 500 });
+      
+      // Spread nodes in the same row to prevent overlap when focusing
+      const spreadNodes = spreadNodesInRow(node.id, nodes, 200);
+      if (spreadNodes !== nodes) {
+        setNodes(spreadNodes as CustomNode[]);
       }
+      
+      // Center on the clicked node (use updated position after spreading)
+      setTimeout(() => {
+        const nodeData = getNode(node.id);
+        if (nodeData) {
+          setCenter(nodeData.position.x + 90, nodeData.position.y + 30, { zoom: 1.2, duration: 500 });
+        }
+      }, 50);
     }
-  }, [getNode, setCenter]);
+  }, [getNode, setCenter, nodes, setNodes]);
 
   // Left-click handler (bound to onNodeClick)
   const onNodeClick = useCallback((event: React.MouseEvent, node: CustomNode) => {
@@ -6044,6 +5550,23 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             title={showMinimap ? 'Hide Minimap' : 'Show Minimap'}
           >
             {showMinimap ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+          </button>
+
+          {/* Spread Nodes Button - Fix overlapping nodes */}
+          <button
+            onClick={() => {
+              const spreadNodes = spreadAllOverlappingNodes(nodes, 200);
+              if (spreadNodes !== nodes) {
+                setNodes(spreadNodes as CustomNode[]);
+                toast.success('Nodes spread to prevent overlap');
+              } else {
+                toast.info('No overlapping nodes found');
+              }
+            }}
+            className="p-2 rounded-lg transition-colors bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-green-400 hover:border-green-600/50"
+            title="Spread overlapping nodes"
+          >
+            <Zap className="w-4 h-4" />
           </button>
 
           {/* Reset Layout Button */}
