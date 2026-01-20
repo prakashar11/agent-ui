@@ -3122,115 +3122,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       nodePositionMap.set(node.id, { x: 0, y: 0, level });
     });
 
-    // =======================================================================
-    // POSITION-BASED HANDLE OPTIMIZATION
-    // Chooses optimal source/target handles based on actual node positions
-    // to minimize edge overlap and create cleaner visual connections
-    // =======================================================================
-    
-    const getOptimalHandles = (
-      sourcePos: { x: number; y: number; level: number },
-      targetPos: { x: number; y: number; level: number },
-      _relType: string,
-      edgeIndex: number,
-      totalEdgesForPair: number
-    ): { source: string; target: string } => {
-      const dx = targetPos.x - sourcePos.x;
-      const dy = targetPos.y - sourcePos.y;
-      const absDx = Math.abs(dx);
-      const absDy = Math.abs(dy);
-      const levelDiff = targetPos.level - sourcePos.level;
-      
-      // Determine primary direction based on relative positions
-      // For hierarchy graphs, vertical relationships are primary
-      
-      if (levelDiff !== 0) {
-        // Different hierarchy levels - use vertical handles primarily
-        if (levelDiff > 0) {
-          // Target is below source (higher level number = lower in graph)
-          if (absDx < 100) {
-            // Mostly vertical - use straight bottom->top
-            return { source: 'source-bottom', target: 'target-top' };
-          } else if (dx > 0) {
-            // Target is down-right
-            // For multiple edges to same pair, spread across handles
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-bottom', target: 'target-top' }
-                : { source: 'source-right', target: 'target-left' };
-            }
-            return { source: 'source-bottom', target: 'target-top' };
-          } else {
-            // Target is down-left
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-bottom', target: 'target-top' }
-                : { source: 'source-left', target: 'target-right' };
-            }
-            return { source: 'source-bottom', target: 'target-top' };
-          }
-        } else {
-          // Target is above source
-          if (absDx < 100) {
-            return { source: 'source-top', target: 'target-bottom' };
-          } else if (dx > 0) {
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-top', target: 'target-bottom' }
-                : { source: 'source-right', target: 'target-left' };
-            }
-            return { source: 'source-top', target: 'target-bottom' };
-          } else {
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-top', target: 'target-bottom' }
-                : { source: 'source-left', target: 'target-right' };
-            }
-            return { source: 'source-top', target: 'target-bottom' };
-          }
-        }
-      } else {
-        // Same hierarchy level - use horizontal handles primarily
-        if (dx > 0) {
-          // Target is to the right
-          if (absDy < 50) {
-            return { source: 'source-right', target: 'target-left' };
-          } else if (dy > 0) {
-            // Slightly below and right
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-right', target: 'target-left' }
-                : { source: 'source-bottom', target: 'target-top' };
-            }
-            return { source: 'source-right', target: 'target-left' };
-          } else {
-            // Slightly above and right
-            return { source: 'source-right', target: 'target-left' };
-          }
-        } else {
-          // Target is to the left
-          if (absDy < 50) {
-            return { source: 'source-left', target: 'target-right' };
-          } else if (dy > 0) {
-            if (totalEdgesForPair > 1) {
-              const handleVariant = edgeIndex % 2;
-              return handleVariant === 0
-                ? { source: 'source-left', target: 'target-right' }
-                : { source: 'source-bottom', target: 'target-top' };
-            }
-            return { source: 'source-left', target: 'target-right' };
-          } else {
-            return { source: 'source-left', target: 'target-right' };
-          }
-        }
-      }
-    };
-    
     // Count edges between each node pair for handle spreading
     const edgePairCounts = new Map<string, number>();
     const edgePairIndices = new Map<string, number>();
@@ -3266,7 +3157,13 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             const totalEdges = edgePairCounts.get(pairKey) || 1;
             
             // Use position-based handle optimization
-            const handles = getOptimalHandles(sourceNode, targetNode, edge.label, edgeIndex, totalEdges);
+            const handles = getOptimalHandles(
+              sourceNode, 
+              targetNode, 
+              edge.label, 
+              edgeIndex, 
+              totalEdges
+            );
             sourceHandle = handles.source;
             targetHandle = handles.target;
           }
@@ -3299,7 +3196,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           },
           labelBgStyle: { 
             fill: '#111827', 
-            fillOpacity: 0.9,
+            fillOpacity: 0.95,
           },
           labelBgPadding: [6, 4] as [number, number],
           labelBgBorderRadius: 4,
@@ -3423,12 +3320,15 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         }
       );
       
-      // Optimize edge handles based on actual layouted positions
-      const optimizedEdges = optimizeEdgeHandles(layoutedNodes, layoutedEdges);
+      // Spread overlapping nodes to prevent initial overlap
+      const spreadNodes = spreadAllOverlappingNodes(layoutedNodes, layoutSettings.minNodeSpacing || 200);
       
-      setNodes(layoutedNodes as CustomNode[]);
+      // Optimize edge handles based on actual layouted positions
+      const optimizedEdges = optimizeEdgeHandles(spreadNodes, layoutedEdges);
+      
+      setNodes(spreadNodes as CustomNode[]);
       setEdges(optimizedEdges);
-      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with optimized edge handles (container: ${containerSize.width}x${containerSize.height}, clustersPerRow: ${layoutSettings.clustersPerRow || 'auto'}, worker: ${layoutSettings.useWebWorker})`);
+      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with overlap prevention and optimized edge handles (container: ${containerSize.width}x${containerSize.height}, clustersPerRow: ${layoutSettings.clustersPerRow || 'auto'}, worker: ${layoutSettings.useWebWorker})`);
     }
 
     // Fit view after layout with adaptive zoom based on node count
@@ -3886,7 +3786,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }, []);
   
   // Calculate optimal handle based on relative positions using A* pathfinding
-  const getOptimalHandles = useCallback((
+  // Named differently to avoid conflict with getOptimalHandles from edgeUtils
+  const getOptimalHandlesAStar = useCallback((
     sourceId: string,
     targetId: string,
     sourcePos: { x: number; y: number },
@@ -3998,7 +3899,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       
       if (!sourcePos || !targetPos) return edge;
       
-      const { sourceHandle, targetHandle } = getOptimalHandles(
+      const { sourceHandle, targetHandle } = getOptimalHandlesAStar(
         edge.source, 
         edge.target, 
         sourcePos, 
@@ -4039,7 +3940,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       });
       saveLayout({ edgeHandles });
     }
-  }, [nodes, edges, getOptimalHandles, setEdges]);
+  }, [nodes, edges, getOptimalHandlesAStar, setEdges]);
   
   // Apply A* pathfinding on initial render and when graph structure changes
   // DISABLED: Too slow for large graphs. Edge handles are set during initial layout.
@@ -5214,40 +5115,49 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           const hasSelection = selectedNode !== null;
           const isDimmed = hasSelection && !isHighlighted;
           
-          // Determine stroke color
+          // Determine stroke color and styling based on state
           let strokeColor = e.style?.stroke || '#6b7280';
+          let strokeWidth = e.style?.strokeWidth || 2;
+          let opacity = 1;
+          let animated = false;
+          
           if (isSelectedEdge) {
+            // Selected edge: bright red, thicker
             strokeColor = '#ef4444';
+            strokeWidth = 4;
           } else if (isDimmed) {
-            strokeColor = '#3a3a3a';
+            // Dimmed edge: very faint, almost invisible
+            strokeColor = '#2a2a2a';
+            opacity = 0.15;
           } else if (isHighlighted && hasSelection) {
-            // Keep original color but maybe brighten it
-            strokeColor = e.style?.stroke || '#6b7280';
+            // Highlighted edge: original color, slightly thicker, animated
+            strokeWidth = 3;
+            animated = true;
           }
           
           return {
             ...e,
             selected: isSelectedEdge,
-            animated: isHighlighted && hasSelection && !isSelectedEdge, // Animate highlighted edges
+            animated: animated,
             style: {
               ...e.style,
-              strokeWidth: isSelectedEdge ? 4 : isHighlighted && hasSelection ? 3 : (e.style?.strokeWidth || 2),
+              strokeWidth,
               stroke: strokeColor,
-              opacity: isDimmed ? 0.2 : 1,
-              strokeDasharray: isHighlighted && hasSelection && !isSelectedEdge ? '8,4' : undefined,
+              opacity,
+              // No strokeDasharray - let animation handle the visual effect
               transition: 'all 0.3s ease',
             },
-            // Also dim the edge label and its background when edge is dimmed
+            // Dim the edge label when edge is dimmed
             labelStyle: {
               ...((e.labelStyle as React.CSSProperties) || {}),
-              fill: isDimmed ? '#3a3a3a' : ((e.labelStyle as React.CSSProperties)?.fill || strokeColor),
-              opacity: isDimmed ? 0.3 : 1,
+              fill: isDimmed ? '#2a2a2a' : ((e.labelStyle as React.CSSProperties)?.fill || strokeColor),
+              opacity: isDimmed ? 0.15 : 1,
               transition: 'all 0.3s ease',
             },
             labelBgStyle: {
               ...((e.labelBgStyle as React.CSSProperties) || {}),
-              fill: isDimmed ? '#1a1a1a' : ((e.labelBgStyle as React.CSSProperties)?.fill || '#111827'),
-              fillOpacity: isDimmed ? 0.5 : 0.9,
+              fill: isDimmed ? '#0a0a0a' : ((e.labelBgStyle as React.CSSProperties)?.fill || '#111827'),
+              fillOpacity: isDimmed ? 0.3 : 0.9,
               transition: 'all 0.3s ease',
             },
           };

@@ -36,7 +36,9 @@ export const getOptimalHandles = (
   targetPos: NodePosition,
   _relType: string,
   edgeIndex: number,
-  totalEdgesForPair: number
+  totalEdgesForPair: number,
+  _sourceOutDegree?: number,
+  _targetInDegree?: number
 ): { source: string; target: string } => {
   const dx = targetPos.x - sourcePos.x;
   const dy = targetPos.y - sourcePos.y;
