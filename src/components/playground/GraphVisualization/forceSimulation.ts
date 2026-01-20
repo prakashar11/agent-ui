@@ -49,7 +49,23 @@ export const FORCE_CONFIG = {
   sameLevelRepulsionBoost: 2.5,
 } as const;
 
-export type ForceConfig = typeof FORCE_CONFIG;
+// Mutable interface for ForceConfig (allows overriding values)
+export interface ForceConfig {
+  repulsion: number;
+  springLength: number;
+  springStrength: number;
+  seedAttractionBoost: number;
+  damping: number;
+  hierarchyForce: number;
+  levelSpacing: number;
+  theta: number;
+  maxIterations: number;
+  convergenceThreshold: number;
+  fastModeThreshold: number;
+  gridFallbackThreshold: number;
+  minNodeSpacing: number;
+  sameLevelRepulsionBoost: number;
+}
 
 // =============================================================================
 // HELPER FUNCTIONS

@@ -1,6 +1,10 @@
 /**
  * Layout utilities for graph visualization
  * Includes cluster-based layout, grid layout, and force-directed layout integration
+ * 
+ * Web Worker Support:
+ * - Use `layoutClusterAsync` for off-main-thread simulation (recommended for large graphs)
+ * - Use `layoutCluster` for synchronous simulation (smaller graphs or when workers unavailable)
  */
 
 import type { Node, Edge } from '@xyflow/react';
@@ -9,8 +13,17 @@ import {
   FORCE_CONFIG, 
   runForceSimulation, 
   simNodesToLayout,
-  type SimNode 
+  type SimNode,
+  type ForceConfig,
 } from './forceSimulation';
+import type { 
+  WorkerSimNode, 
+  WorkerSimEdge, 
+  WorkerForceConfig,
+  ForceWorkerResponse,
+  ForceWorkerCompletePayload,
+  ForceWorkerErrorPayload,
+} from './forceSimulation.types';
 
 // =============================================================================
 // LAYOUT CONSTANTS
@@ -29,20 +42,40 @@ export const MARGIN_Y = 30;
 // =============================================================================
 
 export interface LayoutSettings {
-  nodesPerRow: number;
-  clustersPerRow: number;
-  nodeSpacing: number;       // Horizontal gap between nodes
-  clusterSpacing: number;    // Gap between clusters
-  verticalSpacing: number;   // Vertical gap between levels
+  // Cluster arrangement
+  clustersPerRow: number;      // Max clusters per row (0 = auto)
+  clusterSpacing: number;      // Gap between clusters horizontally
+  
+  // Force simulation parameters (these actually control node layout)
+  minNodeSpacing: number;      // Minimum spacing between nodes at same level (px)
+  levelSpacing: number;        // Vertical spacing between hierarchy levels (px)
+  forceIterations: number;     // Number of simulation iterations (more = better but slower)
+  
+  // Performance options
+  useWebWorker: boolean;       // Run simulation off main thread
+  gridFallbackThreshold: number; // Fall back to grid layout above this node count
 }
 
 export const DEFAULT_LAYOUT_SETTINGS: LayoutSettings = {
-  nodesPerRow: 12,       // Optimized for large graphs
-  clustersPerRow: 5,     // Good balance for screen width
-  nodeSpacing: 80,       // Comfortable spacing between nodes
-  clusterSpacing: 120,   // Clear separation between clusters
-  verticalSpacing: 95,   // Readable vertical hierarchy
+  clustersPerRow: 5,           // Good balance for screen width
+  clusterSpacing: 120,         // Clear separation between clusters
+  minNodeSpacing: 250,         // Matches FORCE_CONFIG.minNodeSpacing
+  levelSpacing: 350,           // Matches FORCE_CONFIG.levelSpacing
+  forceIterations: 120,        // Matches FORCE_CONFIG.maxIterations
+  useWebWorker: true,          // Enable web worker by default
+  gridFallbackThreshold: 250,  // Use grid layout for very large graphs
 };
+
+/**
+ * Create a merged ForceConfig from LayoutSettings
+ */
+export const layoutSettingsToForceConfig = (settings: LayoutSettings): ForceConfig => ({
+  ...FORCE_CONFIG,
+  minNodeSpacing: settings.minNodeSpacing,
+  levelSpacing: settings.levelSpacing,
+  maxIterations: settings.forceIterations,
+  gridFallbackThreshold: settings.gridFallbackThreshold,
+});
 
 export interface ClusterNode {
   id: string;
@@ -61,11 +94,14 @@ export interface Cluster {
 export interface LayoutOptions {
   containerWidth?: number;
   containerHeight?: number;
-  maxNodesPerRow?: number;
   maxClustersPerRow?: number;
-  nodeSpacing?: number;
   clusterSpacing?: number;
-  verticalSpacing?: number;
+  // Force simulation overrides
+  minNodeSpacing?: number;
+  levelSpacing?: number;
+  forceIterations?: number;
+  useWebWorker?: boolean;
+  gridFallbackThreshold?: number;
 }
 
 // Node data interface (matches CustomNodeData in main component)
@@ -85,20 +121,11 @@ interface NodeData {
  */
 export const getResponsiveParams = (options: LayoutOptions) => {
   const containerWidth = options.containerWidth || 1200;
-  const nodeSpacing = options.nodeSpacing ?? DEFAULT_HORIZONTAL_GAP;
   const clusterSpacing = options.clusterSpacing ?? DEFAULT_CLUSTER_GAP_X;
+  const minNodeSpacing = options.minNodeSpacing ?? FORCE_CONFIG.minNodeSpacing;
   
-  // If user specified values, use them directly
-  if (options.maxNodesPerRow && options.maxNodesPerRow > 0) {
-    const maxNodesPerRow = options.maxNodesPerRow;
-    const maxClustersPerRow = options.maxClustersPerRow && options.maxClustersPerRow > 0 
-      ? options.maxClustersPerRow 
-      : Math.max(2, Math.floor(containerWidth / (maxNodesPerRow * (NODE_WIDTH + nodeSpacing) + clusterSpacing)));
-    return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
-  }
-  
-  // Auto-calculate based on container width
-  const avgClusterWidth = 3 * NODE_WIDTH + 2 * nodeSpacing + clusterSpacing;
+  // Auto-calculate clusters per row based on container width
+  const avgClusterWidth = 3 * NODE_WIDTH + 2 * minNodeSpacing + clusterSpacing;
   let maxClustersPerRow = Math.max(2, Math.floor(containerWidth / avgClusterWidth));
   if (options.maxClustersPerRow && options.maxClustersPerRow > 0) {
     maxClustersPerRow = options.maxClustersPerRow;
@@ -106,12 +133,15 @@ export const getResponsiveParams = (options: LayoutOptions) => {
     maxClustersPerRow = Math.min(maxClustersPerRow, 6);
   }
   
-  // Calculate max nodes per row within a cluster
-  const targetClusterWidth = containerWidth / maxClustersPerRow - clusterSpacing;
-  let maxNodesPerRow = Math.max(2, Math.floor(targetClusterWidth / (NODE_WIDTH + nodeSpacing)));
-  maxNodesPerRow = Math.min(maxNodesPerRow, 8);
-  
-  return { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing };
+  return { 
+    maxClustersPerRow, 
+    clusterSpacing,
+    minNodeSpacing,
+    levelSpacing: options.levelSpacing ?? FORCE_CONFIG.levelSpacing,
+    forceIterations: options.forceIterations ?? FORCE_CONFIG.maxIterations,
+    useWebWorker: options.useWebWorker ?? true,
+    gridFallbackThreshold: options.gridFallbackThreshold ?? FORCE_CONFIG.gridFallbackThreshold,
+  };
 };
 
 // =============================================================================
@@ -175,9 +205,7 @@ export const findClusters = (nodes: Node[], edges: Edge[]): Map<string, Set<stri
 export const layoutClusterGrid = (
   clusterNodes: Node[],
   clusterEdges: Edge[],
-  maxNodesPerRow: number,
-  nodeSpacing: number = DEFAULT_HORIZONTAL_GAP,
-  _verticalSpacing: number = DEFAULT_VERTICAL_GAP
+  config: ForceConfig = FORCE_CONFIG
 ): { nodes: Node[]; width: number; height: number } => {
   if (clusterNodes.length === 0) {
     return { nodes: [], width: 0, height: 0 };
@@ -192,10 +220,10 @@ export const layoutClusterGrid = (
   }
   
   const nodeCount = clusterNodes.length;
-  const minSpacing = FORCE_CONFIG.minNodeSpacing;
-  const baseSpacing = Math.max(minSpacing, 300 - nodeCount * 0.2);
-  const horizontalGap = Math.max(nodeSpacing, baseSpacing, minSpacing);
-  const verticalGap = Math.max(180, baseSpacing * 0.8, FORCE_CONFIG.levelSpacing * 0.6);
+  const { minNodeSpacing, levelSpacing } = config;
+  const baseSpacing = Math.max(minNodeSpacing, 300 - nodeCount * 0.2);
+  const horizontalGap = Math.max(baseSpacing, minNodeSpacing);
+  const verticalGap = Math.max(180, baseSpacing * 0.8, levelSpacing * 0.6);
   
   // Group nodes by type for organized layout
   const nodesByType: Record<string, Node[]> = {};
@@ -221,7 +249,8 @@ export const layoutClusterGrid = (
     }
   });
   
-  const effectiveNodesPerRow = Math.max(maxNodesPerRow, Math.ceil(Math.sqrt(nodeCount) * 1.5));
+  // Auto-calculate nodes per row based on node count
+  const effectiveNodesPerRow = Math.max(8, Math.ceil(Math.sqrt(nodeCount) * 1.5));
   
   const layoutedNodes: Node[] = [];
   let currentY = 0;
@@ -272,13 +301,14 @@ export const layoutClusterGrid = (
 
 /**
  * Main cluster layout function - uses force-directed with adaptive fallback
+ * @param clusterNodes - Nodes to layout
+ * @param clusterEdges - Edges between nodes
+ * @param config - Force simulation configuration (use layoutSettingsToForceConfig to convert from LayoutSettings)
  */
 export const layoutCluster = (
   clusterNodes: Node[],
   clusterEdges: Edge[],
-  maxNodesPerRow: number,
-  nodeSpacing: number = DEFAULT_HORIZONTAL_GAP,
-  verticalSpacing: number = DEFAULT_VERTICAL_GAP
+  config: ForceConfig = FORCE_CONFIG
 ): { nodes: Node[]; width: number; height: number } => {
   if (clusterNodes.length === 0) {
     return { nodes: [], width: 0, height: 0 };
@@ -293,17 +323,18 @@ export const layoutCluster = (
   }
   
   const nodeCount = clusterNodes.length;
+  const { minNodeSpacing, levelSpacing, maxIterations, fastModeThreshold, gridFallbackThreshold } = config;
   
   // Adaptive strategy based on node count
-  if (nodeCount > FORCE_CONFIG.gridFallbackThreshold) {
+  if (nodeCount > gridFallbackThreshold) {
     console.log(`[ForceLayout] Cluster with ${nodeCount} nodes exceeds threshold, using grid fallback`);
-    return layoutClusterGrid(clusterNodes, clusterEdges, maxNodesPerRow, nodeSpacing, verticalSpacing);
+    return layoutClusterGrid(clusterNodes, clusterEdges, config);
   }
   
   // Determine iterations based on cluster size
-  const iterations = nodeCount > FORCE_CONFIG.fastModeThreshold 
-    ? Math.max(30, FORCE_CONFIG.maxIterations - Math.floor(nodeCount / 5))
-    : FORCE_CONFIG.maxIterations;
+  const iterations = nodeCount > fastModeThreshold 
+    ? Math.max(30, maxIterations - Math.floor(nodeCount / 5))
+    : maxIterations;
   
   // Group nodes by hierarchy level for initial positioning
   const nodesByLevel: Map<number, Node[]> = new Map();
@@ -317,8 +348,7 @@ export const layoutCluster = (
   });
   
   // Initialize SimNodes with smart initial positions
-  const minSpacing = FORCE_CONFIG.minNodeSpacing;
-  const effectiveSpacing = minSpacing + NODE_WIDTH;
+  const effectiveSpacing = minNodeSpacing + NODE_WIDTH;
   
   const simNodes: SimNode[] = clusterNodes.map((node, globalIndex) => {
     const nodeData = node.data as NodeData;
@@ -341,10 +371,10 @@ export const layoutCluster = (
     
     const jitterX = (Math.random() - 0.5) * 20;
     const jitterY = (Math.random() - 0.5) * 10;
-    const initialY = hierarchyLevel * FORCE_CONFIG.levelSpacing;
+    const initialY = hierarchyLevel * levelSpacing;
     
     const safeX = Number.isFinite(initialX + jitterX) ? initialX + jitterX : globalIndex * effectiveSpacing;
-    const safeY = Number.isFinite(initialY + jitterY) ? initialY + jitterY : hierarchyLevel * FORCE_CONFIG.levelSpacing;
+    const safeY = Number.isFinite(initialY + jitterY) ? initialY + jitterY : hierarchyLevel * levelSpacing;
     
     return {
       id: node.id,
@@ -373,12 +403,424 @@ export const layoutCluster = (
   const seedCount = simNodes.filter(n => n.isSeed).length;
   const startTime = performance.now();
   
-  runForceSimulation(simNodes, simEdges, iterations);
+  runForceSimulation(simNodes, simEdges, iterations, config);
   
   const elapsed = (performance.now() - startTime).toFixed(1);
   console.log(`[ForceLayout] Cluster: ${nodeCount} nodes (${seedCount} seeds), ${simEdges.length} edges, ${iterations} iterations in ${elapsed}ms`);
   
-  return simNodesToLayout(simNodes, NODE_WIDTH, NODE_HEIGHT);
+  return simNodesToLayout(simNodes, NODE_WIDTH, NODE_HEIGHT, config);
+};
+
+// =============================================================================
+// ASYNC FORCE-DIRECTED CLUSTER LAYOUT (Web Worker)
+// =============================================================================
+
+// Worker singleton for async layout operations
+let layoutWorker: Worker | null = null;
+let workerPromise: Promise<Worker> | null = null;
+
+/**
+ * Initialize or get the force simulation worker
+ */
+const getLayoutWorker = (): Promise<Worker> => {
+  if (workerPromise) return workerPromise;
+  
+  workerPromise = new Promise((resolve, reject) => {
+    try {
+      layoutWorker = new Worker(
+        new URL('./forceSimulation.worker.ts', import.meta.url),
+        { type: 'module' }
+      );
+      resolve(layoutWorker);
+    } catch (error) {
+      console.warn('[LayoutUtils] Failed to create worker:', error);
+      reject(error);
+    }
+  });
+  
+  return workerPromise;
+};
+
+/**
+ * Terminate the layout worker (cleanup)
+ */
+export const terminateLayoutWorker = (): void => {
+  if (layoutWorker) {
+    layoutWorker.terminate();
+    layoutWorker = null;
+    workerPromise = null;
+  }
+};
+
+/**
+ * Convert nodes to worker-compatible format
+ */
+const prepareNodesForWorker = (
+  clusterNodes: Node[],
+  config: ForceConfig
+): WorkerSimNode[] => {
+  const { minNodeSpacing, levelSpacing } = config;
+  const effectiveSpacing = minNodeSpacing + NODE_WIDTH;
+  
+  // Group nodes by hierarchy level
+  const nodesByLevel: Map<number, Node[]> = new Map();
+  clusterNodes.forEach(node => {
+    const nodeData = node.data as NodeData;
+    const level = getNodeRank(nodeData.nodeType);
+    if (!nodesByLevel.has(level)) {
+      nodesByLevel.set(level, []);
+    }
+    nodesByLevel.get(level)!.push(node);
+  });
+  
+  return clusterNodes.map((node, globalIndex) => {
+    const nodeData = node.data as NodeData;
+    const nodeType = nodeData.nodeType || 'Unknown';
+    const isSeed = SEED_NODE_TYPES.has(nodeType);
+    const hierarchyLevel = getNodeRank(nodeType);
+    
+    const nodesAtLevel = nodesByLevel.get(hierarchyLevel) || [];
+    const indexAtLevel = nodesAtLevel.indexOf(node);
+    const countAtLevel = Math.max(1, nodesAtLevel.length);
+    
+    let initialX: number;
+    if (countAtLevel === 1) {
+      initialX = 0;
+    } else {
+      const totalWidth = (countAtLevel - 1) * effectiveSpacing;
+      initialX = (indexAtLevel * effectiveSpacing) - (totalWidth / 2);
+    }
+    
+    const jitterX = (Math.random() - 0.5) * 20;
+    const jitterY = (Math.random() - 0.5) * 10;
+    const initialY = hierarchyLevel * levelSpacing;
+    
+    const safeX = Number.isFinite(initialX + jitterX) ? initialX + jitterX : globalIndex * effectiveSpacing;
+    const safeY = Number.isFinite(initialY + jitterY) ? initialY + jitterY : hierarchyLevel * levelSpacing;
+    
+    return {
+      id: node.id,
+      x: safeX,
+      y: safeY,
+      vx: 0,
+      vy: 0,
+      fx: null,
+      fy: initialY,
+      mass: isSeed ? 2.5 : 1.5,
+      isSeed,
+      hierarchyLevel,
+      originalPosition: { x: node.position.x, y: node.position.y },
+    };
+  });
+};
+
+/**
+ * Convert worker results back to React Flow nodes
+ */
+const workerResultToLayout = (
+  workerNodes: WorkerSimNode[],
+  originalNodes: Node[],
+  config: ForceConfig
+): { nodes: Node[]; width: number; height: number } => {
+  if (workerNodes.length === 0) {
+    return { nodes: [], width: 0, height: 0 };
+  }
+  
+  const { minNodeSpacing, levelSpacing } = config;
+  const originalNodeMap = new Map(originalNodes.map(n => [n.id, n]));
+  
+  // Validate positions
+  workerNodes.forEach((n, idx) => {
+    if (!Number.isFinite(n.x)) n.x = idx * minNodeSpacing;
+    if (!Number.isFinite(n.y)) n.y = n.hierarchyLevel * levelSpacing;
+  });
+  
+  // Calculate bounds
+  let minX = Infinity, maxX = -Infinity;
+  let minY = Infinity, maxY = -Infinity;
+  
+  workerNodes.forEach(n => {
+    minX = Math.min(minX, n.x);
+    maxX = Math.max(maxX, n.x);
+    minY = Math.min(minY, n.y);
+    maxY = Math.max(maxY, n.y);
+  });
+  
+  if (!Number.isFinite(minX)) minX = 0;
+  if (!Number.isFinite(minY)) minY = 0;
+  if (!Number.isFinite(maxX)) maxX = workerNodes.length * minNodeSpacing;
+  if (!Number.isFinite(maxY)) maxY = 5 * levelSpacing;
+  
+  const layoutedNodes: Node[] = workerNodes.map((workerNode, idx) => {
+    const originalNode = originalNodeMap.get(workerNode.id);
+    const posX = workerNode.x - minX;
+    const posY = workerNode.y - minY;
+    
+    return {
+      ...originalNode!,
+      position: {
+        x: Number.isFinite(posX) ? posX : idx * minNodeSpacing,
+        y: Number.isFinite(posY) ? posY : workerNode.hierarchyLevel * levelSpacing,
+      },
+    };
+  });
+  
+  const width = Math.max(NODE_WIDTH, maxX - minX + NODE_WIDTH);
+  const height = Math.max(NODE_HEIGHT, maxY - minY + NODE_HEIGHT);
+  
+  return { nodes: layoutedNodes, width, height };
+};
+
+export interface AsyncLayoutResult {
+  nodes: Node[];
+  width: number;
+  height: number;
+  iterations: number;
+  convergedEarly: boolean;
+  elapsedMs: number;
+}
+
+export interface AsyncLayoutOptions {
+  /** Progress callback (called during simulation) */
+  onProgress?: (current: number, total: number) => void;
+  /** Whether to use worker (default: true, falls back to sync if unavailable) */
+  useWorker?: boolean;
+  /** Force simulation configuration */
+  config?: ForceConfig;
+}
+
+/**
+ * Async cluster layout using Web Worker for off-main-thread simulation
+ * Recommended for large graphs (50+ nodes) to prevent UI blocking
+ */
+export const layoutClusterAsync = async (
+  clusterNodes: Node[],
+  clusterEdges: Edge[],
+  options: AsyncLayoutOptions = {}
+): Promise<AsyncLayoutResult> => {
+  const { onProgress, useWorker = true, config = FORCE_CONFIG } = options;
+  
+  if (clusterNodes.length === 0) {
+    return { nodes: [], width: 0, height: 0, iterations: 0, convergedEarly: true, elapsedMs: 0 };
+  }
+  
+  if (clusterNodes.length === 1) {
+    return {
+      nodes: [{ ...clusterNodes[0], position: { x: 0, y: 0 } }],
+      width: NODE_WIDTH,
+      height: NODE_HEIGHT,
+      iterations: 0,
+      convergedEarly: true,
+      elapsedMs: 0,
+    };
+  }
+  
+  const nodeCount = clusterNodes.length;
+  const { gridFallbackThreshold, fastModeThreshold, maxIterations } = config;
+  
+  // Use grid fallback for very large graphs
+  if (nodeCount > gridFallbackThreshold) {
+    const startTime = performance.now();
+    const result = layoutClusterGrid(clusterNodes, clusterEdges, config);
+    return {
+      ...result,
+      iterations: 0,
+      convergedEarly: true,
+      elapsedMs: performance.now() - startTime,
+    };
+  }
+  
+  // Determine iterations
+  const iterations = nodeCount > fastModeThreshold
+    ? Math.max(30, maxIterations - Math.floor(nodeCount / 5))
+    : maxIterations;
+  
+  // Try to use worker
+  if (useWorker && typeof Worker !== 'undefined') {
+    try {
+      const worker = await getLayoutWorker();
+      
+      return new Promise<AsyncLayoutResult>((resolve, reject) => {
+        const workerNodes = prepareNodesForWorker(clusterNodes, config);
+        const nodeIds = new Set(clusterNodes.map(n => n.id));
+        const workerEdges: WorkerSimEdge[] = clusterEdges
+          .filter(e => nodeIds.has(e.source) && nodeIds.has(e.target))
+          .map(e => ({ sourceId: e.source, targetId: e.target }));
+        
+        const workerConfig: WorkerForceConfig = { ...config };
+        
+        const handleMessage = (event: MessageEvent<ForceWorkerResponse>) => {
+          const { type, payload } = event.data;
+          
+          if (type === 'SIMULATION_PROGRESS') {
+            const progress = payload as { currentIteration: number; totalIterations: number };
+            onProgress?.(progress.currentIteration, progress.totalIterations);
+          } else if (type === 'SIMULATION_COMPLETE') {
+            const complete = payload as ForceWorkerCompletePayload;
+            worker.removeEventListener('message', handleMessage);
+            
+            const result = workerResultToLayout(complete.nodes, clusterNodes, config);
+            console.log(`[ForceLayout] Worker: ${nodeCount} nodes, ${iterations} iterations in ${complete.elapsedMs.toFixed(1)}ms` +
+              (complete.convergedEarly ? ' (converged early)' : ''));
+            
+            resolve({
+              ...result,
+              iterations: complete.iterations,
+              convergedEarly: complete.convergedEarly,
+              elapsedMs: complete.elapsedMs,
+            });
+          } else if (type === 'SIMULATION_ERROR') {
+            const error = payload as ForceWorkerErrorPayload;
+            worker.removeEventListener('message', handleMessage);
+            reject(new Error(error.error));
+          }
+        };
+        
+        worker.addEventListener('message', handleMessage);
+        
+        worker.postMessage({
+          type: 'START_SIMULATION',
+          payload: {
+            nodes: workerNodes,
+            edges: workerEdges,
+            iterations,
+            config: workerConfig,
+            progressInterval: 10,
+          },
+        });
+      });
+    } catch (error) {
+      console.warn('[ForceLayout] Worker failed, falling back to sync:', error);
+    }
+  }
+  
+  // Fallback to synchronous execution
+  const startTime = performance.now();
+  const result = layoutCluster(clusterNodes, clusterEdges, config);
+  
+  return {
+    ...result,
+    iterations,
+    convergedEarly: false,
+    elapsedMs: performance.now() - startTime,
+  };
+};
+
+/**
+ * Async version of getLayoutedElements that uses Web Workers
+ */
+export const getLayoutedElementsAsync = async (
+  nodes: Node[],
+  edges: Edge[],
+  _direction: 'TB' | 'LR' = 'TB',
+  options: LayoutOptions & AsyncLayoutOptions = {}
+): Promise<{ nodes: Node[]; edges: Edge[] }> => {
+  void _direction;
+  
+  if (nodes.length === 0) {
+    return { nodes: [], edges };
+  }
+  
+  const params = getResponsiveParams(options);
+  const { maxClustersPerRow, clusterSpacing, minNodeSpacing, levelSpacing, forceIterations, gridFallbackThreshold } = params;
+  const clusterGapY = Math.max(100, clusterSpacing + 20);
+  
+  // Build config from options
+  const config: ForceConfig = {
+    ...FORCE_CONFIG,
+    minNodeSpacing,
+    levelSpacing,
+    maxIterations: forceIterations,
+    gridFallbackThreshold,
+  };
+  
+  // Step 1: Find connected clusters
+  const clusterMap = findClusters(nodes, edges);
+  const nodeMap = new Map(nodes.map(n => [n.id, n]));
+  
+  // Step 2: Layout each cluster (in parallel for workers)
+  const clusterPromises: Promise<Cluster>[] = [];
+  
+  clusterMap.forEach((nodeIds, clusterId) => {
+    const clusterNodes = [...nodeIds].map(id => nodeMap.get(id)!).filter(Boolean);
+    
+    // Find anchor node
+    let anchorNode = clusterNodes[0];
+    let anchorRank = getNodeRank((anchorNode.data as NodeData).nodeType);
+    
+    clusterNodes.forEach(node => {
+      const nodeData = node.data as NodeData;
+      const rank = getNodeRank(nodeData.nodeType);
+      if (rank < anchorRank) {
+        anchorRank = rank;
+        anchorNode = node;
+      }
+    });
+    
+    const clusterEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+    
+    const promise = layoutClusterAsync(
+      clusterNodes,
+      clusterEdges,
+      { useWorker: params.useWebWorker, onProgress: options.onProgress, config }
+    ).then(result => ({
+      id: clusterId,
+      nodes: result.nodes.map(n => ({
+        id: n.id,
+        node: n,
+        level: getNodeRank((n.data as NodeData).nodeType),
+      })),
+      anchorNodeId: anchorNode.id,
+      width: result.width,
+      height: result.height,
+    }));
+    
+    clusterPromises.push(promise);
+  });
+  
+  // Wait for all clusters to complete
+  const clusters = await Promise.all(clusterPromises);
+  
+  // Step 3: Sort and arrange clusters
+  clusters.sort((a, b) => b.nodes.length - a.nodes.length);
+  
+  const layoutedNodes: Node[] = [];
+  let clusterX = MARGIN_X;
+  let clusterY = MARGIN_Y;
+  let rowMaxHeight = 0;
+  let clustersInRow = 0;
+  let currentRowWidth = 0;
+  const containerWidth = options.containerWidth || 1600;
+  
+  clusters.forEach((cluster) => {
+    const wouldExceedWidth = currentRowWidth + cluster.width + clusterSpacing > containerWidth - MARGIN_X * 2;
+    const exceededClusterCount = clustersInRow >= maxClustersPerRow;
+    
+    if ((wouldExceedWidth || exceededClusterCount) && clustersInRow > 0) {
+      clusterX = MARGIN_X;
+      clusterY += rowMaxHeight + clusterGapY;
+      rowMaxHeight = 0;
+      clustersInRow = 0;
+      currentRowWidth = 0;
+    }
+    
+    cluster.nodes.forEach(({ node }) => {
+      layoutedNodes.push({
+        ...node,
+        position: {
+          x: clusterX + node.position.x + cluster.width / 2,
+          y: clusterY + node.position.y,
+        },
+      });
+    });
+    
+    clusterX += cluster.width + clusterSpacing;
+    currentRowWidth += cluster.width + clusterSpacing;
+    rowMaxHeight = Math.max(rowMaxHeight, cluster.height);
+    clustersInRow++;
+  });
+  
+  return { nodes: layoutedNodes, edges };
 };
 
 // =============================================================================
@@ -401,9 +843,18 @@ export const getLayoutedElements = (
     return { nodes: [], edges };
   }
   
-  const { maxNodesPerRow, maxClustersPerRow, nodeSpacing, clusterSpacing } = getResponsiveParams(options);
-  const verticalSpacing = options.verticalSpacing ?? DEFAULT_VERTICAL_GAP;
+  const params = getResponsiveParams(options);
+  const { maxClustersPerRow, clusterSpacing, minNodeSpacing, levelSpacing, forceIterations, gridFallbackThreshold } = params;
   const clusterGapY = Math.max(100, clusterSpacing + 20);
+  
+  // Build config from options
+  const config: ForceConfig = {
+    ...FORCE_CONFIG,
+    minNodeSpacing,
+    levelSpacing,
+    maxIterations: forceIterations,
+    gridFallbackThreshold,
+  };
   
   // Step 1: Find connected clusters
   const clusterMap = findClusters(nodes, edges);
@@ -433,9 +884,7 @@ export const getLayoutedElements = (
     const { nodes: layoutedClusterNodes, width, height } = layoutCluster(
       clusterNodes, 
       clusterEdges,
-      maxNodesPerRow,
-      nodeSpacing,
-      verticalSpacing
+      config
     );
     
     clusters.push({

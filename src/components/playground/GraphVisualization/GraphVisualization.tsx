@@ -274,7 +274,11 @@ interface CustomNodeData {
   label: string;
   nodeType: string;
   properties: Record<string, unknown>;
-  [key: string]: unknown; // Allow additional properties for ReactFlow
+  // Highlighting state for selection-based focus
+  isHighlighted?: boolean;  // Node is within hop distance of selected node
+  isDimmed?: boolean;       // Node is outside hop distance (should appear grayed)
+  isSelected?: boolean;     // This is the currently selected node
+  [key: string]: unknown;   // Allow additional properties for ReactFlow
 }
 
 type CustomNode = Node<CustomNodeData>;
@@ -282,6 +286,11 @@ type CustomNode = Node<CustomNodeData>;
 const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
   const nodeData = data as unknown as CustomNodeData;
   const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
+  
+  // Highlighting states
+  const isHighlighted = nodeData.isHighlighted === true;
+  const isDimmed = nodeData.isDimmed === true;
+  const isSelectedNode = nodeData.isSelected === true;
   
   const handleCopyLabel = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -292,16 +301,30 @@ const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
     });
   };
   
+  // Compute opacity and styles based on highlight state
+  const dimmedOpacity = isDimmed ? 0.3 : 1;
+  const highlightGlow = isHighlighted && !isSelectedNode 
+    ? `0 0 12px 2px ${color}60, 0 0 20px 4px ${color}30` 
+    : undefined;
+  const selectedGlow = isSelectedNode 
+    ? `0 0 16px 4px ${color}80, 0 0 30px 8px ${color}40` 
+    : undefined;
+  
   return (
     <div
       className={`
         px-4 py-3 rounded-lg border-2 shadow-lg min-w-[140px] max-w-[200px]
-        transition-all duration-200
+        transition-all duration-300
         ${selected ? 'ring-2 ring-white ring-offset-2 ring-offset-neutral-900' : ''}
+        ${isSelectedNode ? 'scale-110 z-50' : ''}
+        ${isDimmed ? 'grayscale' : ''}
       `}
       style={{
-        backgroundColor: `${color}20`,
-        borderColor: color,
+        backgroundColor: isDimmed ? '#1a1a1a40' : `${color}20`,
+        borderColor: isDimmed ? '#4a4a4a' : color,
+        opacity: dimmedOpacity,
+        boxShadow: selectedGlow || highlightGlow,
+        transform: isSelectedNode ? 'scale(1.05)' : undefined,
       }}
     >
       {/* Top handles */}
@@ -362,18 +385,20 @@ const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
       
       <div className="flex flex-col gap-1">
         <div
-          className="text-[10px] uppercase font-medium tracking-wider"
-          style={{ color }}
+          className="text-[10px] uppercase font-medium tracking-wider transition-colors duration-300"
+          style={{ color: isDimmed ? '#6b7280' : color }}
         >
           {nodeData.nodeType}
         </div>
         <div 
-          className="text-sm font-semibold text-white truncate flex items-center gap-1.5 group cursor-pointer hover:text-blue-300 transition-colors" 
+          className={`text-sm font-semibold truncate flex items-center gap-1.5 group cursor-pointer transition-colors duration-300 ${
+            isDimmed ? 'text-neutral-500' : 'text-white hover:text-blue-300'
+          }`}
           title={`Double-click to copy: ${nodeData.label}`}
           onDoubleClick={handleCopyLabel}
         >
           <span className="truncate">{nodeData.label}</span>
-          <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+          <Copy className={`w-3 h-3 transition-opacity flex-shrink-0 ${isDimmed ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`} />
         </div>
       </div>
     </div>
@@ -2648,6 +2673,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [nodes, setNodes, onNodesChange] = useNodesState<CustomNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNode, setSelectedNode] = useState<CustomNode | null>(null);
+  const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
+  const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFilteredNodeIds, setSearchFilteredNodeIds] = useState<Set<string> | null>(null);
   const [filterMaxHops, setFilterMaxHops] = useState<number | undefined>(1); // Default to 1 hop for directly connected nodes
@@ -3386,11 +3413,13 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           containerWidth: containerSize.width,
           containerHeight: containerSize.height,
           // Pass user-customizable layout settings (0 = auto)
-          maxNodesPerRow: layoutSettings.nodesPerRow > 0 ? layoutSettings.nodesPerRow : undefined,
           maxClustersPerRow: layoutSettings.clustersPerRow > 0 ? layoutSettings.clustersPerRow : undefined,
-          nodeSpacing: layoutSettings.nodeSpacing,
           clusterSpacing: layoutSettings.clusterSpacing,
-          verticalSpacing: layoutSettings.verticalSpacing,
+          minNodeSpacing: layoutSettings.minNodeSpacing,
+          levelSpacing: layoutSettings.levelSpacing,
+          forceIterations: layoutSettings.forceIterations,
+          useWebWorker: layoutSettings.useWebWorker,
+          gridFallbackThreshold: layoutSettings.gridFallbackThreshold,
         }
       );
       
@@ -3399,7 +3428,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       
       setNodes(layoutedNodes as CustomNode[]);
       setEdges(optimizedEdges);
-      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with optimized edge handles (container: ${containerSize.width}x${containerSize.height}, nodesPerRow: ${layoutSettings.nodesPerRow || 'auto'})`);
+      console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with optimized edge handles (container: ${containerSize.width}x${containerSize.height}, clustersPerRow: ${layoutSettings.clustersPerRow || 'auto'}, worker: ${layoutSettings.useWebWorker})`);
     }
 
     // Fit view after layout with adaptive zoom based on node count
@@ -3430,6 +3459,120 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       }
     }, 100);
   }, [graphData, activeFilters, primaryAnchorType, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
+
+  // ==========================================================================
+  // HIGHLIGHT RELATED NODES WHEN A NODE IS SELECTED
+  // Uses the same filterMaxHops (depth) setting from the navigation controls
+  // ==========================================================================
+  
+  // Use refs to access current nodes/edges without causing effect re-runs
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { edgesRef.current = edges; }, [edges]);
+  
+  useEffect(() => {
+    if (!selectedNode) {
+      // No node selected - clear all highlighting
+      setHighlightedNodeIds(new Set());
+      setHighlightedEdgeIds(new Set());
+      
+      // Remove highlight/dim state from all nodes
+      setNodes(currentNodes => currentNodes.map(node => {
+        // Only update if node has highlight state
+        if (node.data.isHighlighted || node.data.isDimmed || node.data.isSelected) {
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              isHighlighted: false,
+              isDimmed: false,
+              isSelected: false,
+            },
+          };
+        }
+        return node;
+      }));
+      return;
+    }
+    
+    // Use VISIBLE nodes and edges (from refs) for highlight calculation
+    // This ensures highlighting respects the current filtered view
+    const currentNodes = nodesRef.current;
+    const currentEdges = edgesRef.current;
+    const visibleNodeIds = new Set(currentNodes.map(n => n.id));
+    
+    // Build adjacency list from VISIBLE edges only
+    const adjacency = new Map<string, Set<string>>();
+    currentEdges.forEach(edge => {
+      if (!adjacency.has(edge.source)) adjacency.set(edge.source, new Set());
+      if (!adjacency.has(edge.target)) adjacency.set(edge.target, new Set());
+      adjacency.get(edge.source)!.add(edge.target);
+      adjacency.get(edge.target)!.add(edge.source);
+    });
+    
+    // BFS to find nodes within filterMaxHops from selected node
+    // filterMaxHops: undefined = 'all' (no limit), 0 = selected only, N = N hops
+    const maxHops = filterMaxHops ?? 100; // undefined means 'all', use large number
+    const relatedNodeIds = new Set<string>([selectedNode.id]);
+    let frontier = new Set<string>([selectedNode.id]);
+    
+    for (let hop = 0; hop < maxHops; hop++) {
+      const nextFrontier = new Set<string>();
+      frontier.forEach(nodeId => {
+        const neighbors = adjacency.get(nodeId);
+        if (neighbors) {
+          neighbors.forEach(neighborId => {
+            if (!relatedNodeIds.has(neighborId) && visibleNodeIds.has(neighborId)) {
+              relatedNodeIds.add(neighborId);
+              nextFrontier.add(neighborId);
+            }
+          });
+        }
+      });
+      frontier = nextFrontier;
+      if (frontier.size === 0) break;
+    }
+    
+    // Find edges that connect related nodes (both endpoints must be related)
+    const relatedEdgeIds = new Set<string>();
+    currentEdges.forEach(edge => {
+      if (relatedNodeIds.has(edge.source) && relatedNodeIds.has(edge.target)) {
+        relatedEdgeIds.add(edge.id);
+      }
+    });
+    
+    setHighlightedNodeIds(relatedNodeIds);
+    setHighlightedEdgeIds(relatedEdgeIds);
+    
+    // Update node data with highlight state
+    setNodes(currentNodes => currentNodes.map(node => {
+      const isRelated = relatedNodeIds.has(node.id);
+      const isTheSelectedNode = node.id === selectedNode.id;
+      const newIsHighlighted = isRelated && !isTheSelectedNode;
+      const newIsDimmed = !isRelated;
+      
+      // Only create new object if state actually changed
+      if (node.data.isHighlighted === newIsHighlighted && 
+          node.data.isDimmed === newIsDimmed && 
+          node.data.isSelected === isTheSelectedNode) {
+        return node;
+      }
+      
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          isHighlighted: newIsHighlighted,
+          isDimmed: newIsDimmed,
+          isSelected: isTheSelectedNode,
+        },
+      };
+    }));
+    
+    console.log(`[AssetGraph] Highlighting ${relatedNodeIds.size} nodes, ${relatedEdgeIds.size} edges within ${filterMaxHops ?? 'all'} hops of "${(selectedNode.data as CustomNodeData).label}"`);
+    
+  }, [selectedNode, filterMaxHops, setNodes]);
 
   // ==========================================================================
   // INCREMENTAL FORCE SIMULATION (DISABLED - kept for future use)
@@ -5065,15 +5208,50 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       
       <ReactFlow
         nodes={nodes}
-        edges={edges.map(e => ({
-          ...e,
-          selected: selectedEdges.has(e.id),
-          style: {
-            ...e.style,
-            strokeWidth: selectedEdges.has(e.id) ? 4 : (e.style?.strokeWidth || 2),
-            stroke: selectedEdges.has(e.id) ? '#ef4444' : (e.style?.stroke || '#6b7280'),
-          },
-        }))}
+        edges={edges.map(e => {
+          const isSelectedEdge = selectedEdges.has(e.id);
+          const isHighlighted = highlightedEdgeIds.has(e.id);
+          const hasSelection = selectedNode !== null;
+          const isDimmed = hasSelection && !isHighlighted;
+          
+          // Determine stroke color
+          let strokeColor = e.style?.stroke || '#6b7280';
+          if (isSelectedEdge) {
+            strokeColor = '#ef4444';
+          } else if (isDimmed) {
+            strokeColor = '#3a3a3a';
+          } else if (isHighlighted && hasSelection) {
+            // Keep original color but maybe brighten it
+            strokeColor = e.style?.stroke || '#6b7280';
+          }
+          
+          return {
+            ...e,
+            selected: isSelectedEdge,
+            animated: isHighlighted && hasSelection && !isSelectedEdge, // Animate highlighted edges
+            style: {
+              ...e.style,
+              strokeWidth: isSelectedEdge ? 4 : isHighlighted && hasSelection ? 3 : (e.style?.strokeWidth || 2),
+              stroke: strokeColor,
+              opacity: isDimmed ? 0.2 : 1,
+              strokeDasharray: isHighlighted && hasSelection && !isSelectedEdge ? '8,4' : undefined,
+              transition: 'all 0.3s ease',
+            },
+            // Also dim the edge label and its background when edge is dimmed
+            labelStyle: {
+              ...((e.labelStyle as React.CSSProperties) || {}),
+              fill: isDimmed ? '#3a3a3a' : ((e.labelStyle as React.CSSProperties)?.fill || strokeColor),
+              opacity: isDimmed ? 0.3 : 1,
+              transition: 'all 0.3s ease',
+            },
+            labelBgStyle: {
+              ...((e.labelBgStyle as React.CSSProperties) || {}),
+              fill: isDimmed ? '#1a1a1a' : ((e.labelBgStyle as React.CSSProperties)?.fill || '#111827'),
+              fillOpacity: isDimmed ? 0.5 : 0.9,
+              transition: 'all 0.3s ease',
+            },
+          };
+        })}
         onNodesChange={handleNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
@@ -5341,7 +5519,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
             {/* Layout Settings Panel */}
             {showLayoutSettings && (
-              <div className="absolute top-full right-0 mt-2 w-72 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl shadow-2xl z-50 p-4">
+              <div className="absolute top-full right-0 mt-2 w-80 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl shadow-2xl z-50 p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-white">Layout Settings</h3>
                   <button
@@ -5354,26 +5532,23 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                   </button>
                 </div>
 
-                {/* Nodes Per Row */}
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-neutral-400">Nodes per Row</label>
-                    <span className="text-xs font-mono text-cyan-400">
-                      {layoutSettings.nodesPerRow === 0 ? 'Auto' : layoutSettings.nodesPerRow}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="12"
-                    step="1"
-                    value={layoutSettings.nodesPerRow}
-                    onChange={(e) => updateLayoutSetting('nodesPerRow', Number(e.target.value))}
-                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-cyan-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
-                    <span>Auto</span>
-                    <span>12</span>
+                {/* Web Worker Toggle */}
+                <div className="mb-4 pb-3 border-b border-neutral-700">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-xs text-neutral-400 block">Use Web Worker</label>
+                      <span className="text-[10px] text-neutral-600">Run simulation off main thread</span>
+                    </div>
+                    <button
+                      onClick={() => updateLayoutSetting('useWebWorker', !layoutSettings.useWebWorker)}
+                      className={`relative w-10 h-5 rounded-full transition-colors ${
+                        layoutSettings.useWebWorker ? 'bg-green-600' : 'bg-neutral-600'
+                      }`}
+                    >
+                      <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                        layoutSettings.useWebWorker ? 'translate-x-5' : 'translate-x-0.5'
+                      }`} />
+                    </button>
                   </div>
                 </div>
 
@@ -5400,27 +5575,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                   </div>
                 </div>
 
-                {/* Node Spacing */}
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-neutral-400">Node Spacing</label>
-                    <span className="text-xs font-mono text-purple-400">{layoutSettings.nodeSpacing}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    step="5"
-                    value={layoutSettings.nodeSpacing}
-                    onChange={(e) => updateLayoutSetting('nodeSpacing', Number(e.target.value))}
-                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-purple-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
-                    <span>Compact</span>
-                    <span>Spread</span>
-                  </div>
-                </div>
-
                 {/* Cluster Spacing */}
                 <div className="mb-4">
                   <div className="flex items-center justify-between mb-2">
@@ -5442,38 +5596,87 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                   </div>
                 </div>
 
-                {/* Vertical Spacing */}
-                <div className="mb-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs text-neutral-400">Vertical Spacing</label>
-                    <span className="text-xs font-mono text-purple-400">{layoutSettings.verticalSpacing}px</span>
+                {/* Force Simulation Section */}
+                <div className="mb-4 pt-3 border-t border-neutral-700">
+                  <label className="text-xs text-neutral-500 mb-3 block">Force Simulation</label>
+                  
+                  {/* Min Node Spacing */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-neutral-400">Node Spacing</label>
+                      <span className="text-xs font-mono text-orange-400">{layoutSettings.minNodeSpacing}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="100"
+                      max="400"
+                      step="25"
+                      value={layoutSettings.minNodeSpacing}
+                      onChange={(e) => updateLayoutSetting('minNodeSpacing', Number(e.target.value))}
+                      className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-orange-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                      <span>Tight</span>
+                      <span>Spread</span>
+                    </div>
                   </div>
-                  <input
-                    type="range"
-                    min="30"
-                    max="150"
-                    step="5"
-                    value={layoutSettings.verticalSpacing}
-                    onChange={(e) => updateLayoutSetting('verticalSpacing', Number(e.target.value))}
-                    className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-purple-500"
-                  />
-                  <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
-                    <span>Dense</span>
-                    <span>Airy</span>
+
+                  {/* Level Spacing */}
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-neutral-400">Level Spacing</label>
+                      <span className="text-xs font-mono text-orange-400">{layoutSettings.levelSpacing}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="150"
+                      max="500"
+                      step="25"
+                      value={layoutSettings.levelSpacing}
+                      onChange={(e) => updateLayoutSetting('levelSpacing', Number(e.target.value))}
+                      className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-orange-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                      <span>Dense</span>
+                      <span>Airy</span>
+                    </div>
+                  </div>
+
+                  {/* Force Iterations */}
+                  <div className="mb-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-neutral-400">Iterations</label>
+                      <span className="text-xs font-mono text-blue-400">{layoutSettings.forceIterations}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="30"
+                      max="200"
+                      step="10"
+                      value={layoutSettings.forceIterations}
+                      onChange={(e) => updateLayoutSetting('forceIterations', Number(e.target.value))}
+                      className="w-full h-1.5 bg-neutral-700 rounded-full appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <div className="flex justify-between text-[10px] text-neutral-600 mt-1">
+                      <span>Fast</span>
+                      <span>Precise</span>
+                    </div>
                   </div>
                 </div>
 
                 {/* Quick Presets */}
-                <div className="mt-4 pt-3 border-t border-neutral-700">
+                <div className="pt-3 border-t border-neutral-700">
                   <label className="text-xs text-neutral-500 mb-2 block">Quick Presets</label>
                   <div className="flex gap-2">
                     <button
                       onClick={() => setLayoutSettings({
-                        nodesPerRow: 0,
                         clustersPerRow: 0,
-                        nodeSpacing: 15,
                         clusterSpacing: 60,
-                        verticalSpacing: 40,
+                        minNodeSpacing: 150,
+                        levelSpacing: 200,
+                        forceIterations: 60,
+                        useWebWorker: true,
+                        gridFallbackThreshold: 250,
                       })}
                       className="flex-1 px-2 py-1.5 text-xs rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
                     >
@@ -5487,11 +5690,13 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
                     </button>
                     <button
                       onClick={() => setLayoutSettings({
-                        nodesPerRow: 8,
                         clustersPerRow: 4,
-                        nodeSpacing: 60,
                         clusterSpacing: 180,
-                        verticalSpacing: 100,
+                        minNodeSpacing: 350,
+                        levelSpacing: 450,
+                        forceIterations: 150,
+                        useWebWorker: true,
+                        gridFallbackThreshold: 250,
                       })}
                       className="flex-1 px-2 py-1.5 text-xs rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
                     >
