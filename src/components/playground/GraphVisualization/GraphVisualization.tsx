@@ -4060,6 +4060,11 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
   // Left-click handler (bound to onNodeClick)
   const onNodeClick = useCallback((event: React.MouseEvent, node: CustomNode) => {
+    // If Command/Meta key is held, let ReactFlow handle multi-selection
+    // Don't run custom logic that would interfere with selection
+    if (event.metaKey) {
+      return;
+    }
     handleNodeInteraction(event, node, false);
   }, [handleNodeInteraction]);
 
@@ -4069,7 +4074,11 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }, [handleNodeInteraction]);
 
   // Handle background click to deselect
-  const onPaneClick = useCallback(() => {
+  const onPaneClick = useCallback((event: React.MouseEvent) => {
+    // If Command/Meta key is held, user might be doing multi-selection, don't clear
+    if (event.metaKey) {
+      return;
+    }
     setSelectedNode(null);
     // Close context menu if open
     setContextMenu(prev => ({ ...prev, isOpen: false }));
@@ -5197,6 +5206,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         panOnDrag={[1, 2]}
         panOnScroll={true}
         selectionKeyCode={null}
+        multiSelectionKeyCode="Meta"
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#374151" />
         
