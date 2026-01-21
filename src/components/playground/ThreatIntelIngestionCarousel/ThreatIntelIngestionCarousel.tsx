@@ -80,13 +80,18 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
     setLoading(true)
     try {
       const response = await fetch(APIRoutes.ThreatIntelIngestionJobs(endpoint))
-      if (!response.ok) throw new Error('Failed to fetch jobs')
+      if (!response.ok) {
+        console.warn('Failed to fetch jobs:', response.status, response.statusText)
+        toast.error('Failed to load ingestion jobs', { duration: 3000 })
+        return
+      }
 
       const data = await response.json()
       setJobs(data.jobs || [])
     } catch (error) {
-      console.error('Error fetching ingestion jobs:', error)
-      toast.error('Failed to load ingestion jobs', { duration: 3000 })
+      // Network error or server unreachable - fail silently with toast
+      console.warn('Error fetching ingestion jobs:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     } finally {
       setLoading(false)
     }
@@ -98,12 +103,16 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
 
     try {
       const response = await fetch(APIRoutes.ThreatIntelFeeds(endpoint))
-      if (!response.ok) throw new Error('Failed to fetch feeds')
+      if (!response.ok) {
+        console.warn('Failed to fetch feeds:', response.status, response.statusText)
+        return
+      }
 
       const data = await response.json()
       setFeeds(data)
     } catch (error) {
-      console.error('Error fetching RSS feeds:', error)
+      // Network error - fail silently for feeds (non-critical)
+      console.warn('Error fetching RSS feeds:', error)
     }
   }, [endpoint])
 
@@ -116,15 +125,18 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
         method: 'DELETE',
       })
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.detail || 'Failed to delete job')
+        const data = await response.json().catch(() => ({}))
+        const message = data.detail || 'Failed to delete job'
+        console.warn('Failed to delete job:', response.status, message)
+        toast.error(message, { duration: 3000 })
+        return
       }
 
       toast.success('Job deleted', { duration: 2000 })
       setJobs(prev => prev.filter(j => j.job_id !== jobId))
     } catch (error) {
-      console.error('Error deleting job:', error)
-      toast.error(error instanceof Error ? error.message : 'Failed to delete job', { duration: 3000 })
+      console.warn('Error deleting job:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     }
   }, [endpoint])
 
@@ -136,14 +148,18 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
       const response = await fetch(APIRoutes.ThreatIntelIngestionClearJobs(endpoint), {
         method: 'DELETE',
       })
-      if (!response.ok) throw new Error('Failed to clear jobs')
+      if (!response.ok) {
+        console.warn('Failed to clear jobs:', response.status, response.statusText)
+        toast.error('Failed to clear jobs', { duration: 3000 })
+        return
+      }
 
       const data = await response.json()
       toast.success(data.message || 'Completed jobs cleared', { duration: 2000 })
       fetchJobs()
     } catch (error) {
-      console.error('Error clearing jobs:', error)
-      toast.error('Failed to clear jobs', { duration: 3000 })
+      console.warn('Error clearing jobs:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     }
   }, [endpoint, fetchJobs])
 
@@ -261,7 +277,11 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
         body: JSON.stringify(formData),
       })
 
-      if (!response.ok) throw new Error('Failed to start ingestion')
+      if (!response.ok) {
+        console.warn('Failed to start ingestion:', response.status, response.statusText)
+        toast.error('Failed to start ingestion', { duration: 3000 })
+        return
+      }
 
       const data = await response.json()
       
@@ -274,8 +294,8 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
       setShowConfigDialog(false)
       fetchJobs()
     } catch (error) {
-      console.error('Error starting ingestion:', error)
-      toast.error('Failed to start ingestion', { duration: 3000 })
+      console.warn('Error starting ingestion:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     } finally {
       setIsSubmitting(false)
     }
@@ -303,13 +323,17 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
     setIsLoadingOrphans(true)
     try {
       const response = await fetch(APIRoutes.ThreatIntelOrphanedNodes(endpoint))
-      if (!response.ok) throw new Error('Failed to find orphaned nodes')
+      if (!response.ok) {
+        console.warn('Failed to find orphaned nodes:', response.status, response.statusText)
+        toast.error('Failed to find orphaned nodes', { duration: 3000 })
+        return
+      }
 
       const data = await response.json()
       setOrphanedNodes(data)
     } catch (error) {
-      console.error('Error finding orphaned nodes:', error)
-      toast.error('Failed to find orphaned nodes', { duration: 3000 })
+      console.warn('Error finding orphaned nodes:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     } finally {
       setIsLoadingOrphans(false)
     }
@@ -325,7 +349,11 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
         APIRoutes.ThreatIntelCleanupOrphanedNodes(endpoint, { dryRun }),
         { method: 'DELETE' }
       )
-      if (!response.ok) throw new Error('Failed to cleanup orphaned nodes')
+      if (!response.ok) {
+        console.warn('Failed to cleanup orphaned nodes:', response.status, response.statusText)
+        toast.error('Failed to cleanup orphaned nodes', { duration: 3000 })
+        return
+      }
 
       const data = await response.json()
       
@@ -337,8 +365,8 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
         await findOrphanedNodes()
       }
     } catch (error) {
-      console.error('Error cleaning up orphaned nodes:', error)
-      toast.error('Failed to cleanup orphaned nodes', { duration: 3000 })
+      console.warn('Error cleaning up orphaned nodes:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
     } finally {
       setIsCleaningOrphans(false)
     }
