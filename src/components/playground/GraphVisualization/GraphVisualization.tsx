@@ -38,6 +38,7 @@ import {
   BaseEdge,
   getSmoothStepPath,
   EdgeLabelRenderer,
+  SelectionMode,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -5190,7 +5191,12 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         className="bg-neutral-950"
         nodesDraggable={true}
         nodesConnectable={editMode}
-        elementsSelectable={editMode}
+        elementsSelectable={true}
+        selectionOnDrag={true}
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={[1, 2]}
+        panOnScroll={true}
+        selectionKeyCode={null}
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#374151" />
         
