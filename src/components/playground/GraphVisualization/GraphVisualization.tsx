@@ -1,17 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar, ScanSearch, Loader2, Table, Network, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Search, Filter, Info, Edit3, Save, XCircle, Plus, Trash2, RotateCcw, Calendar, Loader2, Table, Network, ExternalLink, Undo, Redo, Shield, AlertTriangle, Minimize2, Maximize2, Zap, Copy } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -35,7 +27,6 @@ import {
   Connection,
   addEdge,
   OnConnect,
-  BaseEdge,
   getSmoothStepPath,
   EdgeLabelRenderer,
   SelectionMode,
@@ -109,11 +100,40 @@ import {
   FilterPanel,
   DateFilterPanel,
   NodeDetailsPanel,
+  ExploitabilityPanel,
+  RemediationPanel,
+  AttackPathPanel,
   type DateFilterState,
 } from './panels';
 
 // Import components
-import { TableView } from './components';
+import { 
+  TableView, 
+  NodeContextMenu, 
+  BatchOperationsBar, 
+  EmptyState,
+  NavigationBreadcrumbs,
+  type ContextMenuState,
+} from './components';
+
+// Import modal components
+import {
+  AddNodeModal,
+  AddRelationshipModal,
+  EditPropertiesModal,
+  EditRelationshipModal,
+  RelationshipSelector,
+} from './modals';
+
+// Import custom hooks
+import {
+  useKeyboardShortcuts,
+  useUndoRedo,
+  useNavigationHistory,
+} from './hooks';
+
+// Import pathfinding utilities (for smart edge routing)
+// Pathfinding utilities are available in ./pathfinding.ts if refactoring is needed
 
 // Helper to detect if a string is a URL
 const isUrl = (value: unknown): boolean => {
@@ -422,1474 +442,28 @@ const nodeTypes = {
   custom: CustomNodeComponent,
 };
 
-// NodeDetailsPanel is now imported from ./panels
-
-// =============================================================================
-// EXPLOITABILITY ANALYSIS PANEL
-// =============================================================================
-
-interface ExploitabilityPanelProps {
-  scores: ExploitabilityScore[];
-  loading: boolean;
-  onSelectAsset: (assetId: string) => void;
-  onClose: () => void;
-}
-
-function ExploitabilityPanel({ scores, loading, onSelectAsset, onClose }: ExploitabilityPanelProps) {
-  const [expanded, setExpanded] = useState<string | null>(null);
-
-  const getScoreColor = (score: number) => {
-    if (score >= 70) return 'text-red-400 bg-red-500/20';
-    if (score >= 40) return 'text-amber-400 bg-amber-500/20';
-    return 'text-green-400 bg-green-500/20';
-  };
-
-  const getScoreLabel = (score: number) => {
-    if (score >= 70) return 'Critical';
-    if (score >= 40) return 'Medium';
-    return 'Low';
-  };
-
-  return (
-    <motion.div
-      initial={{ x: -320, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: -320, opacity: 0 }}
-      className="absolute left-0 top-0 h-full w-80 bg-neutral-900/95 backdrop-blur-sm border-r border-neutral-700 overflow-y-auto z-10"
-    >
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Shield className="w-4 h-4 text-red-400" />
-            <span className="text-sm font-semibold text-white">Exploitability Analysis</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-neutral-700 rounded transition-colors"
-          >
-            <X className="w-4 h-4 text-neutral-400" />
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-red-400 rounded-full" />
-          </div>
-        ) : scores.length === 0 ? (
-          <div className="text-center py-8 text-neutral-500 text-sm">
-            No assets to analyze. Add assets to the graph first.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {scores.map((score) => (
-              <div
-                key={score.asset_id}
-                className="bg-neutral-800/50 rounded-lg overflow-hidden"
-              >
-                <button
-                  onClick={() => setExpanded(expanded === score.asset_id ? null : score.asset_id)}
-                  className="w-full p-3 flex items-center justify-between hover:bg-neutral-800 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`px-2 py-1 rounded text-xs font-bold ${getScoreColor(score.overall_score)}`}>
-                      {Math.round(score.overall_score)}
-                    </div>
-                    <div className="text-left">
-                      <div className="text-sm text-white font-medium truncate max-w-[160px]">
-                        {score.asset_name}
-                      </div>
-                      <div className="text-xs text-neutral-500">
-                        {getScoreLabel(score.overall_score)} Risk
-                      </div>
-                    </div>
-                  </div>
-                  {expanded === score.asset_id ? (
-                    <ChevronUp className="w-4 h-4 text-neutral-400" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-neutral-400" />
-                  )}
-                </button>
-
-                <AnimatePresence>
-                  {expanded === score.asset_id && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="px-3 pb-3 space-y-3 border-t border-neutral-700/50">
-                        {/* Component Scores */}
-                        <div className="pt-3">
-                          <div className="text-xs text-neutral-400 uppercase mb-2">Scores</div>
-                          <div className="space-y-1.5">
-                            {Object.entries(score.component_scores).map(([key, value]) => (
-                              <div key={key} className="flex items-center justify-between">
-                                <span className="text-xs text-neutral-400 capitalize">
-                                  {key.replace(/_/g, ' ')}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  <div className="w-16 h-1.5 bg-neutral-700 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full ${
-                                        value >= 70 ? 'bg-red-500' : value >= 40 ? 'bg-amber-500' : 'bg-green-500'
-                                      }`}
-                                      style={{ width: `${value}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-xs text-neutral-300 w-8 text-right">{Math.round(value)}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-
-                        {/* Top Threats */}
-                        {score.top_threats.length > 0 && (
-                          <div>
-                            <div className="text-xs text-neutral-400 uppercase mb-1">Top Threats</div>
-                            <div className="flex flex-wrap gap-1">
-                              {score.top_threats.slice(0, 3).map((threat, i) => (
-                                <span key={i} className="px-2 py-0.5 bg-red-500/20 text-red-300 rounded text-xs">
-                                  {threat}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Critical Vulnerabilities */}
-                        {score.critical_vulnerabilities.length > 0 && (
-                          <div>
-                            <div className="text-xs text-neutral-400 uppercase mb-1">Critical Vulns</div>
-                            <div className="flex flex-wrap gap-1">
-                              {score.critical_vulnerabilities.slice(0, 3).map((vuln, i) => (
-                                <span key={i} className="px-2 py-0.5 bg-orange-500/20 text-orange-300 rounded text-xs">
-                                  {vuln}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Missing Controls */}
-                        {score.missing_controls.length > 0 && (
-                          <div>
-                            <div className="text-xs text-neutral-400 uppercase mb-1">Missing Controls</div>
-                            <div className="flex flex-wrap gap-1">
-                              {score.missing_controls.slice(0, 2).map((control, i) => (
-                                <span key={i} className="px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded text-xs truncate max-w-full">
-                                  {control}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Navigate Button */}
-                        <button
-                          onClick={() => onSelectAsset(score.asset_id)}
-                          className="w-full mt-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
-                        >
-                          <Target className="w-3 h-3" />
-                          Focus in Graph
-                        </button>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// =============================================================================
-// REMEDIATION PRIORITIES PANEL
-// =============================================================================
-
-interface RemediationPanelProps {
-  recommendations: RemediationRecommendation[];
-  loading: boolean;
-  onSelectTarget: (targetId: string) => void;
-  onClose: () => void;
-}
-
-function RemediationPanel({ recommendations, loading, onSelectTarget, onClose }: RemediationPanelProps) {
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'patch': return <Zap className="w-3 h-3" />;
-      case 'control': return <Shield className="w-3 h-3" />;
-      case 'architecture': return <Activity className="w-3 h-3" />;
-      default: return <AlertTriangle className="w-3 h-3" />;
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'patch': return 'bg-red-500/20 text-red-300 border-red-500/30';
-      case 'control': return 'bg-green-500/20 text-green-300 border-green-500/30';
-      case 'architecture': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
-      default: return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
-    }
-  };
-
-  const getEffortColor = (effort: string) => {
-    switch (effort) {
-      case 'low': return 'text-green-400';
-      case 'medium': return 'text-amber-400';
-      case 'high': return 'text-red-400';
-      default: return 'text-neutral-400';
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ x: -320, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: -320, opacity: 0 }}
-      className="absolute left-0 top-0 h-full w-96 bg-neutral-900/95 backdrop-blur-sm border-r border-neutral-700 overflow-y-auto z-10"
-    >
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400" />
-            <span className="text-sm font-semibold text-white">Remediation Priorities</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-neutral-700 rounded transition-colors"
-          >
-            <X className="w-4 h-4 text-neutral-400" />
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-amber-400 rounded-full" />
-          </div>
-        ) : recommendations.length === 0 ? (
-          <div className="text-center py-8 text-neutral-500 text-sm">
-            No remediation recommendations available.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {recommendations.map((rec, index) => (
-              <div
-                key={index}
-                className="bg-neutral-800/50 rounded-lg p-3 border border-neutral-700/50"
-              >
-                {/* Priority Badge & Type */}
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-6 h-6 rounded-full bg-neutral-700 flex items-center justify-center text-xs font-bold text-white">
-                      {rec.priority_rank}
-                    </div>
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1 border ${getTypeColor(rec.remediation_type)}`}>
-                      {getTypeIcon(rec.remediation_type)}
-                      {rec.remediation_type}
-                    </span>
-                  </div>
-                  <div className="text-xs text-neutral-400">
-                    Score: <span className="text-white font-medium">{Math.round(rec.priority_score)}</span>
-                  </div>
-                </div>
-
-                {/* Target */}
-                <div className="mb-2">
-                  <div className="text-xs text-neutral-500 uppercase">Target</div>
-                  <div className="text-sm text-white font-medium">{rec.target.name}</div>
-                  <div className="text-xs text-neutral-400">{rec.target.type}</div>
-                </div>
-
-                {/* Action */}
-                <div className="mb-2">
-                  <div className="text-xs text-neutral-500 uppercase">Action</div>
-                  <div className="text-sm text-neutral-200">{rec.action}</div>
-                </div>
-
-                {/* Rationale */}
-                <div className="mb-3">
-                  <div className="text-xs text-neutral-500 uppercase">Rationale</div>
-                  <div className="text-xs text-neutral-400">{rec.rationale}</div>
-                </div>
-
-                {/* Impact & Effort */}
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-3">
-                    {rec.impact.affected_assets.length > 0 && (
-                      <span className="text-neutral-400">
-                        <span className="text-blue-400">{rec.impact.affected_assets.length}</span> assets
-                      </span>
-                    )}
-                    {rec.impact.mitigated_vulnerabilities.length > 0 && (
-                      <span className="text-neutral-400">
-                        <span className="text-orange-400">{rec.impact.mitigated_vulnerabilities.length}</span> vulns
-                      </span>
-                    )}
-                  </div>
-                  <span className={`${getEffortColor(rec.effort_level)} capitalize`}>
-                    {rec.effort_level} effort
-                  </span>
-                </div>
-
-                {/* Navigate Button */}
-                {rec.target.id && (
-                  <button
-                    onClick={() => onSelectTarget(rec.target.id)}
-                    className="w-full mt-3 px-3 py-1.5 bg-neutral-700 hover:bg-neutral-600 text-neutral-200 text-xs font-medium rounded transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Target className="w-3 h-3" />
-                    Focus Target in Graph
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// =============================================================================
-// ATTACK PATH PANEL
-// =============================================================================
-
-interface AttackPathPanelProps {
-  paths: AttackPathStep[][];
-  threatId: string;
-  targetAssetId: string;
-  loading: boolean;
-  onSelectNode: (nodeId: string) => void;
-  onClose: () => void;
-}
-
-function AttackPathPanel({ paths, loading, onSelectNode, onClose }: AttackPathPanelProps) {
-  const getStepColor = (type: string) => {
-    switch (type) {
-      case 'threat': return 'bg-red-500';
-      case 'attack': return 'bg-yellow-500';
-      case 'category': return 'bg-purple-500';
-      case 'asset': return 'bg-blue-500';
-      default: return 'bg-neutral-500';
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ y: 100, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      exit={{ y: 100, opacity: 0 }}
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 w-[600px] max-h-80 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl overflow-hidden z-10"
-    >
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-yellow-400" />
-            <span className="text-sm font-semibold text-white">Attack Paths</span>
-            <span className="text-xs text-neutral-400">({paths.length} found)</span>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-neutral-700 rounded transition-colors"
-          >
-            <X className="w-4 h-4 text-neutral-400" />
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="flex items-center justify-center py-6">
-            <div className="animate-spin w-6 h-6 border-2 border-neutral-600 border-t-yellow-400 rounded-full" />
-          </div>
-        ) : paths.length === 0 ? (
-          <div className="text-center py-6 text-neutral-500 text-sm">
-            No attack paths found between selected threat and asset.
-          </div>
-        ) : (
-          <div className="space-y-3 max-h-52 overflow-y-auto">
-            {paths.map((path, pathIndex) => (
-              <div key={pathIndex} className="bg-neutral-800/50 rounded-lg p-3">
-                <div className="text-xs text-neutral-400 mb-2">Path {pathIndex + 1}</div>
-                <div className="flex items-center gap-1 flex-wrap">
-                  {path.map((step, stepIndex) => (
-                    <React.Fragment key={step.step}>
-                      <button
-                        onClick={() => onSelectNode(step.node_id)}
-                        className="flex items-center gap-1.5 px-2 py-1 bg-neutral-700 hover:bg-neutral-600 rounded text-xs transition-colors"
-                      >
-                        <div className={`w-2 h-2 rounded-full ${getStepColor(step.type)}`} />
-                        <span className="text-white">{step.name || step.node_id}</span>
-                        <span className="text-neutral-500 capitalize">({step.type})</span>
-                      </button>
-                      {stepIndex < path.length - 1 && (
-                        <span className="text-neutral-500 text-xs px-1">→</span>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// RELATIONSHIP_TYPES and NODE_TYPES are now imported from ./constants
-
-// =============================================================================
-// ADD NODE MODAL
-// =============================================================================
-
-interface AddNodeModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onAdd: (name: string, nodeType: string) => void;
-}
-
-function AddNodeModal({ isOpen, onClose, onAdd }: AddNodeModalProps) {
-  const [name, setName] = useState('');
-  const [nodeType, setNodeType] = useState('Asset');
-
-  const handleSubmit = () => {
-    if (name.trim()) {
-      onAdd(name.trim(), nodeType);
-      setName('');
-      setNodeType('Asset');
-      onClose();
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md bg-neutral-900 border-neutral-700">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-white">
-            <Plus className="w-5 h-5 text-green-400" />
-            Add New Node
-          </DialogTitle>
-          <DialogDescription className="text-neutral-400">
-            Select a node type and enter a name for the new node.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="space-y-4 mt-2">
-          {/* Node Type */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">Node Type</label>
-            <div className="grid grid-cols-3 gap-2">
-              {NODE_TYPES.map((type) => (
-                <button
-                  key={type.value}
-                  onClick={() => setNodeType(type.value)}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs transition-colors ${
-                    nodeType === type.value
-                      ? 'bg-neutral-700 text-white ring-1 ring-white/30'
-                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                  }`}
-                >
-                  <div
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: type.color }}
-                  />
-                  <span className="truncate">{type.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Node Name */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">Name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={`Enter ${nodeType.toLowerCase()} name...`}
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
-              autoFocus
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-            />
-          </div>
-        </div>
-        
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!name.trim()}
-            className="flex-1 py-2 text-sm text-white bg-green-600 hover:bg-green-700 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-lg transition-colors"
-          >
-            Add Node
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// =============================================================================
-// ADD RELATIONSHIP MODAL
-// =============================================================================
-
-interface AddRelationshipModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onAdd: (sourceId: string, targetId: string, relType: string) => void;
-  nodes: CustomNode[];
-  selectedNodeId?: string;
-}
-
-function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }: AddRelationshipModalProps) {
-  const [sourceId, setSourceId] = useState(selectedNodeId || '');
-  const [targetId, setTargetId] = useState('');
-  const [relType, setRelType] = useState('CONNECTED_TO');
-  const [searchSource, setSearchSource] = useState('');
-  const [searchTarget, setSearchTarget] = useState('');
-
-  useEffect(() => {
-    if (selectedNodeId) {
-      setSourceId(selectedNodeId);
-    }
-  }, [selectedNodeId]);
-
-  const filteredSourceNodes = nodes.filter(n => {
-    const data = n.data as CustomNodeData;
-    return data.label.toLowerCase().includes(searchSource.toLowerCase()) ||
-           data.nodeType.toLowerCase().includes(searchSource.toLowerCase());
-  });
-
-  const filteredTargetNodes = nodes.filter(n => {
-    const data = n.data as CustomNodeData;
-    return n.id !== sourceId && (
-      data.label.toLowerCase().includes(searchTarget.toLowerCase()) ||
-      data.nodeType.toLowerCase().includes(searchTarget.toLowerCase())
-    );
-  });
-
-  const getNodeLabel = (nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId);
-    return node ? (node.data as CustomNodeData).label : '';
-  };
-
-  const handleSubmit = () => {
-    if (sourceId && targetId && relType) {
-      onAdd(sourceId, targetId, relType);
-      setSourceId('');
-      setTargetId('');
-      setRelType('CONNECTED_TO');
-      onClose();
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[500px] max-h-[80vh] bg-neutral-900 border-neutral-700">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-white">
-            <Plus className="w-5 h-5 text-blue-400" />
-            Add Relationship
-          </DialogTitle>
-          <DialogDescription className="text-neutral-400">
-            Connect two nodes with a relationship type.
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="space-y-4 mt-2">
-          {/* Source Node */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">From Node</label>
-            <input
-              type="text"
-              value={searchSource}
-              onChange={(e) => setSearchSource(e.target.value)}
-              placeholder="Search source node..."
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 mb-2"
-            />
-            <div className="max-h-32 overflow-y-auto space-y-1 bg-neutral-800/50 rounded-lg p-2">
-              {filteredSourceNodes.slice(0, 10).map(node => {
-                const data = node.data as CustomNodeData;
-                return (
-                  <button
-                    key={node.id}
-                    onClick={() => setSourceId(node.id)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm ${
-                      sourceId === node.id ? 'bg-blue-600 text-white' : 'hover:bg-neutral-700 text-neutral-300'
-                    }`}
-                  >
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: NODE_COLORS[data.nodeType] || NODE_COLORS.default }} />
-                    <span className="truncate">{data.label}</span>
-                    <span className="text-xs text-neutral-500 ml-auto">{data.nodeType}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Relationship Type */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">Relationship</label>
-            <div className="flex flex-wrap gap-1.5">
-              {RELATIONSHIP_TYPES.map(rel => (
-                <button
-                  key={rel.value}
-                  onClick={() => setRelType(rel.value)}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs ${
-                    relType === rel.value
-                      ? 'bg-neutral-700 text-white ring-1 ring-white/30'
-                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                  }`}
-                >
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: rel.color }} />
-                  {rel.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Target Node */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">To Node</label>
-            <input
-              type="text"
-              value={searchTarget}
-              onChange={(e) => setSearchTarget(e.target.value)}
-              placeholder="Search target node..."
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 mb-2"
-            />
-            <div className="max-h-32 overflow-y-auto space-y-1 bg-neutral-800/50 rounded-lg p-2">
-              {filteredTargetNodes.slice(0, 10).map(node => {
-                const data = node.data as CustomNodeData;
-                return (
-                  <button
-                    key={node.id}
-                    onClick={() => setTargetId(node.id)}
-                    className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm ${
-                      targetId === node.id ? 'bg-green-600 text-white' : 'hover:bg-neutral-700 text-neutral-300'
-                    }`}
-                  >
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: NODE_COLORS[data.nodeType] || NODE_COLORS.default }} />
-                    <span className="truncate">{data.label}</span>
-                    <span className="text-xs text-neutral-500 ml-auto">{data.nodeType}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Preview */}
-          {sourceId && targetId && (
-            <div className="bg-neutral-800 rounded-lg p-3 text-center">
-              <span className="text-blue-400">{getNodeLabel(sourceId)}</span>
-              <span className="text-neutral-500 mx-2">→</span>
-              <span className="px-2 py-0.5 rounded text-xs" style={{ backgroundColor: EDGE_COLORS[relType], color: 'white' }}>
-                {relType.replace(/_/g, ' ')}
-              </span>
-              <span className="text-neutral-500 mx-2">→</span>
-              <span className="text-green-400">{getNodeLabel(targetId)}</span>
-            </div>
-          )}
-        </div>
-        
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            disabled={!sourceId || !targetId}
-            className="flex-1 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-neutral-700 disabled:text-neutral-500 rounded-lg transition-colors"
-          >
-            Add Relationship
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// HANDLE_POSITIONS is now imported from ./constants
-
-// =============================================================================
-// EDIT RELATIONSHIP MODAL
-// =============================================================================
-
-interface EditRelationshipModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (edgeId: string, newRelType: string, sourceHandle?: string, targetHandle?: string) => void;
-  edge: Edge | null;
-  sourceNodeName?: string;
-  targetNodeName?: string;
-}
-
-function EditRelationshipModal({ isOpen, onClose, onSave, edge, sourceNodeName, targetNodeName }: EditRelationshipModalProps) {
-  const [relType, setRelType] = useState('');
-  const [sourceHandle, setSourceHandle] = useState('bottom');
-  const [targetHandle, setTargetHandle] = useState('top');
-  
-  // Track original values to show what's changing
-  const [originalSourceHandle, setOriginalSourceHandle] = useState('bottom');
-  const [originalTargetHandle, setOriginalTargetHandle] = useState('top');
-  const [originalRelType, setOriginalRelType] = useState('');
-
-  // Initialize with current values when edge changes
-  useEffect(() => {
-    if (edge) {
-      // Get the original relationship type from edge data or label
-      const currentType = (edge.data as { relationType?: string })?.relationType || 
-        (typeof edge.label === 'string' ? edge.label.replace(/ /g, '_') : 'CONNECTED_TO');
-      setRelType(currentType);
-      setOriginalRelType(currentType);
-      
-      // Get current handle positions
-      const srcHandle = edge.sourceHandle?.replace('source-', '') || 'bottom';
-      const tgtHandle = edge.targetHandle?.replace('target-', '') || 'top';
-      setSourceHandle(srcHandle);
-      setTargetHandle(tgtHandle);
-      setOriginalSourceHandle(srcHandle);
-      setOriginalTargetHandle(tgtHandle);
-    }
-  }, [edge]);
-
-  if (!edge) return null;
-
-  const handleSubmit = () => {
-    if (relType) {
-      onSave(edge.id, relType, `source-${sourceHandle}`, `target-${targetHandle}`);
-      onClose();
-    }
-  };
-  
-  // Check if anything has changed
-  const hasSourceHandleChanged = sourceHandle !== originalSourceHandle;
-  const hasTargetHandleChanged = targetHandle !== originalTargetHandle;
-  const hasRelTypeChanged = relType !== originalRelType;
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[440px] bg-neutral-900 border-neutral-700">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-white">
-            <Pencil className="w-5 h-5 text-blue-400" />
-            Edit Relationship
-          </DialogTitle>
-          <DialogDescription className="text-neutral-400">
-            <span className="text-blue-400">{sourceNodeName || 'Source'}</span>
-            {' → '}
-            <span className="text-green-400">{targetNodeName || 'Target'}</span>
-          </DialogDescription>
-        </DialogHeader>
-        
-        {/* Relationship Type */}
-        <div className="mb-4">
-          <label className="block text-xs text-neutral-400 uppercase mb-2">Relationship Type</label>
-          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-            {RELATIONSHIP_TYPES.map(rel => (
-              <button
-                key={rel.value}
-                onClick={() => setRelType(rel.value)}
-                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-                  relType === rel.value
-                    ? 'bg-neutral-700 text-white ring-1 ring-white/30'
-                    : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                }`}
-              >
-                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: rel.color }} />
-                {rel.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Connection Points */}
-        <div className="mb-4 grid grid-cols-2 gap-4">
-          {/* Source Handle */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">
-              Source Exit Point
-            </label>
-            <div className="flex gap-1">
-              {HANDLE_POSITIONS.map(pos => (
-                <button
-                  key={pos.value}
-                  onClick={() => setSourceHandle(pos.value)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded text-xs transition-colors ${
-                    sourceHandle === pos.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                  }`}
-                  title={pos.label}
-                >
-                  <span className="text-sm">{pos.icon}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Target Handle */}
-          <div>
-            <label className="block text-xs text-neutral-400 uppercase mb-2">
-              Target Entry Point
-            </label>
-            <div className="flex gap-1">
-              {HANDLE_POSITIONS.map(pos => (
-                <button
-                  key={pos.value}
-                  onClick={() => setTargetHandle(pos.value)}
-                  className={`flex-1 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded text-xs transition-colors ${
-                    targetHandle === pos.value
-                      ? 'bg-green-600 text-white'
-                      : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'
-                  }`}
-                  title={pos.label}
-                >
-                  <span className="text-sm">{pos.icon}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Visual Preview with Actual Node Names */}
-        <div className="bg-neutral-800 rounded-lg p-4 mb-4">
-          <p className="text-[10px] text-neutral-500 uppercase text-center mb-3">Connection Preview</p>
-          
-          <div className="flex items-center justify-center gap-3">
-            {/* Source Node - with all 4 handle positions shown */}
-            <div className="relative">
-              <div className={`w-24 h-14 bg-blue-600/20 border-2 rounded-lg flex flex-col items-center justify-center ${
-                hasSourceHandleChanged ? 'border-blue-400' : 'border-blue-600/50'
-              }`}>
-                <span className="text-[8px] text-blue-400 uppercase">Source</span>
-                <span className="text-[10px] text-blue-300 font-medium truncate px-1 max-w-full">
-                  {sourceNodeName || 'Node'}
-                </span>
-              </div>
-              
-              {/* All 4 handle positions for source */}
-              {/* Top */}
-              <div className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                sourceHandle === 'top' 
-                  ? 'bg-blue-500 border-blue-300 scale-110' 
-                  : originalSourceHandle === 'top'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalSourceHandle === 'top' && sourceHandle !== 'top' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Bottom */}
-              <div className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                sourceHandle === 'bottom' 
-                  ? 'bg-blue-500 border-blue-300 scale-110' 
-                  : originalSourceHandle === 'bottom'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalSourceHandle === 'bottom' && sourceHandle !== 'bottom' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Left */}
-              <div className={`absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                sourceHandle === 'left' 
-                  ? 'bg-blue-500 border-blue-300 scale-110' 
-                  : originalSourceHandle === 'left'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalSourceHandle === 'left' && sourceHandle !== 'left' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Right */}
-              <div className={`absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                sourceHandle === 'right' 
-                  ? 'bg-blue-500 border-blue-300 scale-110' 
-                  : originalSourceHandle === 'right'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalSourceHandle === 'right' && sourceHandle !== 'right' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-            </div>
-            
-            {/* Arrow with relationship label */}
-            <div className="flex flex-col items-center gap-1">
-              <div className={`px-2 py-1 rounded text-[9px] font-medium whitespace-nowrap transition-all ${
-                hasRelTypeChanged ? 'ring-2 ring-white/30' : ''
-              }`}
-                   style={{ backgroundColor: EDGE_COLORS[relType] || EDGE_COLORS.default, color: 'white' }}>
-                {relType.replace(/_/g, ' ')}
-              </div>
-              <div className="flex items-center">
-                <div className="w-6 h-0.5 bg-neutral-500" />
-                <div className="w-0 h-0 border-l-4 border-l-neutral-500 border-y-3 border-y-transparent" />
-              </div>
-            </div>
-
-            {/* Target Node - with all 4 handle positions shown */}
-            <div className="relative">
-              <div className={`w-24 h-14 bg-green-600/20 border-2 rounded-lg flex flex-col items-center justify-center ${
-                hasTargetHandleChanged ? 'border-green-400' : 'border-green-600/50'
-              }`}>
-                <span className="text-[8px] text-green-400 uppercase">Target</span>
-                <span className="text-[10px] text-green-300 font-medium truncate px-1 max-w-full">
-                  {targetNodeName || 'Node'}
-                </span>
-              </div>
-              
-              {/* All 4 handle positions for target */}
-              {/* Top */}
-              <div className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                targetHandle === 'top' 
-                  ? 'bg-green-500 border-green-300 scale-110' 
-                  : originalTargetHandle === 'top'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalTargetHandle === 'top' && targetHandle !== 'top' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Bottom */}
-              <div className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                targetHandle === 'bottom' 
-                  ? 'bg-green-500 border-green-300 scale-110' 
-                  : originalTargetHandle === 'bottom'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalTargetHandle === 'bottom' && targetHandle !== 'bottom' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Left */}
-              <div className={`absolute top-1/2 -left-1.5 -translate-y-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                targetHandle === 'left' 
-                  ? 'bg-green-500 border-green-300 scale-110' 
-                  : originalTargetHandle === 'left'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalTargetHandle === 'left' && targetHandle !== 'left' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-              {/* Right */}
-              <div className={`absolute top-1/2 -right-1.5 -translate-y-1/2 w-3 h-3 rounded-full border-2 flex items-center justify-center transition-all ${
-                targetHandle === 'right' 
-                  ? 'bg-green-500 border-green-300 scale-110' 
-                  : originalTargetHandle === 'right'
-                    ? 'bg-neutral-600 border-neutral-400'
-                    : 'bg-neutral-700 border-neutral-600 opacity-40'
-              }`}>
-                {originalTargetHandle === 'right' && targetHandle !== 'right' && (
-                  <span className="text-[6px] text-neutral-400">○</span>
-                )}
-              </div>
-            </div>
-          </div>
-          
-          {/* Legend and status */}
-          <div className="mt-3 flex flex-col gap-1">
-            <div className="flex items-center justify-center gap-4 text-[9px]">
-              <span className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-blue-500" /> Current selection
-              </span>
-              <span className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-neutral-600 border border-neutral-400" /> Original
-              </span>
-            </div>
-            {(hasSourceHandleChanged || hasTargetHandleChanged) && (
-              <p className="text-[10px] text-amber-400 text-center">
-                ⚡ Exit: {originalSourceHandle} → {sourceHandle} | Entry: {originalTargetHandle} → {targetHandle}
-              </p>
-            )}
-          </div>
-        </div>
-        
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSubmit}
-            className="flex-1 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            Save
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// =============================================================================
-// NODE CONTEXT MENU
-// =============================================================================
-
-interface ContextMenuState {
-  isOpen: boolean;
-  x: number;
-  y: number;
-  nodeId: string | null;
-}
-
-interface NodeContextMenuProps {
-  state: ContextMenuState;
-  onClose: () => void;
-  onViewDetails: () => void;
-  onEditProperties: () => void;
-  onAddRelationship: () => void;
-  onDeleteNode: () => void;
-  onSearchByLabel: () => void;
-  onRunCVEAnalysis?: () => void;
-  editMode: boolean;
-  nodeName?: string;
-  nodeType?: string;
-}
-
-function NodeContextMenu({
-  state,
-  onClose,
-  onViewDetails,
-  onEditProperties,
-  onAddRelationship,
-  onDeleteNode,
-  onSearchByLabel,
-  onRunCVEAnalysis,
-  editMode,
-  nodeName,
-  nodeType,
-}: NodeContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-  const isFirstRender = useRef(true);
-
-  // Close on outside click (delayed to prevent immediate close on the triggering right-click)
-  useEffect(() => {
-    if (!state.isOpen) {
-      isFirstRender.current = true;
-      return;
-    }
-
-    // Delay attaching the listener to prevent immediate close
-    const timeoutId = setTimeout(() => {
-      isFirstRender.current = false;
-    }, 100);
-
-    const handleClick = (e: MouseEvent) => {
-      // Ignore the initial right-click that opened the menu
-      if (isFirstRender.current) return;
-      
-      if (menuRef.current && !menuRef.current.contains(e.target as globalThis.Node)) {
-        onClose();
-      }
-    };
-
-    const handleContextMenu = (e: MouseEvent) => {
-      // Close menu on right-click outside
-      if (menuRef.current && !menuRef.current.contains(e.target as globalThis.Node)) {
-        onClose();
-      }
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('contextmenu', handleContextMenu);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      clearTimeout(timeoutId);
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('contextmenu', handleContextMenu);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [state.isOpen, onClose]);
-
-  if (!state.isOpen) return null;
-
-  const color = NODE_COLORS[nodeType || ''] || NODE_COLORS.default;
-
-  // Use portal to render context menu at document body level
-  return createPortal(
-    <motion.div
-      ref={menuRef}
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="fixed z-[9999] bg-neutral-900 rounded-lg border border-neutral-700 shadow-2xl py-1 min-w-[180px]"
-      style={{ 
-        left: state.x, 
-        top: state.y,
-      }}
-      onContextMenu={(e) => e.preventDefault()}
-    >
-      {/* Node Header */}
-      <div className="px-3 py-2 border-b border-neutral-700">
-        <div className="flex items-center gap-2">
-          <div
-            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: color }}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium text-white truncate">{nodeName || 'Unknown'}</div>
-            <div className="text-[10px] text-neutral-500 uppercase">{nodeType || 'Node'}</div>
-          </div>
-        </div>
-      </div>
-
-      {/* Menu Items */}
-      <div className="py-1">
-        {/* View Details */}
-        <button
-          onClick={() => {
-            onViewDetails();
-            onClose();
-          }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-        >
-          <Eye className="w-4 h-4 text-neutral-400" />
-          <span>View Details</span>
-        </button>
-
-        {/* Search by Label */}
-        <button
-          onClick={() => {
-            onSearchByLabel();
-            onClose();
-          }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-        >
-          <Search className="w-4 h-4 text-neutral-400" />
-          <span>Search by Label</span>
-        </button>
-
-        {/* Run CVE Analysis - only for Vulnerability nodes */}
-        {nodeType === 'Vulnerability' && onRunCVEAnalysis && (
-          <button
-            onClick={() => {
-              onRunCVEAnalysis();
-              onClose();
-            }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-          >
-            <ScanSearch className="w-4 h-4 text-amber-400" />
-            <span>Run CVE Analysis</span>
-          </button>
-        )}
-
-        {/* Edit Properties */}
-        <button
-          onClick={() => {
-            onEditProperties();
-            onClose();
-          }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-        >
-          <Pencil className="w-4 h-4 text-neutral-400" />
-          <span>Edit Properties</span>
-        </button>
-
-        {/* Add Relationship - only in edit mode or always available */}
-        <button
-          onClick={() => {
-            onAddRelationship();
-            onClose();
-          }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800 hover:text-white transition-colors"
-        >
-          <Link className="w-4 h-4 text-blue-400" />
-          <span>Add Relationship</span>
-        </button>
-
-        {/* Separator */}
-        <div className="my-1 border-t border-neutral-700" />
-
-        {/* Delete Node - only in edit mode */}
-        {editMode && (
-          <button
-            onClick={() => {
-              onDeleteNode();
-              onClose();
-            }}
-            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-400 hover:bg-red-600/20 hover:text-red-300 transition-colors"
-          >
-            <Trash2 className="w-4 h-4" />
-            <span>Delete Node</span>
-          </button>
-        )}
-      </div>
-    </motion.div>,
-    document.body
-  );
-}
-
-// =============================================================================
-// EDIT NODE PROPERTIES MODAL
-// =============================================================================
-
-interface EditNodePropertiesModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSave: (nodeId: string, properties: Record<string, unknown>) => void;
-  node: CustomNode | null;
-}
-
-function EditNodePropertiesModal({ isOpen, onClose, onSave, node }: EditNodePropertiesModalProps) {
-  const [properties, setProperties] = useState<Record<string, string>>({});
-  const [newKey, setNewKey] = useState('');
-  const [newValue, setNewValue] = useState('');
-
-  // Initialize properties when node changes
-  useEffect(() => {
-    if (node) {
-      const nodeData = node.data as CustomNodeData;
-      const props: Record<string, string> = {};
-      if (nodeData.properties) {
-        Object.entries(nodeData.properties).forEach(([key, value]) => {
-          props[key] = Array.isArray(value) ? value.join(', ') : String(value ?? '');
-        });
-      }
-      setProperties(props);
-    }
-  }, [node]);
-
-  if (!node) return null;
-
-  const nodeData = node.data as CustomNodeData;
-  const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
-
-  const handlePropertyChange = (key: string, value: string) => {
-    setProperties(prev => ({ ...prev, [key]: value }));
-  };
-
-  const handleRemoveProperty = (key: string) => {
-    setProperties(prev => {
-      const updated = { ...prev };
-      delete updated[key];
-      return updated;
-    });
-  };
-
-  const handleAddProperty = () => {
-    if (newKey.trim()) {
-      setProperties(prev => ({ ...prev, [newKey.trim()]: newValue }));
-      setNewKey('');
-      setNewValue('');
-    }
-  };
-
-  const handleSave = () => {
-    // Convert string values back to appropriate types
-    const typedProperties: Record<string, unknown> = {};
-    Object.entries(properties).forEach(([key, value]) => {
-      // Try to parse as JSON for arrays/objects
-      try {
-        if (value.startsWith('[') || value.startsWith('{')) {
-          typedProperties[key] = JSON.parse(value);
-        } else if (value.includes(',') && !value.includes(':')) {
-          // Treat comma-separated values as arrays
-          typedProperties[key] = value.split(',').map(v => v.trim());
-        } else if (!isNaN(Number(value)) && value !== '') {
-          typedProperties[key] = Number(value);
-        } else if (value === 'true') {
-          typedProperties[key] = true;
-        } else if (value === 'false') {
-          typedProperties[key] = false;
-        } else {
-          typedProperties[key] = value;
-        }
-      } catch {
-        typedProperties[key] = value;
-      }
-    });
-
-    onSave(node.id, typedProperties);
-    onClose();
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[500px] max-h-[80vh] bg-neutral-900 border-neutral-700 flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-3 text-white">
-            <div
-              className="w-3 h-3 rounded-full flex-shrink-0"
-              style={{ backgroundColor: color }}
-            />
-            Edit Properties
-          </DialogTitle>
-          <DialogDescription className="text-neutral-400">
-            {nodeData.label} - {nodeData.nodeType}
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Properties List */}
-        <div className="flex-1 overflow-y-auto space-y-3 mb-4 pr-1">
-          {Object.entries(properties).map(([key, value]) => (
-            <div key={key} className="flex items-start gap-2">
-              <div className="flex-1">
-                <label className="block text-xs text-neutral-500 mb-1">{key}</label>
-                <input
-                  type="text"
-                  value={value}
-                  onChange={(e) => handlePropertyChange(key, e.target.value)}
-                  className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <button
-                onClick={() => handleRemoveProperty(key)}
-                className="mt-6 p-1.5 text-neutral-500 hover:text-red-400 hover:bg-red-600/10 rounded transition-colors"
-                title="Remove property"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-
-          {Object.keys(properties).length === 0 && (
-            <p className="text-sm text-neutral-500 text-center py-4">No properties defined</p>
-          )}
-        </div>
-
-        {/* Add New Property */}
-        <div className="border-t border-neutral-700 pt-4 mb-4">
-          <p className="text-xs text-neutral-400 uppercase mb-2">Add New Property</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={newKey}
-              onChange={(e) => setNewKey(e.target.value)}
-              placeholder="Property name"
-              className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
-            />
-            <input
-              type="text"
-              value={newValue}
-              onChange={(e) => setNewValue(e.target.value)}
-              placeholder="Value"
-              className="flex-1 px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
-              onKeyDown={(e) => e.key === 'Enter' && handleAddProperty()}
-            />
-            <button
-              onClick={handleAddProperty}
-              disabled={!newKey.trim()}
-              className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 text-sm text-neutral-400 hover:text-white bg-neutral-800 rounded-lg transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            Save Properties
-          </button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-interface RelationshipSelectorProps {
-  isOpen: boolean;
-  connection: Connection | null;
-  onSelect: (relType: string) => void;
-  onCancel: () => void;
-  sourceNodeName?: string;
-  targetNodeName?: string;
-}
-
-function RelationshipSelector({ 
-  isOpen, 
-  connection, 
-  onSelect, 
-  onCancel,
-  sourceNodeName,
-  targetNodeName,
-}: RelationshipSelectorProps) {
-  if (!connection) return null;
-
-  return (
-    <Dialog open={isOpen} onOpenChange={onCancel}>
-      <DialogContent className="max-w-xs bg-neutral-900 border-neutral-700">
-        <DialogHeader>
-          <DialogTitle className="text-white">Select Relationship Type</DialogTitle>
-          <DialogDescription className="text-neutral-400">
-            <span className="text-blue-400">{sourceNodeName}</span>
-            {' → '}
-            <span className="text-green-400">{targetNodeName}</span>
-          </DialogDescription>
-        </DialogHeader>
-        
-        <div className="max-h-64 overflow-y-auto space-y-1 mt-2">
-          {RELATIONSHIP_TYPES.map((rel) => (
-            <button
-              key={rel.value}
-              onClick={() => onSelect(rel.value)}
-              className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-neutral-800 transition-colors text-left"
-            >
-              <div
-                className="w-3 h-3 rounded-full flex-shrink-0"
-                style={{ backgroundColor: rel.color }}
-              />
-              <span className="text-sm text-white">{rel.label}</span>
-            </button>
-          ))}
-        </div>
-        
-        <button
-          onClick={onCancel}
-          className="mt-4 w-full py-2 text-sm text-neutral-400 hover:text-white transition-colors"
-        >
-          Cancel
-        </button>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// TableView is now imported from ./components
+// Panel components (ExploitabilityPanel, RemediationPanel, AttackPathPanel, NodeDetailsPanel)
+// are now imported from ./panels
+
+// Modal components (AddNodeModal, AddRelationshipModal, EditPropertiesModal, 
+// EditRelationshipModal, RelationshipSelector) are now imported from ./modals
+
+// Helper function to get score color for inline use
+const getScoreColor = (score: number) => {
+  if (score >= 70) return 'text-red-400 bg-red-500/20';
+  if (score >= 40) return 'text-amber-400 bg-amber-500/20';
+  return 'text-green-400 bg-green-500/20';
+};
+
+const getScoreLabel = (score: number) => {
+  if (score >= 70) return 'Critical';
+  if (score >= 40) return 'Medium';
+  return 'Low';
+};
+
+// All panel components are imported from ./panels
+// All modal components are imported from ./modals
+// All UI components are imported from ./components
 
 // =============================================================================
 // PENDING CHANGES TRACKER
@@ -1908,67 +482,8 @@ interface PendingChanges {
   addedNodes: PendingNodeData[];
 }
 
-// =============================================================================
-// DEMO/SAMPLE DATA (shown when backend has no data)
-// =============================================================================
-
-const DEMO_GRAPH_DATA: GraphData = {
-  nodes: [
-    // Asset Category - created 5 days ago
-    { id: 'cat-web', name: 'Web Servers', label: 'AssetCategory', properties: { description: 'Web application servers' }, created_at: '2026-01-06T10:00:00Z' },
-    { id: 'cat-db', name: 'Databases', label: 'AssetCategory', properties: { description: 'Database systems' }, created_at: '2026-01-06T10:00:00Z' },
-    // Assets - created 4 days ago
-    { id: 'asset-web1', name: 'web-prod-01', label: 'Asset', properties: { asset_type: 'web_server', criticality: 'high', ip_addresses: ['10.0.1.10'] }, created_at: '2026-01-07T14:30:00Z' },
-    { id: 'asset-db1', name: 'db-prod-01', label: 'Asset', properties: { asset_type: 'database', criticality: 'critical', ip_addresses: ['10.0.2.10'] }, created_at: '2026-01-07T14:30:00Z' },
-    // Identity - created 3 days ago
-    { id: 'id-admin', name: 'admin@company.com', label: 'Identity', properties: { identity_type: 'user', privileged: true, roles: ['admin'], has_mfa: true }, created_at: '2026-01-08T09:00:00Z' },
-    { id: 'id-svc', name: 'svc-webapp', label: 'Identity', properties: { identity_type: 'service_account', privileged: false, roles: ['read'] }, created_at: '2026-01-08T09:00:00Z' },
-    // Vulnerability - created 2 days ago
-    { id: 'vuln-1', name: 'CVE-2024-1234', label: 'Vulnerability', properties: { severity: 'critical', cvss: 9.8, description: 'Remote code execution' }, created_at: '2026-01-09T16:00:00Z' },
-    // Control - created yesterday
-    { id: 'ctrl-1', name: 'Enable TLS 1.3', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'basic', status: 'implemented' }, created_at: '2026-01-10T11:00:00Z' },
-    { id: 'ctrl-2', name: 'Database Encryption', label: 'Control', properties: { control_type: 'preventive', maturity_level: 'intermediate', status: 'not_implemented' }, created_at: '2026-01-10T11:00:00Z' },
-    // Threat - created today
-    { id: 'threat-1', name: 'APT29 Campaign', label: 'Threat', properties: { threat_actor: 'APT29', threat_actor_type: 'nation-state', campaign: 'SolarWinds', tools: ['Cobalt Strike'], malware: ['SUNBURST'] }, created_at: '2026-01-11T08:00:00Z' },
-    // Attack (MITRE ATT&CK) - created today
-    { id: 'attack-1', name: 'T1566', label: 'Attack', properties: { technique_id: 'T1566', technique_name: 'Phishing', tactic: 'Initial Access', tactic_id: 'TA0001' }, created_at: '2026-01-11T08:30:00Z' },
-    { id: 'attack-2', name: 'T1059', label: 'Attack', properties: { technique_id: 'T1059', technique_name: 'Command and Scripting Interpreter', tactic: 'Execution', tactic_id: 'TA0002' }, created_at: '2026-01-11T08:30:00Z' },
-    // Indicator - created today
-    { id: 'ioc-1', name: '192.168.1.100', label: 'Indicator', properties: { indicator_type: 'ip', source: 'threat_intel' }, created_at: '2026-01-11T09:00:00Z' },
-    { id: 'ioc-2', name: 'malware.evil.com', label: 'Indicator', properties: { indicator_type: 'domain', source: 'threat_intel' }, created_at: '2026-01-11T09:00:00Z' },
-    // LogEvent - created today
-    { id: 'log-1', name: 'EVT-4625', label: 'LogEvent', properties: { event_type: 'authentication', source: 'windows_security', description: 'Failed login attempt' }, created_at: '2026-01-11T09:30:00Z' },
-  ],
-  edges: [
-    // Asset -> Category
-    { id: 'e1', source: 'asset-web1', target: 'cat-web', label: 'BELONGS_TO_CATEGORY', properties: {} },
-    { id: 'e2', source: 'asset-db1', target: 'cat-db', label: 'BELONGS_TO_CATEGORY', properties: {} },
-    // Asset -> Identity
-    { id: 'e3', source: 'asset-db1', target: 'id-admin', label: 'HAS_IDENTITY', properties: {} },
-    { id: 'e4', source: 'asset-web1', target: 'id-svc', label: 'HAS_IDENTITY', properties: {} },
-    // Asset -> Vulnerability
-    { id: 'e5', source: 'asset-web1', target: 'vuln-1', label: 'VULNERABLE_TO', properties: {} },
-    // Asset -> Control
-    { id: 'e6', source: 'asset-web1', target: 'ctrl-1', label: 'HAS_CONTROL', properties: {} },
-    { id: 'e7', source: 'asset-db1', target: 'ctrl-2', label: 'HAS_CONTROL', properties: {} },
-    // Control -> Category
-    { id: 'e8', source: 'ctrl-1', target: 'cat-web', label: 'APPLIES_TO_CATEGORY', properties: {} },
-    // Asset -> Threat
-    { id: 'e9', source: 'asset-web1', target: 'threat-1', label: 'HAS_THREAT', properties: {} },
-    // Threat -> Attack
-    { id: 'e10', source: 'threat-1', target: 'attack-1', label: 'USES_ATTACK', properties: {} },
-    { id: 'e11', source: 'threat-1', target: 'attack-2', label: 'USES_ATTACK', properties: {} },
-    // Attack -> Indicator
-    { id: 'e12', source: 'attack-1', target: 'ioc-1', label: 'HAS_INDICATOR', properties: {} },
-    { id: 'e13', source: 'attack-1', target: 'ioc-2', label: 'HAS_INDICATOR', properties: {} },
-    // Attack -> LogEvent
-    { id: 'e14', source: 'attack-1', target: 'log-1', label: 'DETECTED_BY_LOG', properties: {} },
-    // Attack -> Category
-    { id: 'e15', source: 'attack-1', target: 'cat-web', label: 'ATTACK_TARGETS', properties: {} },
-    // Related attacks (kill chain)
-    { id: 'e16', source: 'attack-1', target: 'attack-2', label: 'RELATED_ATTACK', properties: {} },
-  ],
-};
+// Demo data is imported from demoData.ts
+import { DEMO_GRAPH_DATA } from './demoData';
 
 const DEMO_STATS: GraphStats = {
   node_count: DEMO_GRAPH_DATA.nodes.length,
@@ -2239,6 +754,29 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [selectedThreatForPath, setSelectedThreatForPath] = useState<string>('');
   const [selectedAssetForPath, setSelectedAssetForPath] = useState<string>('');
+  
+  // Search input ref for focusing via keyboard shortcut
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  
+  // Undo/Redo hook for edit mode
+  const { 
+    pushHistory, 
+    undo: undoHistory, 
+    redo: redoHistory, 
+    canUndo, 
+    canRedo 
+  } = useUndoRedo({ maxHistorySize: 50 });
+  
+  // Navigation history hook for breadcrumb navigation
+  const {
+    history: navigationHistory,
+    currentIndex: navCurrentIndex,
+    push: pushNavigation,
+    goBack: navGoBack,
+    goForward: navGoForward,
+    canGoBack,
+    canGoForward,
+  } = useNavigationHistory(50);
   
   // Track if there are unsaved changes
   const hasUnsavedChanges = pendingChanges.addedEdges.length > 0 || 
@@ -3502,14 +2040,60 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     setContextMenu(prev => ({ ...prev, isOpen: false }));
   }, []);
 
-  // Navigate to a node
+  // Navigate to a node with history tracking
   const navigateToNode = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (node) {
       setSelectedNode(node);
       setCenter(node.position.x + 90, node.position.y + 30, { zoom: 1.2, duration: 500 });
+      // Track in navigation history
+      pushNavigation(nodeId);
     }
-  }, [nodes, setCenter]);
+  }, [nodes, setCenter, pushNavigation]);
+  
+  // Handle undo action
+  const handleUndo = useCallback(() => {
+    const previousState = undoHistory();
+    if (previousState) {
+      setNodes(previousState.nodes as CustomNode[]);
+      setEdges(previousState.edges);
+      toast.info('Undo successful', { duration: 1500 });
+    }
+  }, [undoHistory, setNodes, setEdges]);
+  
+  // Handle redo action  
+  const handleRedo = useCallback(() => {
+    const nextState = redoHistory();
+    if (nextState) {
+      setNodes(nextState.nodes as CustomNode[]);
+      setEdges(nextState.edges);
+      toast.info('Redo successful', { duration: 1500 });
+    }
+  }, [redoHistory, setNodes, setEdges]);
+  
+  // Handle navigation back
+  const handleNavBack = useCallback(() => {
+    const prevNodeId = navGoBack();
+    if (prevNodeId) {
+      const node = nodes.find(n => n.id === prevNodeId);
+      if (node) {
+        setSelectedNode(node);
+        setCenter(node.position.x + 90, node.position.y + 30, { zoom: 1.2, duration: 500 });
+      }
+    }
+  }, [navGoBack, nodes, setCenter]);
+  
+  // Handle navigation forward
+  const handleNavForward = useCallback(() => {
+    const nextNodeId = navGoForward();
+    if (nextNodeId) {
+      const node = nodes.find(n => n.id === nextNodeId);
+      if (node) {
+        setSelectedNode(node);
+        setCenter(node.position.x + 90, node.position.y + 30, { zoom: 1.2, duration: 500 });
+      }
+    }
+  }, [navGoForward, nodes, setCenter]);
 
   // Local fallback for multi-hop collection (when API unavailable)
   const collectMultiHopNodesLocal = useCallback((
@@ -3930,6 +2514,9 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const handleDeleteNode = useCallback((nodeId: string) => {
     if (!editMode) return;
     
+    // Push to undo history before making changes
+    pushHistory(nodes, edges);
+    
     // Get node info for notification
     const node = nodes.find(n => n.id === nodeId);
     const nodeName = node ? (node.data as CustomNodeData).label : nodeId;
@@ -3958,7 +2545,46 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
     
     setSelectedNode(null);
-  }, [editMode, setNodes, setEdges]);
+  }, [editMode, setNodes, setEdges, nodes, edges, pushHistory, pendingChanges.addedNodes]);
+
+  // Keyboard shortcuts integration - must be after handler definitions
+  useKeyboardShortcuts({
+    enabled: viewMode === 'graph',
+    editMode,
+    selectedNode,
+    nodes,
+    onSelectNode: (node) => {
+      setSelectedNode(node);
+      if (node) {
+        pushNavigation(node.id);
+      }
+    },
+    onDeleteSelectedNode: () => {
+      if (selectedNode) {
+        handleDeleteNode(selectedNode.id);
+      }
+    },
+    onFocusSearch: () => {
+      searchInputRef.current?.focus();
+    },
+    onCenterOnNode: () => {
+      if (selectedNode) {
+        setCenter(selectedNode.position.x + 90, selectedNode.position.y + 30, { zoom: 1.2, duration: 500 });
+      }
+    },
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onToggleFilters: () => setShowFilters(prev => !prev),
+    onEscape: () => {
+      setSelectedNode(null);
+      setContextMenu({ isOpen: false, x: 0, y: 0, nodeId: null });
+      setShowFilters(false);
+      setShowDateFilter(false);
+      setShowLayoutSettings(false);
+    },
+    canUndo,
+    canRedo,
+  });
 
   // Save changes to backend
   const handleSaveChanges = useCallback(async () => {
@@ -4602,6 +3228,25 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           {/* Edit Mode Actions */}
           {editMode && (
             <>
+              {/* Undo/Redo Buttons */}
+              <div className="flex items-center gap-0.5">
+                <button
+                  onClick={handleUndo}
+                  disabled={!canUndo}
+                  className="p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700"
+                  title="Undo (⌘Z)"
+                >
+                  <Undo className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleRedo}
+                  disabled={!canRedo}
+                  className="p-1.5 rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700"
+                  title="Redo (⌘⇧Z)"
+                >
+                  <Redo className="w-3.5 h-3.5" />
+                </button>
+              </div>
               <button
                 onClick={() => setShowAddNodeModal(true)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-xs font-medium"
@@ -4731,22 +3376,36 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         {viewMode === 'table' && (
           <div className="absolute inset-0 overflow-hidden">
             <TableView
-            nodes={nodes}
-            edges={edges}
-            onEditNode={(node) => {
-              setEditingNode(node);
-              setShowEditPropertiesModal(true);
-            }}
-            onDeleteNode={handleDeleteNode}
-            onEditEdge={handleOpenEditRelationship}
-            onDeleteEdge={handleDeleteEdge}
-            onNavigateToNode={(nodeId) => {
-              setViewMode('graph');
-              setTimeout(() => navigateToNode(nodeId), 100);
-            }}
-            editMode={editMode}
-            allNodeTypes={nodeTypesList}
-          />
+              nodes={nodes}
+              edges={edges}
+              onEditNode={(node) => {
+                setEditingNode(node);
+                setShowEditPropertiesModal(true);
+              }}
+              onDeleteNode={handleDeleteNode}
+              onEditEdge={handleOpenEditRelationship}
+              onDeleteEdge={handleDeleteEdge}
+              onNavigateToNode={(nodeId) => {
+                setViewMode('graph');
+                setTimeout(() => navigateToNode(nodeId), 100);
+              }}
+              editMode={editMode}
+              allNodeTypes={nodeTypesList}
+              activeFilters={activeFilters}
+              onFilterChange={(newFilters) => {
+                // Sync filter changes from Table view back to Graph view
+                setActiveFilters(newFilters);
+                // Update primary anchor type based on the filter
+                if (newFilters.size === 1) {
+                  const selectedType = Array.from(newFilters)[0];
+                  if (PRIMARY_SEED_TYPES.has(selectedType)) {
+                    setPrimaryAnchorType(selectedType);
+                  }
+                } else if (newFilters.size === 0) {
+                  setPrimaryAnchorType(null);
+                }
+              }}
+            />
           </div>
         )}
 
@@ -4917,11 +3576,12 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           <div className="relative">
             <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 ${searchFilteredNodeIds ? 'text-green-400' : 'text-neutral-500'}`} />
             <input
+              ref={searchInputRef}
               type="text"
-              placeholder="Search nodes..."
+              placeholder="Search nodes... (⌘F)"
               value={searchQuery}
               onChange={(e) => handleSearch(e.target.value)}
-              className={`w-40 pl-8 pr-7 py-1.5 bg-neutral-800 border rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none ${
+              className={`w-44 pl-8 pr-7 py-1.5 bg-neutral-800 border rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none ${
                 searchFilteredNodeIds 
                   ? 'border-green-500/50 ring-1 ring-green-500/20' 
                   : 'border-neutral-700 focus:border-blue-500'
@@ -5495,7 +4155,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       )}
 
       {/* Edit Node Properties Modal */}
-      <EditNodePropertiesModal
+      <EditPropertiesModal
         isOpen={showEditPropertiesModal}
         onClose={() => {
           setShowEditPropertiesModal(false);

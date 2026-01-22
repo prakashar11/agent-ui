@@ -20,6 +20,8 @@ export interface TableViewProps {
   onNavigateToNode: (nodeId: string) => void;
   editMode: boolean;
   allNodeTypes: string[]; // All available node types for filtering
+  activeFilters: Set<string>; // Active type filters from graph view
+  onFilterChange?: (filters: Set<string>) => void; // Callback to sync filter changes back to graph
 }
 
 export function TableView({
@@ -32,15 +34,40 @@ export function TableView({
   onNavigateToNode,
   editMode,
   allNodeTypes,
+  activeFilters,
+  onFilterChange,
 }: TableViewProps) {
   const [activeTab, setActiveTab] = useState<TableViewTab>('nodes');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<string>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const [nodeTypeFilter, setNodeTypeFilter] = useState<string>('all');
   const [relationshipTypeFilter, setRelationshipTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
+  
+  // Derive nodeTypeFilter from activeFilters (graph view filter)
+  // If exactly one filter is active, use that type; otherwise 'all'
+  const nodeTypeFilter = useMemo(() => {
+    if (activeFilters.size === 0) return 'all';
+    if (activeFilters.size === 1) {
+      return Array.from(activeFilters)[0];
+    }
+    // Multiple filters active - show 'all' but data is already filtered
+    return 'all';
+  }, [activeFilters]);
+  
+  // Handle node type filter change
+  const handleNodeTypeFilterChange = (newFilter: string) => {
+    if (onFilterChange) {
+      if (newFilter === 'all') {
+        // Clear all filters
+        onFilterChange(new Set());
+      } else {
+        // Set single filter
+        onFilterChange(new Set([newFilter]));
+      }
+    }
+  };
 
   // Use all available node types from parent (aligns with graph mode filter)
   // Sort by hierarchy with primary seed types first
@@ -180,7 +207,7 @@ export function TableView({
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, nodeTypeFilter, relationshipTypeFilter, activeTab]);
+  }, [searchQuery, activeFilters, relationshipTypeFilter, activeTab]);
 
   const handleSort = (field: string) => {
     if (sortField === field) {
@@ -256,12 +283,14 @@ export function TableView({
         {activeTab === 'nodes' ? (
           <select
             value={nodeTypeFilter}
-            onChange={(e) => setNodeTypeFilter(e.target.value)}
+            onChange={(e) => handleNodeTypeFilterChange(e.target.value)}
             className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
           >
             <option value="all">All Types</option>
             {nodeTypes.map(type => (
-              <option key={type} value={type}>{type}</option>
+              <option key={type} value={type}>
+                {type}{activeFilters.has(type) ? ' ✓' : ''}
+              </option>
             ))}
           </select>
         ) : (
