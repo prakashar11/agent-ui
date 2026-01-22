@@ -27,6 +27,16 @@ export interface StoredLayout {
     showLegend: boolean;
     lastZoom?: number;
   };
+  // Layout settings (optional - for graph layout configuration)
+  layoutSettings?: {
+    clustersPerRow: number;
+    clusterSpacing: number;
+    minNodeSpacing: number;
+    levelSpacing: number;
+    forceIterations: number;
+    useWebWorker: boolean;
+    gridFallbackThreshold: number;
+  };
   // Timestamp for cache invalidation
   savedAt: number;
 }

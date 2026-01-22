@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar, ScanSearch, Loader2 } from 'lucide-react';
+import { X, Search, Filter, Info, Maximize2, Minimize2, Edit3, Save, XCircle, Plus, Trash2, Link, Eye, Pencil, RotateCcw, Shield, AlertTriangle, Target, Activity, ChevronDown, ChevronUp, Zap, Copy, ExternalLink, Calendar, ScanSearch, Loader2, Table, Network, ChevronLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -53,6 +53,8 @@ import {
   type ExploitabilityScore,
   type RemediationRecommendation,
   type AttackPathStep,
+  type CustomNode,
+  type CustomNodeData,
 } from './types';
 
 // Import from utility files
@@ -91,6 +93,27 @@ import {
   type SimNode,
   simNodesToLayout,
 } from './forceSimulation';
+import { useNodeAnalysis } from './useNodeAnalysis';
+
+// Import from constants
+import {
+  HIERARCHY_LEVELS,
+  RELATIONSHIP_TYPES,
+  NODE_TYPES,
+  HANDLE_POSITIONS,
+} from './constants';
+
+// Import panel components
+import {
+  HierarchyLegend,
+  FilterPanel,
+  DateFilterPanel,
+  NodeDetailsPanel,
+  type DateFilterState,
+} from './panels';
+
+// Import components
+import { TableView } from './components';
 
 // Helper to detect if a string is a URL
 const isUrl = (value: unknown): boolean => {
@@ -271,18 +294,7 @@ const edgeTypes = {
 // CUSTOM NODE COMPONENT
 // =============================================================================
 
-interface CustomNodeData {
-  label: string;
-  nodeType: string;
-  properties: Record<string, unknown>;
-  // Highlighting state for selection-based focus
-  isHighlighted?: boolean;  // Node is within hop distance of selected node
-  isDimmed?: boolean;       // Node is outside hop distance (should appear grayed)
-  isSelected?: boolean;     // This is the currently selected node
-  [key: string]: unknown;   // Allow additional properties for ReactFlow
-}
-
-type CustomNode = Node<CustomNodeData>;
+// CustomNodeData and CustomNode types are now imported from ./types
 
 const CustomNodeComponent = ({ data, selected }: NodeProps<CustomNode>) => {
   const nodeData = data as unknown as CustomNodeData;
@@ -410,580 +422,7 @@ const nodeTypes = {
   custom: CustomNodeComponent,
 };
 
-// =============================================================================
-// NODE DETAILS PANEL
-// =============================================================================
-
-interface NodeDetailsPanelProps {
-  node: CustomNode | null;
-  edges: Edge[];
-  nodes: CustomNode[];
-  onNavigate: (nodeId: string) => void;
-  onClose: () => void;
-  editMode?: boolean;
-  onDeleteNode?: (nodeId: string) => void;
-  onAddRelationship?: () => void;
-  onEditProperties?: () => void;
-  onDeleteEdge?: (edgeId: string) => void;
-  onEditEdge?: (edge: Edge) => void;
-}
-
-function NodeDetailsPanel({ node, edges, nodes, onNavigate, onClose, editMode, onDeleteNode, onAddRelationship, onEditProperties, onDeleteEdge, onEditEdge }: NodeDetailsPanelProps) {
-  if (!node) return null;
-
-  const nodeData = node.data as unknown as CustomNodeData;
-  const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
-  const hasProperties = nodeData.properties && Object.keys(nodeData.properties).length > 0;
-
-  // Find connected nodes
-  const connectedEdges = edges.filter(
-    e => e.source === node.id || e.target === node.id
-  );
-  
-  const neighbors = connectedEdges.map(edge => {
-    const neighborId = edge.source === node.id ? edge.target : edge.source;
-    const neighborNode = nodes.find(n => n.id === neighborId);
-    return {
-      node: neighborNode,
-      edge,
-      direction: edge.source === node.id ? 'outgoing' : 'incoming',
-    };
-  }).filter(n => n.node);
-
-  return (
-    <motion.div
-      initial={{ x: 320, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 320, opacity: 0 }}
-      className="absolute right-0 top-0 h-full w-80 bg-neutral-900/95 backdrop-blur-sm border-l border-neutral-700 overflow-y-auto z-10"
-    >
-      <div className="p-4">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded-full"
-              style={{ backgroundColor: color }}
-            />
-            <span className="text-xs text-neutral-400 uppercase">{nodeData.nodeType}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {editMode && onDeleteNode && (
-              <button
-                onClick={() => onDeleteNode(node.id)}
-                className="p-1 hover:bg-red-600 rounded transition-colors text-red-400 hover:text-white"
-                title="Delete Node"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1 hover:bg-neutral-700 rounded transition-colors"
-            >
-              <X className="w-4 h-4 text-neutral-400" />
-            </button>
-          </div>
-        </div>
-
-        {/* Node Name - Copyable */}
-        <div className="mb-4 flex items-center gap-2 group">
-          <h3 className="text-lg font-semibold text-white break-words flex-1">
-            {nodeData.label}
-          </h3>
-          <button
-            onClick={() => {
-              navigator.clipboard.writeText(nodeData.label).then(() => {
-                toast.success(`Copied: ${nodeData.label}`);
-              }).catch(() => {
-                toast.error('Failed to copy');
-              });
-            }}
-            className="p-1.5 hover:bg-neutral-700 rounded transition-colors opacity-50 group-hover:opacity-100"
-            title="Copy node name"
-          >
-            <Copy className="w-4 h-4 text-neutral-400 hover:text-white" />
-          </button>
-        </div>
-
-        {/* Properties Section */}
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs text-neutral-400 uppercase">
-              Properties {hasProperties && `(${Object.keys(nodeData.properties).length})`}
-            </h4>
-            {onEditProperties && (
-              <button
-                onClick={onEditProperties}
-                className="p-1 hover:bg-neutral-700 rounded transition-colors text-neutral-500 hover:text-blue-400"
-                title="Edit Properties"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          {hasProperties ? (
-            <div className="space-y-2 bg-neutral-800/50 rounded-lg p-3">
-              {Object.entries(nodeData.properties).map(([key, value]) => {
-                if (value === null || value === undefined || value === '' ||
-                    (Array.isArray(value) && value.length === 0)) {
-                  return null;
-                }
-                return (
-                  <div key={key} className="flex flex-col">
-                    <span className="text-xs text-neutral-500">{key}</span>
-                    <span className="text-sm text-neutral-200 break-words">
-                      {renderPropertyValue(key, value)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-xs text-neutral-500 italic bg-neutral-800/30 rounded-lg p-3">
-              No properties defined
-            </div>
-          )}
-        </div>
-
-        {/* Connections Section */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs text-neutral-400 uppercase">
-              Connections ({neighbors.length})
-            </h4>
-            {onAddRelationship && (
-              <button
-                onClick={onAddRelationship}
-                className="p-1 hover:bg-neutral-700 rounded transition-colors text-neutral-500 hover:text-blue-400"
-                title="Add Relationship"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          {neighbors.length > 0 ? (
-            <div className="space-y-2">
-              {neighbors.map(({ node: neighborNode, edge, direction }) => {
-                if (!neighborNode) return null;
-                const neighborNodeData = neighborNode.data as unknown as CustomNodeData;
-                const neighborNodeColor = NODE_COLORS[neighborNodeData.nodeType] || NODE_COLORS.default;
-
-                return (
-                  <div
-                    key={edge.id}
-                    className="group relative p-3 rounded-lg bg-neutral-800 hover:bg-neutral-700 transition-colors"
-                  >
-                    <button
-                      onClick={() => onNavigate(neighborNode.id)}
-                      className="w-full text-left pr-12"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: neighborNodeColor }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-white truncate">{neighborNodeData.label}</div>
-                          <div className="text-xs text-neutral-400 flex items-center gap-1">
-                            <span>{neighborNodeData.nodeType}</span>
-                            <span>•</span>
-                            <span className="text-neutral-500">
-                              {direction === 'outgoing' ? '→' : '←'} {edge.label}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </button>
-                    {/* Edit/Delete buttons - visible on hover */}
-                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                      {onEditEdge && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEditEdge(edge);
-                          }}
-                          className="p-1.5 rounded hover:bg-blue-600/20 text-neutral-500 hover:text-blue-400 transition-colors"
-                          title="Edit Relationship"
-                        >
-                          <Pencil className="w-3 h-3" />
-                        </button>
-                      )}
-                      {editMode && onDeleteEdge && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteEdge(edge.id);
-                          }}
-                          className="p-1.5 rounded hover:bg-red-600/20 text-neutral-500 hover:text-red-400 transition-colors"
-                          title="Delete Relationship"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-xs text-neutral-500 italic bg-neutral-800/30 rounded-lg p-3">
-              No connections
-            </div>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// =============================================================================
-// HIERARCHY LEGEND PANEL
-// =============================================================================
-
-// Hierarchy levels for the consolidated 9-node schema
-const HIERARCHY_LEVELS = [
-  { rank: 0, label: 'Categories', types: ['AssetCategory'], description: 'Asset categories & groups' },
-  { rank: 1, label: 'Assets', types: ['Asset', 'Service', 'Identity'], description: 'Assets, services, identities (Identity embeds credentials)' },
-  { rank: 2, label: 'Vulnerabilities', types: ['Vulnerability', 'Control'], description: 'Weaknesses & security controls' },
-  { rank: 3, label: 'Threats', types: ['Threat', 'Indicator'], description: 'Threats (embeds actor/campaign/tools) & IOCs' },
-  { rank: 4, label: 'Attacks', types: ['Attack', 'LogEvent'], description: 'MITRE ATT&CK (embeds technique+tactic) & logs' },
-];
-
-function HierarchyLegend() {
-  return (
-    <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl">
-      <h4 className="text-xs text-neutral-400 uppercase mb-3 font-medium flex items-center gap-2">
-        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-        Hierarchy (Top → Bottom)
-      </h4>
-      <div className="space-y-1.5">
-        {HIERARCHY_LEVELS.map((level) => (
-          <div key={level.rank} className="flex items-center gap-2">
-            <div className="w-5 text-[10px] text-neutral-500 font-mono">{level.rank + 1}.</div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {level.types.map((type) => (
-                <div key={type} className="flex items-center gap-1">
-                  <div
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: NODE_COLORS[type] || NODE_COLORS.default }}
-                  />
-                  <span className="text-xs text-neutral-300">{type}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// =============================================================================
-// FILTER PANEL
-// =============================================================================
-
-// PRIMARY_SEED_TYPES is imported from hierarchyUtils.ts
-
-interface FilterPanelProps {
-  nodeTypes: string[];
-  activeFilters: Set<string>;
-  onToggleFilter: (type: string) => void;
-  stats: Record<string, number>;
-  onClose: () => void;
-  onRefresh?: () => void;
-  primaryAnchorType?: string | null;
-  currentDepth?: number;
-  onDepthChange?: (depth: number) => void;
-}
-
-function FilterPanel({ nodeTypes, activeFilters, onToggleFilter, stats, onClose, onRefresh, primaryAnchorType, currentDepth, onDepthChange }: FilterPanelProps) {
-  // Sort node types by hierarchy, with primary seed types (Threat, Vulnerability, Asset) first
-  const sortedTypes = [...nodeTypes].sort((a, b) => {
-    // First sort by whether it's a primary seed type
-    const aIsSeed = PRIMARY_SEED_TYPES.has(a);
-    const bIsSeed = PRIMARY_SEED_TYPES.has(b);
-    if (aIsSeed && !bIsSeed) return -1;
-    if (!aIsSeed && bIsSeed) return 1;
-    
-    // Then sort by hierarchy
-    const rankA = NODE_TYPE_HIERARCHY[a] ?? 99;
-    const rankB = NODE_TYPE_HIERARCHY[b] ?? 99;
-    return rankA - rankB;
-  });
-
-  return (
-    <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-xs text-neutral-400 uppercase font-medium">Filter by Type</h4>
-        <div className="flex items-center gap-1">
-          {onRefresh && (
-            <button
-              onClick={onRefresh}
-              className="p-1 hover:bg-neutral-700 rounded transition-colors group"
-              title="Refresh graph with current filters"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-neutral-400 group-hover:text-blue-400 transition-colors" />
-            </button>
-          )}
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-neutral-700 rounded transition-colors"
-          >
-            <X className="w-3.5 h-3.5 text-neutral-400" />
-          </button>
-        </div>
-      </div>
-      <p className="text-[10px] text-neutral-500 mb-2">
-        {primaryAnchorType
-          ? <>Anchor: <span className="text-green-400 font-medium">{primaryAnchorType}</span> (date-filtered seed)</>
-          : 'Select a primary type to set anchor'
-        }
-      </p>
-      <div className="flex flex-wrap gap-2 max-w-xs">
-        {sortedTypes.map((type) => {
-          const isPrimarySeed = PRIMARY_SEED_TYPES.has(type);
-          const isAnchor = type === primaryAnchorType;
-          const isSelected = activeFilters.has(type);
-          const isActive = activeFilters.size === 0 || isSelected;
-          const color = NODE_COLORS[type] || NODE_COLORS.default;
-          const count = stats[type] || 0;
-
-          return (
-            <button
-              key={type}
-              onClick={() => onToggleFilter(type)}
-              className={`
-                flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs transition-all
-                ${isActive
-                  ? 'bg-neutral-700 text-white'
-                  : 'bg-neutral-800/50 text-neutral-500 opacity-50'
-                }
-                ${isAnchor ? 'ring-2 ring-green-500' : isPrimarySeed ? 'ring-1 ring-blue-500/30' : ''}
-              `}
-              title={isAnchor ? `${type} (anchor - date filter applies)` : isSelected && isPrimarySeed ? `${type} (connected to anchor)` : isPrimarySeed ? `${type} (primary seed type)` : `${type} (via hop expansion)`}
-            >
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: color }}
-              />
-              <span>{type}</span>
-              {isAnchor && <span className="text-green-400 text-[10px]">⚓</span>}
-              <span className="text-neutral-500">({count})</span>
-            </button>
-          );
-        })}
-      </div>
-      
-      {/* Footnote hint: suggest increasing depth when many types selected with low hops */}
-      {activeFilters.size >= 3 && currentDepth !== undefined && currentDepth < activeFilters.size - 1 && onDepthChange && (
-        <div 
-          className="mt-3 pt-2 border-t border-neutral-700/50 text-[10px] text-amber-400 cursor-pointer hover:text-amber-300 transition-colors"
-          onClick={() => onDepthChange(activeFilters.size - 1)}
-        >
-          💡 Tip: With {activeFilters.size} types, increase depth to {activeFilters.size - 1}+ hops to see full chain
-        </div>
-      )}
-    </div>
-  );
-}
-
-// =============================================================================
-// DATE FILTER PANEL
-// =============================================================================
-
-interface DateFilterState {
-  mode: 'off' | 'single' | 'range';
-  singleDate: string; // YYYY-MM-DD format
-  startDate: string;  // YYYY-MM-DD format
-  endDate: string;    // YYYY-MM-DD format
-  applied: boolean;   // Whether the filter has been applied
-}
-
-interface DateFilterPanelProps {
-  dateFilter: DateFilterState;
-  onDateFilterChange: (filter: DateFilterState) => void;
-  onClose: () => void;
-  filteredCount: number;
-  totalCount: number;
-}
-
-function DateFilterPanel({ dateFilter, onDateFilterChange, onClose, filteredCount, totalCount }: DateFilterPanelProps) {
-  // Local state for editing (not applied until user clicks Apply)
-  const [localMode, setLocalMode] = useState<'off' | 'single' | 'range'>(dateFilter.mode);
-  const [localSingleDate, setLocalSingleDate] = useState(dateFilter.singleDate);
-  const [localStartDate, setLocalStartDate] = useState(dateFilter.startDate);
-  const [localEndDate, setLocalEndDate] = useState(dateFilter.endDate);
-
-  // Check if there are pending changes
-  const hasChanges = localMode !== dateFilter.mode ||
-    localSingleDate !== dateFilter.singleDate ||
-    localStartDate !== dateFilter.startDate ||
-    localEndDate !== dateFilter.endDate ||
-    !dateFilter.applied;
-
-  // Check if the current selection is valid for applying
-  const canApply = localMode === 'off' ||
-    (localMode === 'single' && localSingleDate) ||
-    (localMode === 'range' && localStartDate && localEndDate);
-
-  const handleApply = () => {
-    onDateFilterChange({
-      mode: localMode,
-      singleDate: localSingleDate,
-      startDate: localStartDate,
-      endDate: localEndDate,
-      applied: true,
-    });
-    onClose(); // Close the panel after applying
-  };
-
-  const handleClear = () => {
-    setLocalMode('off');
-    setLocalSingleDate('');
-    setLocalStartDate('');
-    setLocalEndDate('');
-    onDateFilterChange({
-      mode: 'off',
-      singleDate: '',
-      startDate: '',
-      endDate: '',
-      applied: true,
-    });
-  };
-
-  // Get today's date in YYYY-MM-DD format
-  const today = new Date().toISOString().split('T')[0];
-
-  return (
-    <div className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-3 border border-neutral-700 shadow-xl min-w-[280px]">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-cyan-400" />
-          <h4 className="text-xs text-neutral-400 uppercase font-medium">Filter by Created Date</h4>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-neutral-700 rounded transition-colors"
-        >
-          <X className="w-3.5 h-3.5 text-neutral-400" />
-        </button>
-      </div>
-
-      {/* Mode Selection */}
-      <div className="flex gap-1 mb-3">
-        <button
-          onClick={() => setLocalMode('off')}
-          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-            localMode === 'off'
-              ? 'bg-neutral-700 text-white'
-              : 'bg-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          Off
-        </button>
-        <button
-          onClick={() => setLocalMode('single')}
-          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-            localMode === 'single'
-              ? 'bg-cyan-600 text-white'
-              : 'bg-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          Specific Date
-        </button>
-        <button
-          onClick={() => setLocalMode('range')}
-          className={`flex-1 px-2 py-1.5 rounded text-xs font-medium transition-colors ${
-            localMode === 'range'
-              ? 'bg-cyan-600 text-white'
-              : 'bg-neutral-800 text-neutral-400 hover:text-white'
-          }`}
-        >
-          Date Range
-        </button>
-      </div>
-
-      {/* Single Date Input */}
-      {localMode === 'single' && (
-        <div className="space-y-2">
-          <label className="text-xs text-neutral-500">Select Date</label>
-          <input
-            type="date"
-            value={localSingleDate}
-            onChange={(e) => setLocalSingleDate(e.target.value)}
-            max={today}
-            className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
-          />
-        </div>
-      )}
-
-      {/* Date Range Inputs */}
-      {localMode === 'range' && (
-        <div className="space-y-2">
-          <div>
-            <label className="text-xs text-neutral-500">From</label>
-            <input
-              type="date"
-              value={localStartDate}
-              onChange={(e) => setLocalStartDate(e.target.value)}
-              max={localEndDate || today}
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
-            />
-          </div>
-          <div>
-            <label className="text-xs text-neutral-500">To</label>
-            <input
-              type="date"
-              value={localEndDate}
-              onChange={(e) => setLocalEndDate(e.target.value)}
-              min={localStartDate}
-              max={today}
-              className="w-full px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 [color-scheme:dark]"
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Apply and Clear Buttons */}
-      {localMode !== 'off' && (
-        <div className="mt-3 pt-3 border-t border-neutral-700/50 flex items-center gap-2">
-          <button
-            onClick={handleApply}
-            disabled={!canApply}
-            className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-              canApply && hasChanges
-                ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                : 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
-            }`}
-          >
-            Apply Filter
-          </button>
-          <button
-            onClick={handleClear}
-            className="px-3 py-2 rounded-lg text-xs font-medium bg-neutral-800 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-          >
-            Clear
-          </button>
-        </div>
-      )}
-
-      {/* Filter Stats */}
-      {dateFilter.applied && dateFilter.mode !== 'off' && (
-        <div className="mt-2 text-xs text-neutral-400">
-          Showing <span className="text-cyan-400 font-medium">{filteredCount}</span> of {totalCount} nodes
-        </div>
-      )}
-
-      {/* Help text */}
-      <p className="mt-3 text-[10px] text-neutral-500 leading-relaxed">
-        Filter nodes by their creation date. Note: Nodes only have a created date (not updated date).
-      </p>
-    </div>
-  );
-}
+// NodeDetailsPanel is now imported from ./panels
 
 // =============================================================================
 // EXPLOITABILITY ANALYSIS PANEL
@@ -1404,52 +843,7 @@ function AttackPathPanel({ paths, loading, onSelectNode, onClose }: AttackPathPa
   );
 }
 
-// =============================================================================
-// RELATIONSHIP TYPE SELECTOR MODAL
-// =============================================================================
-
-// Relationship types for consolidated schema
-const RELATIONSHIP_TYPES = [
-  // Category relationships
-  { value: 'BELONGS_TO_CATEGORY', label: 'Belongs to Category', color: EDGE_COLORS.BELONGS_TO_CATEGORY },
-  { value: 'APPLIES_TO_CATEGORY', label: 'Applies to Category', color: EDGE_COLORS.APPLIES_TO_CATEGORY },
-  // Asset relationships
-  { value: 'CONNECTED_TO', label: 'Connected To', color: EDGE_COLORS.CONNECTED_TO },
-  { value: 'DEPENDS_ON', label: 'Depends On', color: EDGE_COLORS.DEPENDS_ON },
-  { value: 'HAS_SERVICE', label: 'Has Service', color: EDGE_COLORS.HAS_SERVICE },
-  { value: 'HAS_IDENTITY', label: 'Has Identity', color: EDGE_COLORS.HAS_IDENTITY },
-  // Control relationships
-  { value: 'HAS_CONTROL', label: 'Has Control', color: EDGE_COLORS.HAS_CONTROL },
-  { value: 'IMPLEMENTS_CONTROL', label: 'Implements Control', color: EDGE_COLORS.IMPLEMENTS_CONTROL },
-  { value: 'MITIGATED_BY', label: 'Mitigated By', color: EDGE_COLORS.MITIGATED_BY },
-  // Vulnerability relationships
-  { value: 'VULNERABLE_TO', label: 'Vulnerable To', color: EDGE_COLORS.VULNERABLE_TO },
-  // Threat relationships
-  { value: 'HAS_THREAT', label: 'Has Threat', color: EDGE_COLORS.HAS_THREAT },
-  { value: 'EXPLOITS', label: 'Exploits', color: EDGE_COLORS.EXPLOITS },
-  { value: 'TARGETS', label: 'Targets', color: EDGE_COLORS.TARGETS },
-  // Attack relationships (MITRE ATT&CK)
-  { value: 'USES_ATTACK', label: 'Uses Attack', color: EDGE_COLORS.USES_ATTACK },
-  { value: 'ATTACK_TARGETS', label: 'Attack Targets', color: EDGE_COLORS.ATTACK_TARGETS },
-  { value: 'RELATED_ATTACK', label: 'Related Attack', color: EDGE_COLORS.RELATED_ATTACK },
-  // Detection relationships
-  { value: 'HAS_INDICATOR', label: 'Has Indicator', color: EDGE_COLORS.HAS_INDICATOR },
-  { value: 'DETECTED_BY_LOG', label: 'Detected By Log', color: EDGE_COLORS.DETECTED_BY_LOG },
-];
-
-// Consolidated 9 node types + LogEvent
-const NODE_TYPES = [
-  { value: 'AssetCategory', label: 'Asset Category', color: NODE_COLORS.AssetCategory },
-  { value: 'Asset', label: 'Asset', color: NODE_COLORS.Asset },
-  { value: 'Service', label: 'Service', color: NODE_COLORS.Service },
-  { value: 'Identity', label: 'Identity', color: NODE_COLORS.Identity },
-  { value: 'Vulnerability', label: 'Vulnerability', color: NODE_COLORS.Vulnerability },
-  { value: 'Control', label: 'Security Control', color: NODE_COLORS.Control },
-  { value: 'Threat', label: 'Threat', color: NODE_COLORS.Threat },
-  { value: 'Indicator', label: 'Indicator (IOC)', color: NODE_COLORS.Indicator },
-  { value: 'Attack', label: 'Attack (MITRE)', color: NODE_COLORS.Attack },
-  { value: 'LogEvent', label: 'Log Event', color: NODE_COLORS.LogEvent },
-];
+// RELATIONSHIP_TYPES and NODE_TYPES are now imported from ./constants
 
 // =============================================================================
 // ADD NODE MODAL
@@ -1730,16 +1124,7 @@ function AddRelationshipModal({ isOpen, onClose, onAdd, nodes, selectedNodeId }:
   );
 }
 
-// =============================================================================
-// HANDLE POSITION OPTIONS
-// =============================================================================
-
-const HANDLE_POSITIONS = [
-  { value: 'top', label: 'Top', icon: '↑' },
-  { value: 'bottom', label: 'Bottom', icon: '↓' },
-  { value: 'left', label: 'Left', icon: '←' },
-  { value: 'right', label: 'Right', icon: '→' },
-];
+// HANDLE_POSITIONS is now imported from ./constants
 
 // =============================================================================
 // EDIT RELATIONSHIP MODAL
@@ -2504,6 +1889,8 @@ function RelationshipSelector({
   );
 }
 
+// TableView is now imported from ./components
+
 // =============================================================================
 // PENDING CHANGES TRACKER
 // =============================================================================
@@ -2708,14 +2095,41 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [layoutSettings, setLayoutSettings] = useState<LayoutSettings>({
     ...DEFAULT_LAYOUT_SETTINGS,
   });
+  // Saved layout settings (persisted state) - for Save/Cancel workflow
+  const [savedLayoutSettings, setSavedLayoutSettings] = useState<LayoutSettings>({
+    ...DEFAULT_LAYOUT_SETTINGS,
+  });
   
-  // Update a single layout setting
+  // Node analysis hook - handles CVE analysis and future node-specific analysis operations
+  const { cveAnalysisInProgress, runCVEAnalysis } = useNodeAnalysis({ endpoint, onRefresh });
+  
+  // Check if there are unsaved layout changes (current vs saved)
+  const hasUnsavedLayoutChanges = useMemo(() => {
+    return JSON.stringify(layoutSettings) !== JSON.stringify(savedLayoutSettings);
+  }, [layoutSettings, savedLayoutSettings]);
+  
+  // Update a single layout setting with instant feedback
   const updateLayoutSetting = useCallback(<K extends keyof LayoutSettings>(
     key: K,
     value: LayoutSettings[K]
   ) => {
     setLayoutSettings(prev => ({ ...prev, [key]: value }));
   }, []);
+  
+  // Save layout settings (persist as saved state)
+  const saveLayoutSettings = useCallback(() => {
+    setSavedLayoutSettings({ ...layoutSettings });
+    // Persist to localStorage
+    const stored = getStoredLayout();
+    saveLayout({ ...stored, layoutSettings });
+    setShowLayoutSettings(false);
+  }, [layoutSettings]);
+  
+  // Cancel layout settings changes (revert to saved state)
+  const cancelLayoutSettings = useCallback(() => {
+    setLayoutSettings({ ...savedLayoutSettings });
+    setShowLayoutSettings(false);
+  }, [savedLayoutSettings]);
   
   // Helper to get date string N days ago
   const getDateDaysAgo = useCallback((days: number): string => {
@@ -2784,6 +2198,10 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   
   // Edit mode state
   const [editMode, setEditMode] = useState(false);
+  
+  // View mode state: 'graph' or 'table'
+  const [viewMode, setViewMode] = useState<'graph' | 'table'>('graph');
+  
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [showRelationshipSelector, setShowRelationshipSelector] = useState(false);
   const [showAddNodeModal, setShowAddNodeModal] = useState(false);
@@ -4393,6 +3811,10 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const handleDeleteEdge = useCallback((edgeId: string) => {
     if (!editMode) return;
     
+    // Get edge info for notification
+    const edge = edges.find(e => e.id === edgeId);
+    const edgeLabel = edge ? String(edge.label || 'relationship') : 'relationship';
+    
     setEdges((eds) => eds.filter((e) => e.id !== edgeId));
     
     // Check if it's a new edge (not yet saved) or existing edge
@@ -4404,14 +3826,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         ...prev,
         addedEdges: prev.addedEdges.filter((e) => e.id !== edgeId),
       }));
+      toast.info(`Removed pending ${edgeLabel}`, { duration: 2000 });
     } else {
-      // Add to deleted edges
+      // Add to deleted edges - will be deleted on save
       setPendingChanges((prev) => ({
         ...prev,
         deletedEdgeIds: [...prev.deletedEdgeIds, edgeId],
       }));
+      toast.info(`Marked ${edgeLabel} for deletion (click Save to confirm)`, { duration: 2000 });
     }
-  }, [editMode, setEdges, pendingChanges.addedEdges]);
+  }, [editMode, edges, setEdges, pendingChanges.addedEdges]);
 
   // Handle editing a relationship (change type)
   const handleEditEdge = useCallback((edgeId: string, newRelType: string, sourceHandle?: string, targetHandle?: string) => {
@@ -4467,9 +3891,17 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           source_handle: sourceHandle,
           target_handle: targetHandle,
         }),
+      }).then(response => {
+        if (response.ok) {
+          toast.success(`Relationship updated to "${newRelType.replace(/_/g, ' ')}"`, { duration: 2000 });
+        } else {
+          toast.error('Failed to update relationship on server', { duration: 3000 });
+        }
       }).catch(() => {
         toast.error('Failed to update edge connection', { duration: 3000 });
       });
+    } else {
+      toast.success(`Relationship updated locally to "${newRelType.replace(/_/g, ' ')}"`, { duration: 2000 });
     }
   }, [setEdges, endpoint]);
 
@@ -4498,14 +3930,32 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const handleDeleteNode = useCallback((nodeId: string) => {
     if (!editMode) return;
     
+    // Get node info for notification
+    const node = nodes.find(n => n.id === nodeId);
+    const nodeName = node ? (node.data as CustomNodeData).label : nodeId;
+    
+    // Check if it's a new node (not yet saved) or existing node
+    const isNewNode = pendingChanges.addedNodes?.some((n) => n.id === nodeId);
+    
     // Remove node and all connected edges
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
     
-    setPendingChanges((prev) => ({
-      ...prev,
-      deletedNodeIds: [...prev.deletedNodeIds, nodeId],
-    }));
+    if (isNewNode) {
+      // Remove from added nodes
+      setPendingChanges((prev) => ({
+        ...prev,
+        addedNodes: (prev.addedNodes || []).filter((n) => n.id !== nodeId),
+      }));
+      toast.info(`Removed pending node "${nodeName}"`, { duration: 2000 });
+    } else {
+      // Add to deleted nodes - will be deleted on save
+      setPendingChanges((prev) => ({
+        ...prev,
+        deletedNodeIds: [...prev.deletedNodeIds, nodeId],
+      }));
+      toast.info(`Marked "${nodeName}" for deletion (click Save to confirm)`, { duration: 2000 });
+    }
     
     setSelectedNode(null);
   }, [editMode, setNodes, setEdges]);
@@ -4516,50 +3966,97 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     
     setIsSaving(true);
     
+    const baseUrl = endpoint || 'http://localhost:7777';
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+    
     try {
-      const baseUrl = endpoint || 'http://localhost:7777';
-      
       // Save new nodes first (so edges can reference them)
       for (const node of pendingChanges.addedNodes || []) {
-        await fetch(`${baseUrl}/v1/asset-graph/nodes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: node.name,
-            label: node.nodeType,
-            properties: {},
-          }),
-        });
+        try {
+          const response = await fetch(`${baseUrl}/v1/asset-graph/nodes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: node.name,
+              label: node.nodeType,
+              properties: {},
+            }),
+          });
+          if (response.ok) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Failed to create node: ${node.name}`);
+          }
+        } catch (e) {
+          errorCount++;
+          errors.push(`Failed to create node: ${node.name}`);
+        }
       }
       
       // Save new edges
       for (const edge of pendingChanges.addedEdges) {
-        const labelStr = typeof edge.label === 'string' ? edge.label : '';
-        const relationType = (edge.data as { relationType?: string })?.relationType || labelStr.replace(/ /g, '_');
-        await fetch(`${baseUrl}/v1/asset-graph/edges`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            from_id: edge.source,
-            to_id: edge.target,
-            label: relationType,
-            properties: {},
-          }),
-        });
+        try {
+          const labelStr = typeof edge.label === 'string' ? edge.label : '';
+          const relationType = (edge.data as { relationType?: string })?.relationType || labelStr.replace(/ /g, '_');
+          const response = await fetch(`${baseUrl}/v1/asset-graph/edges`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from_id: edge.source,
+              to_id: edge.target,
+              label: relationType,
+              properties: {},
+            }),
+          });
+          if (response.ok) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Failed to create relationship: ${relationType}`);
+          }
+        } catch (e) {
+          errorCount++;
+          errors.push(`Failed to create relationship`);
+        }
       }
       
       // Delete edges
       for (const edgeId of pendingChanges.deletedEdgeIds) {
-        await fetch(`${baseUrl}/v1/asset-graph/edges/${edgeId}`, {
-          method: 'DELETE',
-        });
+        try {
+          const response = await fetch(`${baseUrl}/v1/asset-graph/edges/${edgeId}`, {
+            method: 'DELETE',
+          });
+          if (response.ok || response.status === 404) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Failed to delete relationship: ${edgeId}`);
+          }
+        } catch (e) {
+          errorCount++;
+          errors.push(`Failed to delete relationship: ${edgeId}`);
+        }
       }
       
       // Delete nodes
       for (const nodeId of pendingChanges.deletedNodeIds) {
-        await fetch(`${baseUrl}/v1/asset-graph/nodes/${nodeId}`, {
-          method: 'DELETE',
-        });
+        try {
+          const response = await fetch(`${baseUrl}/v1/asset-graph/nodes/${nodeId}`, {
+            method: 'DELETE',
+          });
+          if (response.ok || response.status === 404) {
+            successCount++;
+          } else {
+            errorCount++;
+            errors.push(`Failed to delete node: ${nodeId}`);
+          }
+        } catch (e) {
+          errorCount++;
+          errors.push(`Failed to delete node: ${nodeId}`);
+        }
       }
       
       // Clear pending changes
@@ -4570,12 +4067,23 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         addedNodes: [],
       });
       
+      // Show result notification
+      if (errorCount === 0 && successCount > 0) {
+        toast.success(`Successfully saved ${successCount} change${successCount > 1 ? 's' : ''} to database`, { duration: 3000 });
+      } else if (errorCount > 0 && successCount > 0) {
+        toast.warning(`Saved ${successCount} change(s), but ${errorCount} failed`, { duration: 4000 });
+      } else if (errorCount > 0) {
+        toast.error(`Failed to save ${errorCount} change(s). Check console for details.`, { duration: 4000 });
+        console.error('Save errors:', errors);
+      }
+      
       // Exit edit mode and refresh
       setEditMode(false);
       onRefresh();
       
-    } catch {
+    } catch (e) {
       toast.error('Failed to save changes. Please try again.', { duration: 3000 });
+      console.error('Save error:', e);
     } finally {
       setIsSaving(false);
     }
@@ -4783,6 +4291,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       ...prev,
       addedNodes: [...(prev.addedNodes || []), { id: nodeId, name, nodeType }],
     }));
+    
+    toast.success(`Added "${name}" (${nodeType}) - click Save to persist`, { duration: 2500 });
   }, [nodes, setNodes]);
 
   // ==========================================================================
@@ -4829,6 +4339,8 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       ...prev,
       addedEdges: [...prev.addedEdges, newEdge],
     }));
+    
+    toast.success(`Added "${relType.replace(/_/g, ' ')}" relationship - click Save to persist`, { duration: 2500 });
   }, [setEdges]);
 
   // ==========================================================================
@@ -4891,95 +4403,19 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [contextMenuNode, handleSearch]);
 
-  // Handle CVE Analysis for Vulnerability nodes (toast-only notifications)
+  // Handle CVE Analysis for Vulnerability nodes - delegates to useNodeAnalysis hook
   const handleContextRunCVEAnalysis = useCallback(() => {
-    if (!contextMenuNode) return;
-    
-    const nodeData = contextMenuNode.data as CustomNodeData;
-    if (nodeData.nodeType !== 'Vulnerability') return;
-    
-    const cveId = nodeData.label;
-    if (!cveId || !cveId.startsWith('CVE-')) {
-      toast.error('Invalid CVE ID', { description: 'Node name must be a valid CVE ID (e.g., CVE-2024-1234)' });
-      return;
+    if (contextMenuNode) {
+      runCVEAnalysis(contextMenuNode);
     }
-    
-    // Show toast that analysis is starting
-    toast.info(`Starting CVE Analysis: ${cveId}`, {
-      description: 'Analysis running in background. Graph will refresh when done.',
-      duration: 5000,
-    });
-    
-    // Start CVE analysis in background
-    const baseUrl = endpoint || 'http://localhost:7777';
-    
-    fetch(`${baseUrl}/v1/asset-graph/cve-analysis`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        cve_id: cveId,
-        node_id: contextMenuNode.id,
-      }),
-    }).then(async (response) => {
-      if (!response.ok) {
-        toast.error(`CVE Analysis Failed: ${cveId}`, {
-          description: 'Could not start analysis. Check server logs.',
-          duration: 5000,
-        });
-        return;
-      }
-      
-      const reader = response.body?.getReader();
-      if (!reader) return;
-      
-      const decoder = new TextDecoder();
-      let buffer = '';
-      
-      // Process SSE stream for final result only
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              
-              // Only show toast for final result
-              if (data.status === 'success') {
-                const severity = data.summary?.severity?.toUpperCase() || 'Unknown';
-                const exploitCount = data.summary?.exploit_count || 0;
-                toast.success(`CVE Analysis Complete: ${cveId}`, {
-                  description: `Severity: ${severity} | Exploits: ${exploitCount} found`,
-                  duration: 8000,
-                });
-                onRefresh();
-              } else if (data.status === 'error') {
-                toast.error(`CVE Analysis Failed: ${cveId}`, {
-                  description: data.error || 'Analysis encountered an error',
-                  duration: 8000,
-                });
-              }
-            } catch {
-              // Ignore parse errors
-            }
-          }
-        }
-      }
-    }).catch((err) => {
-      toast.error(`CVE Analysis Failed: ${cveId}`, {
-        description: String(err),
-        duration: 8000,
-      });
-    });
-  }, [contextMenuNode, endpoint, onRefresh]);
+  }, [contextMenuNode, runCVEAnalysis]);
 
   // Handle saving node properties
   const handleSaveNodeProperties = useCallback(async (nodeId: string, properties: Record<string, unknown>) => {
+    // Get node name for notification
+    const node = nodes.find(n => n.id === nodeId);
+    const nodeName = node ? (node.data as CustomNodeData).label : nodeId;
+    
     // Update the node in local state
     setNodes((nds) => 
       nds.map((n) => {
@@ -5000,21 +4436,28 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     if (endpoint) {
       try {
         const baseUrl = endpoint || 'http://localhost:7777';
-        await fetch(`${baseUrl}/v1/asset-graph/nodes/${nodeId}`, {
+        const response = await fetch(`${baseUrl}/v1/asset-graph/nodes/${nodeId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ properties }),
         });
+        if (response.ok) {
+          toast.success(`Properties saved for "${nodeName}"`, { duration: 2000 });
+        } else {
+          toast.error('Failed to save node properties to server', { duration: 3000 });
+        }
       } catch {
         toast.error('Failed to save node properties to server', { duration: 3000 });
         // Properties are still updated locally even if backend fails
       }
+    } else {
+      toast.success(`Properties updated locally for "${nodeName}"`, { duration: 2000 });
     }
 
     // Close the modal
     setShowEditPropertiesModal(false);
     setEditingNode(null);
-  }, [setNodes, endpoint]);
+  }, [nodes, setNodes, endpoint]);
 
   if (loading) {
     return (
@@ -5084,40 +4527,241 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   }
 
   return (
-    <div ref={containerRef} className="flex-1 relative">
+    <div ref={containerRef} className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Demo Data Banner - Prominent notification */}
       {isShowingDemoData && (
-        <div className="absolute top-0 left-0 right-0 z-20 bg-gradient-to-r from-amber-600 to-orange-600 backdrop-blur-sm px-4 py-3 flex items-center justify-center gap-3 shadow-lg border-b-2 border-amber-400/50">
+        <div className="bg-gradient-to-r from-amber-600 to-orange-600 px-4 py-2 flex items-center justify-center gap-3 border-b-2 border-amber-400/50">
           <div className="flex items-center gap-2">
-            <div className="flex items-center justify-center w-6 h-6 bg-white/20 rounded-full animate-pulse">
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center justify-center w-5 h-5 bg-white/20 rounded-full animate-pulse">
+              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <span className="text-sm font-semibold text-white">
-              ⚠️ DEMO DATA — This is sample data for demonstration purposes only
+            <span className="text-xs font-semibold text-white">
+              DEMO DATA — Sample data for demonstration
             </span>
           </div>
           <button
             onClick={onRefresh}
-            className="text-xs px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white rounded-md transition-colors font-medium border border-white/30"
+            className="text-xs px-2 py-1 bg-white/20 hover:bg-white/30 text-white rounded transition-colors font-medium"
           >
             Load Real Data
           </button>
         </div>
       )}
+
+      {/* Unified Top Toolbar - Common to both views */}
+      <div className="flex items-center justify-between px-3 py-2 bg-neutral-900/95 border-b border-neutral-800">
+        {/* Left Side - View-specific controls */}
+        <div className="flex items-center gap-2">
+          {/* View Mode Toggle */}
+          <div className="flex items-center bg-neutral-800 rounded-lg p-0.5 border border-neutral-700">
+            <button
+              onClick={() => setViewMode('graph')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
+                viewMode === 'graph'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+              }`}
+              title="Graph View"
+            >
+              <Network className="w-3.5 h-3.5" />
+              Graph
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
+                viewMode === 'table'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+              }`}
+              title="Table View"
+            >
+              <Table className="w-3.5 h-3.5" />
+              Table
+            </button>
+          </div>
+
+          {/* Separator */}
+          <div className="w-px h-6 bg-neutral-700" />
+
+          {/* Edit Mode Toggle */}
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${
+              editMode
+                ? 'bg-amber-600 text-white border-amber-500'
+                : 'bg-neutral-800 text-neutral-400 hover:text-white border-neutral-700 hover:border-amber-500/50'
+            }`}
+            title={editMode ? 'Exit Edit Mode' : 'Enable Edit Mode'}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            {editMode ? 'Editing' : 'Edit'}
+          </button>
+
+          {/* Edit Mode Actions */}
+          {editMode && (
+            <>
+              <button
+                onClick={() => setShowAddNodeModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-xs font-medium"
+                title="Add Node"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Node
+              </button>
+              <button
+                onClick={() => setShowAddRelationshipModal(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors text-xs font-medium"
+                title="Add Relationship"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Relationship
+              </button>
+              {hasUnsavedChanges && (
+                <>
+                  <button
+                    onClick={handleSaveChanges}
+                    disabled={isSaving}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors text-xs font-medium disabled:opacity-50"
+                    title="Save Changes"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    {isSaving ? 'Saving...' : 'Save'}
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-neutral-700 text-neutral-300 hover:bg-neutral-600 transition-colors text-xs font-medium"
+                    title="Cancel"
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                    Cancel
+                  </button>
+                </>
+              )}
+            </>
+          )}
+
+          {/* Separator */}
+          <div className="w-px h-6 bg-neutral-700" />
+
+          {/* Date Filter - Common to both views */}
+          <div className="flex items-center gap-1 bg-neutral-800/80 border border-neutral-700 rounded-lg p-0.5">
+            <Calendar className="w-3.5 h-3.5 text-neutral-500 ml-1.5" />
+            {(['today', '3d', 'week', 'month', 'all'] as const).map((range) => {
+              const labels: Record<typeof range, string> = {
+                'today': 'Today',
+                '3d': '3d',
+                'week': '1w',
+                'month': '1m',
+                'all': 'All',
+              };
+              return (
+                <button
+                  key={range}
+                  onClick={() => applyTimeRange(range)}
+                  className={`px-2 py-1 text-xs rounded transition-colors ${
+                    activeTimeRange === range
+                      ? 'bg-cyan-600 text-white font-medium'
+                      : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+                  }`}
+                >
+                  {labels[range]}
+                </button>
+              );
+            })}
+            {/* Custom Date Filter Toggle - uses sliders icon like graph mode */}
+            <button
+              onClick={() => setShowDateFilter(!showDateFilter)}
+              className={`p-1 rounded transition-colors ${
+                showDateFilter ? 'bg-cyan-600 text-white' : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
+              }`}
+              title="Custom date range"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Date Filter Badge */}
+          {dateFilter.applied && dateFilter.mode !== 'off' && (
+            <div className="flex items-center gap-1 px-2 py-1 bg-cyan-600/20 border border-cyan-500/30 rounded text-xs text-cyan-400">
+              <span>
+                {dateFilter.mode === 'single' 
+                  ? dateFilter.singleDate 
+                  : `${dateFilter.startDate} → ${dateFilter.endDate}`}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Right Side - Stats */}
+        <div className="flex items-center gap-2">
+          {hasUnsavedChanges && (
+            <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-600/20 border border-amber-500/30 rounded text-xs text-amber-400">
+              <span>+{(pendingChanges.addedNodes?.length || 0) + pendingChanges.addedEdges.length}</span>
+              <span>/</span>
+              <span>-{pendingChanges.deletedEdgeIds.length + pendingChanges.deletedNodeIds.length}</span>
+            </div>
+          )}
+          <div className="text-xs text-neutral-400">
+            <span className="text-white font-medium">{nodes.length}</span> nodes •{' '}
+            <span className="text-white font-medium">{edges.length}</span> edges
+          </div>
+        </div>
+      </div>
       
-      {/* Floating Demo Badge on Graph */}
-      {isShowingDemoData && (
-        <div className="absolute bottom-4 left-4 z-20 bg-amber-600/95 backdrop-blur-sm px-3 py-2 rounded-lg shadow-lg border border-amber-400/50 flex items-center gap-2">
-          <div className="w-2 h-2 bg-amber-300 rounded-full animate-pulse" />
-          <span className="text-xs font-semibold text-white uppercase tracking-wide">
-            Demo Mode
-          </span>
+      {/* Date Filter Panel - Common to both views */}
+      {showDateFilter && (
+        <div className="flex-shrink-0 border-b border-neutral-800 bg-neutral-900/95">
+          <DateFilterPanel
+            dateFilter={dateFilter}
+            onDateFilterChange={setDateFilter}
+            onClose={() => setShowDateFilter(false)}
+            filteredCount={nodes.length}
+            totalCount={graphData?.nodes?.length || 0}
+          />
         </div>
       )}
       
-      <ReactFlow
+      {/* Content Area */}
+      <div className="flex-1 relative min-h-0 overflow-hidden">
+        {/* Table View */}
+        {viewMode === 'table' && (
+          <div className="absolute inset-0 overflow-hidden">
+            <TableView
+            nodes={nodes}
+            edges={edges}
+            onEditNode={(node) => {
+              setEditingNode(node);
+              setShowEditPropertiesModal(true);
+            }}
+            onDeleteNode={handleDeleteNode}
+            onEditEdge={handleOpenEditRelationship}
+            onDeleteEdge={handleDeleteEdge}
+            onNavigateToNode={(nodeId) => {
+              setViewMode('graph');
+              setTimeout(() => navigateToNode(nodeId), 100);
+            }}
+            editMode={editMode}
+            allNodeTypes={nodeTypesList}
+          />
+          </div>
+        )}
+
+        {/* Floating Demo Badge on Graph */}
+        {isShowingDemoData && viewMode === 'graph' && (
+          <div className="absolute bottom-4 left-4 z-20 bg-amber-600/95 backdrop-blur-sm px-3 py-2 rounded-lg shadow-lg border border-amber-400/50 flex items-center gap-2">
+            <div className="w-2 h-2 bg-amber-300 rounded-full animate-pulse" />
+            <span className="text-xs font-semibold text-white uppercase tracking-wide">
+              Demo Mode
+            </span>
+          </div>
+        )}
+      
+        {/* Graph View */}
+        {viewMode === 'graph' && <ReactFlow
         nodes={nodes}
         edges={edges.map(e => {
           const isSelectedEdge = selectedEdges.has(e.id);
@@ -5355,49 +4999,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             </div>
           )}
 
-          {/* Time Range Buttons */}
-          <div className="flex items-center gap-1 bg-neutral-800/80 border border-neutral-700 rounded-lg p-1">
-            <Calendar className="w-3.5 h-3.5 text-neutral-500 ml-1" />
-            {(['today', '3d', 'week', 'month', 'all'] as const).map((range) => {
-              const labels: Record<typeof range, string> = {
-                today: 'Today',
-                '3d': '3d',
-                week: '7d',
-                month: '30d',
-                all: 'All',
-              };
-              const isActive = activeTimeRange === range;
-              return (
-                <button
-                  key={range}
-                  onClick={() => applyTimeRange(range)}
-                  className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                    isActive
-                      ? 'bg-cyan-600 text-white'
-                      : 'text-neutral-400 hover:text-white hover:bg-neutral-700'
-                  }`}
-                  title={`Show nodes from ${labels[range].toLowerCase()}`}
-                >
-                  {labels[range]}
-                </button>
-              );
-            })}
-            <button
-              onClick={() => {
-                setShowDateFilter(!showDateFilter);
-                if (showFilters) setShowFilters(false);
-              }}
-              className={`p-1 rounded transition-colors ${
-                showDateFilter ? 'bg-cyan-600 text-white' : 'text-neutral-500 hover:text-white hover:bg-neutral-700'
-              }`}
-              title="Custom date range"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-              </svg>
-            </button>
-          </div>
-          
           {/* Background fetching indicator */}
           {isBackgroundFetching && loadingProgress && (
             <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800/60 border border-neutral-700/50 rounded-lg text-xs text-neutral-400">
@@ -5448,14 +5049,23 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
               <div className="absolute top-full right-0 mt-2 w-80 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700 rounded-xl shadow-2xl z-50 p-4">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-white">Layout Settings</h3>
-                  <button
-                    onClick={() => {
-                      setLayoutSettings({ ...DEFAULT_LAYOUT_SETTINGS });
-                    }}
-                    className="text-xs text-neutral-400 hover:text-cyan-400 transition-colors"
-                  >
-                    Reset
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setLayoutSettings({ ...DEFAULT_LAYOUT_SETTINGS });
+                      }}
+                      className="text-xs text-neutral-400 hover:text-cyan-400 transition-colors"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      onClick={cancelLayoutSettings}
+                      className="p-1 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
+                      title="Close"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Web Worker Toggle */}
@@ -5592,7 +5202,20 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
 
                 {/* Quick Presets */}
                 <div className="pt-3 border-t border-neutral-700">
-                  <label className="text-xs text-neutral-500 mb-2 block">Quick Presets</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs text-neutral-500">Quick Presets</label>
+                    <button
+                      onClick={saveLayoutSettings}
+                      className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
+                        hasUnsavedLayoutChanges
+                          ? 'bg-green-600 hover:bg-green-700 text-white'
+                          : 'bg-neutral-700 text-neutral-500 cursor-not-allowed'
+                      }`}
+                      disabled={!hasUnsavedLayoutChanges}
+                    >
+                      Save
+                    </button>
+                  </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => setLayoutSettings({
@@ -5712,81 +5335,16 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             <RotateCcw className="w-4 h-4" />
           </button>
 
-          {/* Separator */}
-          <div className="w-px h-6 bg-neutral-700" />
-
-          {/* Edit Mode Toggle */}
-          {!editMode ? (
+          {/* Delete Selected Edges - show in graph panel when edges selected */}
+          {editMode && selectedEdges.size > 0 && (
             <button
-              onClick={() => setEditMode(true)}
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-              title="Edit Graph"
+              onClick={handleDeleteSelectedEdges}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
+              title="Delete Selected Edges"
             >
-              <Edit3 className="w-4 h-4" />
-              <span className="text-xs font-medium">Edit</span>
+              <Trash2 className="w-4 h-4" />
+              <span className="text-xs font-medium">Delete ({selectedEdges.size})</span>
             </button>
-          ) : (
-            <>
-              {/* Add Node Button */}
-              <button
-                onClick={() => setShowAddNodeModal(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-colors"
-                title="Add Node"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="text-xs font-medium">Node</span>
-              </button>
-
-              {/* Add Relationship Button */}
-              <button
-                onClick={() => setShowAddRelationshipModal(true)}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
-                title="Add Relationship"
-              >
-                <Plus className="w-4 h-4" />
-                <span className="text-xs font-medium">Relationship</span>
-              </button>
-
-              {/* Delete Selected Edges */}
-              {selectedEdges.size > 0 && (
-                <button
-                  onClick={handleDeleteSelectedEdges}
-                  className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors"
-                  title="Delete Selected"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  <span className="text-xs font-medium">Delete ({selectedEdges.size})</span>
-                </button>
-              )}
-
-              {/* Separator */}
-              <div className="w-px h-6 bg-neutral-600" />
-
-              {/* Save Button */}
-              <button
-                onClick={handleSaveChanges}
-                disabled={!hasUnsavedChanges || isSaving}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg transition-colors ${
-                  hasUnsavedChanges && !isSaving
-                    ? 'bg-green-600 text-white hover:bg-green-700'
-                    : 'bg-neutral-800 border border-neutral-700 text-neutral-500 cursor-not-allowed'
-                }`}
-                title="Save Changes"
-              >
-                <Save className="w-4 h-4" />
-                <span className="text-xs font-medium">{isSaving ? 'Saving...' : 'Save'}</span>
-              </button>
-
-              {/* Cancel Button */}
-              <button
-                onClick={handleCancelEdit}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-colors"
-                title="Cancel Edit"
-              >
-                <XCircle className="w-4 h-4" />
-                <span className="text-xs font-medium">Cancel</span>
-              </button>
-            </>
           )}
         </Panel>
 
@@ -5807,19 +5365,6 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           </Panel>
         )}
 
-        {/* Date Filter Panel */}
-        {showDateFilter && (
-          <Panel position="top-left" className="!top-16">
-            <DateFilterPanel
-              dateFilter={dateFilter}
-              onDateFilterChange={setDateFilter}
-              onClose={() => setShowDateFilter(false)}
-              filteredCount={nodes.length}
-              totalCount={graphData?.nodes?.length || 0}
-            />
-          </Panel>
-        )}
-
         {/* Hierarchy Legend Panel */}
         {showLegend && (
           <Panel position="bottom-right" className="!bottom-4 !right-4">
@@ -5827,88 +5372,84 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           </Panel>
         )}
 
-        {/* Stats Panel */}
-        <Panel position="top-right" className="bg-neutral-900/95 backdrop-blur-sm rounded-lg p-1 border border-neutral-700/50 shadow-lg">
-          <div className="flex items-center gap-2">
-            {/* Edit Mode Indicator */}
-            {editMode && (
-              <div className="bg-gradient-to-r from-amber-600 to-orange-600 rounded-lg px-3 py-2 text-xs text-white font-medium flex items-center gap-2">
-                <Edit3 className="w-3 h-3" />
-                <span>Editing</span>
-                {hasUnsavedChanges && (
-                  <span className="bg-black/20 px-2 py-0.5 rounded text-[10px]">
-                    +{(pendingChanges.addedNodes?.length || 0) + pendingChanges.addedEdges.length} / -{pendingChanges.deletedEdgeIds.length + pendingChanges.deletedNodeIds.length}
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="px-2 py-1 text-xs text-neutral-400">
-              <span className="text-white font-medium">{nodes.length}</span> nodes •{' '}
-              <span className="text-white font-medium">{edges.length}</span> edges
+        {/* Unsaved Changes Indicator - Only when in edit mode with changes */}
+        {editMode && hasUnsavedChanges && (
+          <Panel position="top-right" className="!top-14 bg-amber-600/90 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-500/50 shadow-lg">
+            <div className="flex items-center gap-2 text-xs text-white font-medium">
+              <Edit3 className="w-3 h-3" />
+              <span>Unsaved: +{(pendingChanges.addedNodes?.length || 0) + pendingChanges.addedEdges.length} / -{pendingChanges.deletedEdgeIds.length + pendingChanges.deletedNodeIds.length}</span>
             </div>
-          </div>
-        </Panel>
-      </ReactFlow>
-
-      {/* Node Details Panel */}
-      <AnimatePresence>
-        {selectedNode && (
-          <NodeDetailsPanel
-            node={selectedNode}
-            edges={edges}
-            nodes={nodes}
-            onNavigate={navigateToNode}
-            onClose={() => setSelectedNode(null)}
-            editMode={editMode}
-            onDeleteNode={handleDeleteNode}
-            onAddRelationship={() => setShowAddRelationshipModal(true)}
-            onEditProperties={() => {
-              setEditingNode(selectedNode);
-              setShowEditPropertiesModal(true);
-            }}
-            onDeleteEdge={handleDeleteEdge}
-            onEditEdge={handleOpenEditRelationship}
-          />
+          </Panel>
         )}
-      </AnimatePresence>
+      </ReactFlow>}
 
-      {/* Exploitability Analysis Panel */}
-      <AnimatePresence>
-        {showExploitabilityPanel && (
-          <ExploitabilityPanel
-            scores={exploitabilityScores}
-            loading={analysisLoading}
-            onSelectAsset={handleAnalysisNavigate}
-            onClose={() => setShowExploitabilityPanel(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Node Details Panel - Only show in graph mode */}
+      {viewMode === 'graph' && (
+        <AnimatePresence>
+          {selectedNode && (
+            <NodeDetailsPanel
+              node={selectedNode}
+              edges={edges}
+              nodes={nodes}
+              onNavigate={navigateToNode}
+              onClose={() => setSelectedNode(null)}
+              editMode={editMode}
+              onDeleteNode={handleDeleteNode}
+              onAddRelationship={() => setShowAddRelationshipModal(true)}
+              onEditProperties={() => {
+                setEditingNode(selectedNode);
+                setShowEditPropertiesModal(true);
+              }}
+              onDeleteEdge={handleDeleteEdge}
+              onEditEdge={handleOpenEditRelationship}
+              cveAnalysisInProgress={selectedNode ? cveAnalysisInProgress.has(selectedNode.id) : false}
+            />
+          )}
+        </AnimatePresence>
+      )}
 
-      {/* Remediation Priorities Panel */}
-      <AnimatePresence>
-        {showRemediationPanel && (
-          <RemediationPanel
-            recommendations={remediationRecommendations}
-            loading={analysisLoading}
-            onSelectTarget={handleAnalysisNavigate}
-            onClose={() => setShowRemediationPanel(false)}
-          />
-        )}
-      </AnimatePresence>
+      {/* Analysis Panels - Only show in graph mode */}
+      {viewMode === 'graph' && (
+        <>
+          {/* Exploitability Analysis Panel */}
+          <AnimatePresence>
+            {showExploitabilityPanel && (
+              <ExploitabilityPanel
+                scores={exploitabilityScores}
+                loading={analysisLoading}
+                onSelectAsset={handleAnalysisNavigate}
+                onClose={() => setShowExploitabilityPanel(false)}
+              />
+            )}
+          </AnimatePresence>
 
-      {/* Attack Path Panel */}
-      <AnimatePresence>
-        {showAttackPathPanel && (
-          <AttackPathPanel
-            paths={attackPaths}
-            threatId={selectedThreatForPath}
-            targetAssetId={selectedAssetForPath}
-            loading={analysisLoading}
-            onSelectNode={handleAnalysisNavigate}
-            onClose={() => setShowAttackPathPanel(false)}
-          />
-        )}
-      </AnimatePresence>
+          {/* Remediation Priorities Panel */}
+          <AnimatePresence>
+            {showRemediationPanel && (
+              <RemediationPanel
+                recommendations={remediationRecommendations}
+                loading={analysisLoading}
+                onSelectTarget={handleAnalysisNavigate}
+                onClose={() => setShowRemediationPanel(false)}
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Attack Path Panel */}
+          <AnimatePresence>
+            {showAttackPathPanel && (
+              <AttackPathPanel
+                paths={attackPaths}
+                threatId={selectedThreatForPath}
+                targetAssetId={selectedAssetForPath}
+                loading={analysisLoading}
+                onSelectNode={handleAnalysisNavigate}
+                onClose={() => setShowAttackPathPanel(false)}
+              />
+            )}
+          </AnimatePresence>
+        </>
+      )}
 
       {/* Relationship Type Selector Modal (for drag-connect) */}
       <RelationshipSelector
@@ -5976,6 +5517,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         sourceNodeName={editingEdge ? getNodeName(editingEdge.source) : undefined}
         targetNodeName={editingEdge ? getNodeName(editingEdge.target) : undefined}
       />
+      </div>
     </div>
   );
 }

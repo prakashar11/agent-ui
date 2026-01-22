@@ -137,6 +137,25 @@ export interface SelectedNode {
   edges: GraphEdge[];
 }
 
+// =============================================================================
+// CUSTOM NODE TYPES FOR REACTFLOW
+// =============================================================================
+
+import type { Node } from '@xyflow/react';
+
+export interface CustomNodeData {
+  label: string;
+  nodeType: string;
+  properties: Record<string, unknown>;
+  // Highlighting state for selection-based focus
+  isHighlighted?: boolean;  // Node is within hop distance of selected node
+  isDimmed?: boolean;       // Node is outside hop distance (should appear grayed)
+  isSelected?: boolean;     // This is the currently selected node
+  [key: string]: unknown;   // Allow additional properties for ReactFlow
+}
+
+export type CustomNode = Node<CustomNodeData>;
+
 export interface GraphVisualizationProps {
   isOpen: boolean;
   onClose: () => void;
