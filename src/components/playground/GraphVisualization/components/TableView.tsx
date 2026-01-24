@@ -2,11 +2,12 @@
  * Table View Component - Displays nodes and relationships in a table format
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { Search, X, Eye, Pencil, Trash2, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, X, Eye, Pencil, Trash2, ChevronLeft, ChevronRight, Copy, Check, Filter } from 'lucide-react';
 import type { Edge } from '@xyflow/react';
 import { NODE_COLORS, EDGE_COLORS, type CustomNode, type CustomNodeData } from '../types';
 import { PRIMARY_SEED_TYPES, NODE_TYPE_HIERARCHY } from '../hierarchyUtils';
+import { FilterPanel } from '../panels/FilterPanel';
 
 type TableViewTab = 'nodes' | 'relationships';
 
@@ -44,6 +45,8 @@ export function TableView({
   const [relationshipTypeFilter, setRelationshipTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 25;
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
+  const filterPanelRef = useRef<HTMLDivElement>(null);
   
   // Derive nodeTypeFilter from activeFilters (graph view filter)
   // If exactly one filter is active, use that type; otherwise 'all'
@@ -68,6 +71,53 @@ export function TableView({
       }
     }
   };
+
+  // Handle type filter toggle (simple toggle, no modifier keys needed)
+  const handleTypeToggle = (type: string) => {
+    if (!onFilterChange) return;
+
+    const newFilters = new Set(activeFilters);
+    if (newFilters.has(type)) {
+      newFilters.delete(type);
+    } else {
+      newFilters.add(type);
+    }
+    onFilterChange(newFilters);
+  };
+
+  // Clear all filters
+  const handleClearFilters = () => {
+    if (onFilterChange) {
+      onFilterChange(new Set());
+    }
+  };
+
+  // Close filter panel when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (filterPanelRef.current && !filterPanelRef.current.contains(event.target as Node)) {
+        setShowFilterPanel(false);
+      }
+    };
+
+    if (showFilterPanel) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showFilterPanel]);
+
+  // Calculate stats for each node type
+  const nodeTypeStats = useMemo(() => {
+    const stats: Record<string, number> = {};
+    nodes.forEach(node => {
+      const nodeData = node.data as CustomNodeData;
+      const type = nodeData.nodeType;
+      stats[type] = (stats[type] || 0) + 1;
+    });
+    return stats;
+  }, [nodes]);
 
   // Use all available node types from parent (aligns with graph mode filter)
   // Sort by hierarchy with primary seed types first
@@ -122,11 +172,11 @@ export function TableView({
       });
     }
     
-    // Apply type filter
-    if (nodeTypeFilter !== 'all') {
+    // Apply type filter - support multiple selected types
+    if (activeFilters.size > 0) {
       result = result.filter(node => {
         const nodeData = node.data as CustomNodeData;
-        return nodeData.nodeType === nodeTypeFilter;
+        return activeFilters.has(nodeData.nodeType);
       });
     }
     
@@ -157,7 +207,7 @@ export function TableView({
     });
     
     return result;
-  }, [nodes, searchQuery, nodeTypeFilter, sortField, sortDirection]);
+  }, [nodes, searchQuery, activeFilters, sortField, sortDirection]);
 
   // Filter and sort edges
   const filteredEdges = useMemo(() => {
@@ -231,10 +281,24 @@ export function TableView({
     return formatted;
   };
 
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
+
+  const handleCopyUrl = async (url: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedUrl(url);
+      setTimeout(() => setCopiedUrl(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy URL:', err);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col bg-neutral-950 overflow-hidden">
       {/* Toolbar */}
-      <div className="flex-shrink-0 flex items-center gap-3 p-3 border-b border-neutral-800 bg-neutral-900/50">
+      <div className="flex-shrink-0 flex items-center gap-3 p-3 border-b border-neutral-800 bg-neutral-900/50 relative">
         {/* Tabs */}
         <div className="flex items-center gap-1 bg-neutral-800 rounded-lg p-1">
           <button
@@ -279,20 +343,44 @@ export function TableView({
           )}
         </div>
 
-        {/* Type Filter */}
+        {/* Type Filter - Button and summary chip like graph view */}
         {activeTab === 'nodes' ? (
-          <select
-            value={nodeTypeFilter}
-            onChange={(e) => handleNodeTypeFilterChange(e.target.value)}
-            className="px-3 py-2 bg-neutral-800 border border-neutral-700 rounded-lg text-sm text-white focus:outline-none focus:border-blue-500"
-          >
-            <option value="all">All Types</option>
-            {nodeTypes.map(type => (
-              <option key={type} value={type}>
-                {type}{activeFilters.has(type) ? ' ✓' : ''}
-              </option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2 relative">
+            <button
+              onClick={() => setShowFilterPanel(!showFilterPanel)}
+              className={`p-2 rounded-lg transition-colors ${
+                showFilterPanel || activeFilters.size > 0
+                  ? 'bg-blue-600/20 text-blue-400 hover:bg-blue-600/30'
+                  : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-white'
+              }`}
+              title="Filter by Type"
+            >
+              <Filter className="w-4 h-4" />
+            </button>
+            {activeFilters.size > 0 && (
+              <div className="flex items-center gap-1 px-2 py-1 bg-neutral-800 rounded-lg text-xs text-neutral-300">
+                <span>{activeFilters.size} {activeFilters.size === 1 ? 'type' : 'types'}</span>
+                <button
+                  onClick={handleClearFilters}
+                  className="p-0.5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
+                  title="Clear filters"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            {showFilterPanel && (
+              <div className="absolute top-full right-0 mt-2 z-50" ref={filterPanelRef}>
+                <FilterPanel
+                  nodeTypes={nodeTypes}
+                  activeFilters={activeFilters}
+                  onToggleFilter={handleTypeToggle}
+                  stats={nodeTypeStats}
+                  onClose={() => setShowFilterPanel(false)}
+                />
+              </div>
+            )}
+          </div>
         ) : (
           <select
             value={relationshipTypeFilter}
@@ -357,40 +445,63 @@ export function TableView({
                 const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
                 const connectionCount = edges.filter(e => e.source === node.id || e.target === node.id).length;
                 
-                // Get source for Threat nodes tooltip
+                // Get source for Threat nodes
                 const isThreatNode = nodeData.nodeType === 'Threat' || nodeData.nodeType === 'ThreatActor' || nodeData.nodeType === 'AttackPattern';
                 const sourceValue = nodeData.properties?.source || nodeData.properties?.origin || nodeData.properties?.feed_source || nodeData.properties?.intel_source;
-                const sourceTooltip = isThreatNode && sourceValue ? `Source: ${String(sourceValue)}` : undefined;
+                const sourceUrl = isThreatNode && sourceValue ? String(sourceValue) : null;
+                const isHovered = hoveredRowId === node.id;
+                const isCopied = copiedUrl === sourceUrl;
 
                 return (
                   <tr
                     key={node.id}
                     className="hover:bg-neutral-800/50 transition-colors group relative"
-                    title={sourceTooltip}
+                    onMouseEnter={() => setHoveredRowId(node.id)}
+                    onMouseLeave={() => setHoveredRowId(null)}
                   >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => onNavigateToNode(node.id)}
-                          className="flex items-center gap-2 text-left hover:text-blue-400 transition-colors"
-                        >
-                          <div
-                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: color }}
-                          />
-                          <span className="text-sm text-white font-medium">
-                            {nodeData.label}
-                          </span>
-                        </button>
-                        {/* Source indicator for threat nodes */}
-                        {isThreatNode && sourceValue ? (
-                          <span 
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-purple-600/20 text-purple-400 border border-purple-500/30 cursor-help"
-                            title={`Source: ${String(sourceValue)}`}
+                        <div className="relative">
+                          <button
+                            onClick={() => onNavigateToNode(node.id)}
+                            className="flex items-center gap-2 text-left hover:text-blue-400 transition-colors"
                           >
-                            {String(sourceValue).length > 15 ? String(sourceValue).substring(0, 15) + '...' : String(sourceValue)}
-                          </span>
-                        ) : null}
+                            <div
+                              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: color }}
+                            />
+                            <span className="text-sm text-white font-medium">
+                              {nodeData.label}
+                            </span>
+                          </button>
+                          {/* Hover tooltip with copyable URL - positioned beside row text */}
+                          {isHovered && sourceUrl && (
+                            <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl p-2 min-w-[300px] max-w-[500px]">
+                              <div className="flex items-center gap-2">
+                                <a
+                                  href={sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-blue-400 hover:text-blue-300 break-all flex-1"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {sourceUrl}
+                                </a>
+                                <button
+                                  onClick={(e) => handleCopyUrl(sourceUrl, e)}
+                                  className="flex-shrink-0 p-1 rounded hover:bg-neutral-700 text-neutral-400 hover:text-white transition-colors"
+                                  title="Copy URL"
+                                >
+                                  {isCopied ? (
+                                    <Check className="w-3.5 h-3.5 text-green-400" />
+                                  ) : (
+                                    <Copy className="w-3.5 h-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -442,7 +553,7 @@ export function TableView({
               {paginatedNodes.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-12 text-center text-neutral-500">
-                    {searchQuery || nodeTypeFilter !== 'all'
+                    {searchQuery || activeFilters.size > 0
                       ? 'No nodes match your filters'
                       : 'No nodes available'}
                   </td>
