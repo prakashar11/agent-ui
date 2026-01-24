@@ -239,6 +239,34 @@ export const APIRoutes = {
   ThreatIntelAssetCategories: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/intel/asset-categories`,
 
+  // Bug Bounty Intelligence Ingestion API Routes
+  BugBountyIngestion: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest`,
+  BugBountyIngestionSync: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest/sync`,
+  BugBountyIngestionStatus: (PlaygroundApiUrl: string, jobId: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest/status/${encodeURIComponent(jobId)}`,
+  BugBountyIngestionJobs: (PlaygroundApiUrl: string, limit?: number) => {
+    const queryParams = new URLSearchParams();
+    if (limit) queryParams.append('limit', String(limit));
+    const query = queryParams.toString();
+    return `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs${query ? `?${query}` : ''}`;
+  },
+  BugBountyIngestionDeleteJob: (PlaygroundApiUrl: string, jobId: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs/${encodeURIComponent(jobId)}`,
+  BugBountyIngestionClearJobs: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs`,
+
+  // Bug Bounty Predefined URLs API Routes
+  BugBountyPredefinedUrls: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/predefined-urls`,
+  BugBountyPredefinedUrl: (PlaygroundApiUrl: string, urlId: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/predefined-urls/${encodeURIComponent(urlId)}`,
+  BugBountyPredefinedUrlCreate: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/predefined-urls`,
+  BugBountyPredefinedUrlUpdate: (PlaygroundApiUrl: string, urlId: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/predefined-urls/${encodeURIComponent(urlId)}`,
+
   // Graph Maintenance API Routes
   ThreatIntelOrphanedNodes: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/intel/graph/orphaned-nodes`,

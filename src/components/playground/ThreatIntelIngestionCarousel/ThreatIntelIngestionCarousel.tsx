@@ -87,7 +87,22 @@ export const ThreatIntelIngestionCarousel: React.FC<ThreatIntelIngestionCarousel
       }
 
       const data = await response.json()
-      setJobs(data.jobs || [])
+      const allJobs = data.jobs || []
+      
+      // Client-side filter as safeguard: only show threat intel jobs
+      // Job IDs should start with "ingest_" or "ingest_sync_" but NOT "bug_bounty_ingest_"
+      const threatIntelJobs = allJobs.filter((job: IngestionJobStatus) =>
+        (job.job_id?.startsWith('ingest_') || job.job_id?.startsWith('ingest_sync_')) &&
+        !job.job_id?.startsWith('bug_bounty_ingest_')
+      )
+      
+      if (threatIntelJobs.length !== allJobs.length) {
+        console.warn(
+          `Threat intel carousel: Filtered out ${allJobs.length - threatIntelJobs.length} non-threat-intel jobs`
+        )
+      }
+      
+      setJobs(threatIntelJobs)
     } catch (error) {
       // Network error or server unreachable - fail silently with toast
       console.warn('Error fetching ingestion jobs:', error)
