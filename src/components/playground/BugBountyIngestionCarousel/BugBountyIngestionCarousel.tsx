@@ -44,6 +44,7 @@ import {
   Save,
   List,
   Settings,
+  Check,
 } from 'lucide-react'
 import {
   BugBountyIngestRequest,
@@ -73,6 +74,7 @@ export const BugBountyIngestionCarousel: React.FC<BugBountyIngestionCarouselProp
 
   // Form state
   const [showConfigDialog, setShowConfigDialog] = useState(false)
+  const [showQuickStartDialog, setShowQuickStartDialog] = useState(false)
   const [formData, setFormData] = useState<BugBountyIngestRequest>(
     DEFAULT_BUG_BOUNTY_INGEST_REQUEST
   )
@@ -84,6 +86,9 @@ export const BugBountyIngestionCarousel: React.FC<BugBountyIngestionCarouselProp
   const [loadingPredefinedUrls, setLoadingPredefinedUrls] = useState(false)
   const [selectedPredefinedUrlIds, setSelectedPredefinedUrlIds] = useState<string[]>([])
   const [addToPredefined, setAddToPredefined] = useState(false)
+  
+  // Quick Start dialog state - temporary selection for Quick Start
+  const [quickStartSelectedIds, setQuickStartSelectedIds] = useState<string[]>([])
   
   // Tab state
   const [activeTab, setActiveTab] = useState<'urls' | 'settings'>('urls')
@@ -510,13 +515,80 @@ export const BugBountyIngestionCarousel: React.FC<BugBountyIngestionCarouselProp
 
   // Quick start with defaults
   const handleQuickStart = async () => {
-    if (formData.urls.length === 0 && selectedPredefinedUrlIds.length === 0) {
-      toast.error('Please add at least one URL or select a predefined URL first', { duration: 3000 })
+    // If URLs are already selected, start immediately
+    if (formData.urls.length > 0 || selectedPredefinedUrlIds.length > 0) {
+      setFormData(DEFAULT_BUG_BOUNTY_INGEST_REQUEST)
+      await handleStartIngestion(false)
+      return
+    }
+    
+    // If no URLs selected, show Quick Start dialog with predefined URLs
+    if (predefinedUrls.length === 0) {
+      toast.error('No predefined URLs available. Please add URLs manually or configure predefined URLs first.', { duration: 3000 })
       setShowConfigDialog(true)
       return
     }
+    
+    // Show Quick Start dialog to select predefined URLs
+    setQuickStartSelectedIds([])
+    setShowQuickStartDialog(true)
+  }
+  
+  // Handle Quick Start with selected predefined URLs
+  const handleQuickStartWithSelection = async () => {
+    if (quickStartSelectedIds.length === 0) {
+      toast.error('Please select at least one predefined URL', { duration: 3000 })
+      return
+    }
+    
+    setShowQuickStartDialog(false)
     setFormData(DEFAULT_BUG_BOUNTY_INGEST_REQUEST)
-    await handleStartIngestion(false)
+    setSelectedPredefinedUrlIds(quickStartSelectedIds)
+    
+    // Start ingestion with selected predefined URLs
+    const requestData: BugBountyIngestRequest = {
+      ...DEFAULT_BUG_BOUNTY_INGEST_REQUEST,
+      urls: [],
+      predefined_url_ids: quickStartSelectedIds,
+      add_to_predefined: false,
+    }
+    
+    await handleStartIngestionWithData(requestData, false)
+  }
+  
+  // Helper to start ingestion with specific data
+  const handleStartIngestionWithData = async (requestData: BugBountyIngestRequest, sync: boolean = false) => {
+    if (!endpoint) return
+
+    setIsSubmitting(true)
+    try {
+      const url = APIRoutes.BugBountyIngestion(endpoint)
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestData),
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.warn('Failed to start ingestion:', response.status, errorText)
+        toast.error(`Failed to start ingestion: ${response.statusText}`, { duration: 3000 })
+        return
+      }
+
+      const data = await response.json()
+      toast.success('Ingestion job started', { duration: 2000 })
+      fetchJobs()
+      
+      // Reset form after successful submission
+      setFormData(DEFAULT_BUG_BOUNTY_INGEST_REQUEST)
+      setSelectedPredefinedUrlIds([])
+    } catch (error) {
+      console.warn('Error starting ingestion:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   // Quick extract for a single predefined URL
@@ -1232,6 +1304,141 @@ export const BugBountyIngestionCarousel: React.FC<BugBountyIngestionCarouselProp
               )}
               Start Async
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Start Dialog */}
+      <Dialog
+        open={showQuickStartDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowQuickStartDialog(false)
+            setQuickStartSelectedIds([])
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-purple-400" />
+              Quick Start - Select Predefined URLs
+            </DialogTitle>
+            <DialogDescription>
+              Select one or more predefined URLs to start bug bounty intelligence extraction
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-4 mt-4 pr-2">
+            {loadingPredefinedUrls ? (
+              <div className="flex items-center justify-center py-8 border border-zinc-600 rounded-md bg-zinc-800/50">
+                <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground mr-2" />
+                <span className="text-xs text-zinc-400">Loading predefined URLs...</span>
+              </div>
+            ) : predefinedUrls.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 border border-zinc-600 rounded-md bg-zinc-800/50">
+                <Globe className="h-8 w-8 text-zinc-500 mb-2" />
+                <p className="text-sm text-zinc-400 mb-4">No predefined URLs available</p>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setShowQuickStartDialog(false)
+                    setShowConfigDialog(true)
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  <Settings2 className="h-4 w-4 mr-1" />
+                  Configure URLs
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-96 overflow-y-auto border border-zinc-600 rounded-md p-2 bg-zinc-800/50">
+                {predefinedUrls.map((predefinedUrl) => {
+                  const isSelected = quickStartSelectedIds.includes(predefinedUrl.id)
+                  return (
+                    <div
+                      key={predefinedUrl.id}
+                      onClick={() => {
+                        if (isSelected) {
+                          setQuickStartSelectedIds(quickStartSelectedIds.filter(id => id !== predefinedUrl.id))
+                        } else {
+                          setQuickStartSelectedIds([...quickStartSelectedIds, predefinedUrl.id])
+                        }
+                      }}
+                      className={cn(
+                        "p-3 rounded border cursor-pointer transition-all",
+                        isSelected
+                          ? "border-purple-500 bg-purple-500/20 hover:bg-purple-500/30"
+                          : "border-zinc-700 bg-zinc-800/30 hover:bg-zinc-700/30 hover:border-zinc-600"
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className={cn(
+                          "mt-0.5 w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0",
+                          isSelected
+                            ? "border-purple-500 bg-purple-500"
+                            : "border-zinc-500 bg-transparent"
+                        )}>
+                          {isSelected && (
+                            <Check className="h-3 w-3 text-white" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-zinc-100">
+                            {predefinedUrl.name}
+                          </div>
+                          <div className="text-xs text-zinc-400 mt-1 break-all">
+                            {predefinedUrl.url}
+                          </div>
+                          {predefinedUrl.description && (
+                            <div className="text-xs text-zinc-500 mt-1">
+                              {predefinedUrl.description}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-4 border-t border-zinc-700 mt-4">
+            <div className="text-sm text-zinc-400">
+              {quickStartSelectedIds.length > 0
+                ? `${quickStartSelectedIds.length} ${quickStartSelectedIds.length === 1 ? 'URL' : 'URLs'} selected`
+                : 'Select at least one URL to continue'}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowQuickStartDialog(false)
+                  setQuickStartSelectedIds([])
+                }}
+                className="border-zinc-600 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleQuickStartWithSelection}
+                disabled={quickStartSelectedIds.length === 0 || isSubmitting}
+                className="bg-purple-600 hover:bg-purple-700 text-white border-0"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-1" />
+                    Start Extraction
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

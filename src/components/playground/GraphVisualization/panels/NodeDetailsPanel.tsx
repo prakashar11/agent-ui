@@ -2,7 +2,7 @@
  * Node Details Panel - Shows details of a selected node
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { X, Trash2, Copy, Pencil, Plus, Loader2, ScanSearch } from 'lucide-react';
 import { toast } from 'sonner';
@@ -91,8 +91,23 @@ export function NodeDetailsPanel({
 
   const nodeData = node.data as unknown as CustomNodeData;
   const color = NODE_COLORS[nodeData.nodeType] || NODE_COLORS.default;
-  const hasProperties = nodeData.properties && Object.keys(nodeData.properties).length > 0;
   const isVulnerability = nodeData.nodeType === 'Vulnerability';
+  
+  // Filter out null/undefined/empty properties for display
+  const displayProperties = useMemo(() => {
+    if (!nodeData.properties) return {};
+    const filtered: Record<string, unknown> = {};
+    Object.entries(nodeData.properties).forEach(([key, value]) => {
+      // Only include properties that have meaningful values
+      if (value !== null && value !== undefined && value !== '' &&
+          !(Array.isArray(value) && value.length === 0)) {
+        filtered[key] = value;
+      }
+    });
+    return filtered;
+  }, [nodeData.properties]);
+  
+  const hasProperties = Object.keys(displayProperties).length > 0;
 
   // Find connected nodes
   const connectedEdges = edges.filter(
@@ -195,20 +210,14 @@ export function NodeDetailsPanel({
           </div>
           {hasProperties ? (
             <div className="space-y-2 bg-neutral-800/50 rounded-lg p-3">
-              {Object.entries(nodeData.properties).map(([key, value]) => {
-                if (value === null || value === undefined || value === '' ||
-                    (Array.isArray(value) && value.length === 0)) {
-                  return null;
-                }
-                return (
-                  <div key={key} className="flex flex-col">
-                    <span className="text-xs text-neutral-500">{key}</span>
-                    <span className="text-sm text-neutral-200 break-words">
-                      {renderPropertyValue(key, value)}
-                    </span>
-                  </div>
-                );
-              })}
+              {Object.entries(displayProperties).map(([key, value]) => (
+                <div key={key} className="flex flex-col">
+                  <span className="text-xs text-neutral-500">{key}</span>
+                  <span className="text-sm text-neutral-200 break-words">
+                    {renderPropertyValue(key, value)}
+                  </span>
+                </div>
+              ))}
             </div>
           ) : (
             <div className="text-xs text-neutral-500 italic bg-neutral-800/30 rounded-lg p-3">

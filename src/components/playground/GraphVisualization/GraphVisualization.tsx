@@ -576,6 +576,42 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   const [nodes, setNodes, onNodesChange] = useNodesState<CustomNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [selectedNode, setSelectedNode] = useState<CustomNode | null>(null);
+  
+  // Fetch latest node data from API when selected (ensures we have latest properties)
+  const fetchNodeData = useCallback(async (nodeId: string) => {
+    if (!endpoint) return null;
+    
+    try {
+      const baseUrl = endpoint || 'http://localhost:7777';
+      // Use singular "node" endpoint (not "nodes")
+      const response = await fetch(`${baseUrl}/v1/asset-graph/node/${nodeId}`);
+      if (response.ok) {
+        const responseData = await response.json();
+        // API returns { node: {...}, neighbors: [...] }
+        return responseData.node || null;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch node data:', error);
+    }
+    return null;
+  }, [endpoint]);
+  
+  // Update selected node when nodes array changes (e.g., after CVE analysis refresh)
+  useEffect(() => {
+    if (selectedNode) {
+      // Find the updated node in the current nodes array
+      const updatedNode = nodes.find(n => n.id === selectedNode.id);
+      if (updatedNode) {
+        // Check if properties have changed
+        const currentProps = JSON.stringify((selectedNode.data as CustomNodeData).properties || {});
+        const newProps = JSON.stringify((updatedNode.data as CustomNodeData).properties || {});
+        if (currentProps !== newProps) {
+          // Update selected node with latest data
+          setSelectedNode(updatedNode);
+        }
+      }
+    }
+  }, [nodes, selectedNode?.id]);
   const [highlightedNodeIds, setHighlightedNodeIds] = useState<Set<string>>(new Set());
   const [highlightedEdgeIds, setHighlightedEdgeIds] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -1997,6 +2033,62 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       setContextMenu(prev => ({ ...prev, isOpen: false }));
       
       setSelectedNode(node);
+      
+      // Fetch latest node data from API to ensure we have updated properties
+      if (endpoint) {
+        const baseUrl = endpoint || 'http://localhost:7777';
+        // Use singular "node" endpoint (not "nodes")
+        fetch(`${baseUrl}/v1/asset-graph/node/${node.id}`)
+          .then(response => {
+            if (response.ok) {
+              return response.json();
+            }
+            return null;
+          })
+          .then(responseData => {
+            if (responseData && responseData.node) {
+              // API returns { node: {...}, neighbors: [...] }
+              const nodeData = responseData.node;
+              const properties = typeof nodeData.properties === 'string' 
+                ? JSON.parse(nodeData.properties) 
+                : (nodeData.properties || {});
+              
+              // Update the node in the nodes array with latest data
+              setNodes((currentNodes) => {
+                return currentNodes.map(n => {
+                  if (n.id === node.id) {
+                    // Update node with latest data from API
+                    return {
+                      ...n,
+                      data: {
+                        ...n.data,
+                        properties: properties,
+                      },
+                    };
+                  }
+                  return n;
+                });
+              });
+              
+              // Update selected node with latest data
+              setSelectedNode((currentSelected) => {
+                if (currentSelected && currentSelected.id === node.id) {
+                  return {
+                    ...currentSelected,
+                    data: {
+                      ...currentSelected.data,
+                      properties: properties,
+                    },
+                  };
+                }
+                return currentSelected;
+              });
+            }
+          })
+          .catch(err => {
+            console.warn('Failed to fetch latest node data:', err);
+          });
+      }
       
       // Spread nodes in the same row to prevent overlap when focusing
       const spreadNodes = spreadNodesInRow(node.id, nodes, 200);
