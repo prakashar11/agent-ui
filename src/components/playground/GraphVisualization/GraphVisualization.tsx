@@ -2035,60 +2035,44 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       setSelectedNode(node);
       
       // Fetch latest node data from API to ensure we have updated properties
-      if (endpoint) {
-        const baseUrl = endpoint || 'http://localhost:7777';
-        // Use singular "node" endpoint (not "nodes")
-        fetch(`${baseUrl}/v1/asset-graph/node/${node.id}`)
-          .then(response => {
-            if (response.ok) {
-              return response.json();
-            }
-            return null;
-          })
-          .then(responseData => {
-            if (responseData && responseData.node) {
-              // API returns { node: {...}, neighbors: [...] }
-              const nodeData = responseData.node;
-              const properties = typeof nodeData.properties === 'string' 
-                ? JSON.parse(nodeData.properties) 
-                : (nodeData.properties || {});
-              
-              // Update the node in the nodes array with latest data
-              setNodes((currentNodes) => {
-                return currentNodes.map(n => {
-                  if (n.id === node.id) {
-                    // Update node with latest data from API
-                    return {
-                      ...n,
-                      data: {
-                        ...n.data,
-                        properties: properties,
-                      },
-                    };
-                  }
-                  return n;
-                });
-              });
-              
-              // Update selected node with latest data
-              setSelectedNode((currentSelected) => {
-                if (currentSelected && currentSelected.id === node.id) {
-                  return {
-                    ...currentSelected,
-                    data: {
-                      ...currentSelected.data,
-                      properties: properties,
-                    },
-                  };
-                }
-                return currentSelected;
-              });
-            }
-          })
-          .catch(err => {
-            console.warn('Failed to fetch latest node data:', err);
+      fetchNodeData(node.id).then(nodeData => {
+        if (nodeData) {
+          const properties = typeof nodeData.properties === 'string' 
+            ? JSON.parse(nodeData.properties) 
+            : (nodeData.properties || {});
+          
+          // Update the node in the nodes array with latest data
+          setNodes((currentNodes) => {
+            return currentNodes.map(n => {
+              if (n.id === node.id) {
+                // Update node with latest data from API
+                return {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    properties: properties,
+                  },
+                };
+              }
+              return n;
+            });
           });
-      }
+          
+          // Update selected node with latest data
+          setSelectedNode((currentSelected) => {
+            if (currentSelected && currentSelected.id === node.id) {
+              return {
+                ...currentSelected,
+                data: {
+                  ...currentSelected.data,
+                  properties: properties,
+                },
+              };
+            }
+            return currentSelected;
+          });
+        }
+      });
       
       // Spread nodes in the same row to prevent overlap when focusing
       const spreadNodes = spreadNodesInRow(node.id, nodes, 200);
@@ -2104,7 +2088,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         }
       }, 50);
     }
-  }, [getNode, setCenter, nodes, setNodes]);
+  }, [getNode, setCenter, nodes, setNodes, fetchNodeData, setSelectedNode]);
 
   // Left-click handler (bound to onNodeClick)
   const onNodeClick = useCallback((event: React.MouseEvent, node: CustomNode) => {
