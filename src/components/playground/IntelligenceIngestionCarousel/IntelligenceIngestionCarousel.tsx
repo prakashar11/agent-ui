@@ -96,6 +96,12 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
 
   // Form state
   const [showConfigDialog, setShowConfigDialog] = useState(false)
+  const [showQuickStartConfirm, setShowQuickStartConfirm] = useState(false)
+  const [quickStartConfig, setQuickStartConfig] = useState<{
+    type: 'threat_intel' | 'bug_bounty'
+    config: ThreatIntelIngestRequest | BugBountyIngestRequest
+    selectedUrls?: PredefinedUrl[]
+  } | null>(null)
   const [threatIntelFormData, setThreatIntelFormData] = useState<ThreatIntelIngestRequest>(
     DEFAULT_THREAT_INTEL_INGEST_REQUEST
   )
@@ -594,29 +600,73 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
     }
   }
 
-  // Quick start with defaults
-  const handleQuickStart = async () => {
+  // Quick start with defaults - show confirmation dialog first
+  const handleQuickStart = () => {
     if (mainTab === 'threat_intel') {
-      setThreatIntelFormData(DEFAULT_THREAT_INTEL_INGEST_REQUEST)
-      await handleStartIngestion(false)
+      const config = DEFAULT_THREAT_INTEL_INGEST_REQUEST
+      setQuickStartConfig({
+        type: 'threat_intel',
+        config,
+      })
+      setShowQuickStartConfirm(true)
     } else if (mainTab === 'bug_bounty') {
-      if (bugBountyFormData.urls.length > 0 || selectedPredefinedUrlIds.length > 0) {
-        setBugBountyFormData(DEFAULT_BUG_BOUNTY_INGEST_REQUEST)
-        await handleStartIngestion(false)
-        return
-      }
+      // Determine which URLs to use
+      let urlsToUse: PredefinedUrl[] = []
+      let manualUrls: string[] = []
       
-      if (predefinedUrls.length === 0) {
+      if (selectedPredefinedUrlIds.length > 0) {
+        // Use already selected predefined URLs
+        urlsToUse = predefinedUrls.filter(pu => selectedPredefinedUrlIds.includes(pu.id))
+      } else if (bugBountyFormData.urls.length > 0) {
+        // Use URLs from form data (manual URLs)
+        manualUrls = [...bugBountyFormData.urls]
+      } else if (predefinedUrls.length > 0) {
+        // Auto-select first predefined URL
+        urlsToUse = [predefinedUrls[0]]
+      } else {
         toast.error('No predefined URLs available. Please add URLs manually or configure predefined URLs first.', { duration: 3000 })
         setShowConfigDialog(true)
         return
       }
       
-      // Use first predefined URL for quick start
-      setSelectedPredefinedUrlIds([predefinedUrls[0].id])
-      setBugBountyFormData(DEFAULT_BUG_BOUNTY_INGEST_REQUEST)
+      const config = { 
+        ...DEFAULT_BUG_BOUNTY_INGEST_REQUEST,
+        urls: manualUrls, // Preserve manual URLs if any
+      }
+      setQuickStartConfig({
+        type: 'bug_bounty',
+        config,
+        selectedUrls: urlsToUse,
+      })
+      setShowQuickStartConfirm(true)
+    }
+  }
+
+  // Confirm and start quick start job
+  const confirmQuickStart = async () => {
+    if (!quickStartConfig) return
+    
+    setShowQuickStartConfirm(false)
+    
+    if (quickStartConfig.type === 'threat_intel') {
+      setThreatIntelFormData(quickStartConfig.config as ThreatIntelIngestRequest)
+      await handleStartIngestion(false)
+    } else if (quickStartConfig.type === 'bug_bounty') {
+      const config = quickStartConfig.config as BugBountyIngestRequest
+      setBugBountyFormData(config)
+      
+      // Set selected predefined URLs if any
+      if (quickStartConfig.selectedUrls && quickStartConfig.selectedUrls.length > 0) {
+        setSelectedPredefinedUrlIds(quickStartConfig.selectedUrls.map(u => u.id))
+      } else {
+        // Clear selected predefined URLs if none
+        setSelectedPredefinedUrlIds([])
+      }
+      
       await handleStartIngestion(false)
     }
+    
+    setQuickStartConfig(null)
   }
 
   // Graph maintenance functions (for threat intel)
@@ -946,7 +996,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
           {/* Predefined URLs Section (for bug bounty tab) */}
           {mainTab === 'bug_bounty' && predefinedUrls.length > 0 && (
             <div className="px-6 py-3 border-b border-border/50 bg-muted/20">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
                   <Globe className="h-4 w-4 text-purple-400" />
                   Predefined URLs
@@ -955,6 +1005,29 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                   {predefinedUrls.length} {predefinedUrls.length === 1 ? 'URL' : 'URLs'} available
                 </span>
               </div>
+              {selectedPredefinedUrlIds.length > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="text-xs text-zinc-400 font-medium mb-1">
+                    Selected for Quick Start ({selectedPredefinedUrlIds.length}):
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {predefinedUrls
+                      .filter(pu => selectedPredefinedUrlIds.includes(pu.id))
+                      .map((predefinedUrl) => (
+                        <div
+                          key={predefinedUrl.id}
+                          className="px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded text-xs text-purple-300 flex items-center gap-1.5"
+                        >
+                          <Check className="h-3 w-3" />
+                          <span className="font-medium">{predefinedUrl.name}</span>
+                          <span className="text-purple-400/70 truncate max-w-[200px]">
+                            ({predefinedUrl.url})
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1824,10 +1897,226 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
             <Button
               onClick={() => handleStartIngestion(false)}
               disabled={isSubmitting}
-              className={`bg-${themeColors.primary}-600 hover:bg-${themeColors.primary}-700 text-white border-0`}
+              className={cn(themeColors.primaryClasses.bg, themeColors.primaryClasses.bgHover, 'text-white border-0')}
             >
               {isSubmitting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />}
               Start Async
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Start Confirmation Dialog */}
+      <Dialog open={showQuickStartConfirm} onOpenChange={setShowQuickStartConfirm}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader className="flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Zap className="h-5 w-5 text-purple-400" />
+              Quick Start Configuration
+            </DialogTitle>
+            <DialogDescription>
+              Review the settings that will be used for this ingestion job. These are default settings optimized for quick ingestion.
+            </DialogDescription>
+          </DialogHeader>
+
+          {quickStartConfig && (
+            <div className="flex-1 overflow-y-auto space-y-4 mt-4 pr-2">
+              {quickStartConfig.type === 'threat_intel' ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+                  <h4 className="text-sm font-semibold text-zinc-100 mb-3 flex items-center gap-2">
+                    <Shield className="h-4 w-4 text-emerald-400" />
+                    Threat Intel Settings
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">RSS Categories:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).rss_categories.join(', ')}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Days Past:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).days_past} days
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Max Articles per Feed:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).max_articles_per_feed}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Sanitization Workers:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).max_concurrent_sanitization}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Analysis Workers:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).max_concurrent_analysis}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Analyze Threats:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).analyze_threats ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Store in Graph:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).store_in_graph ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Cache TTL:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).cache_ttl_hours}h
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3">
+                  <p className="text-xs text-emerald-300">
+                    <strong>Note:</strong> This will process all RSS feeds from the selected categories using default settings optimized for quick ingestion.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+                  <h4 className="text-sm font-semibold text-zinc-100 mb-3 flex items-center gap-2">
+                    <Bug className="h-4 w-4 text-purple-400" />
+                    Bug Bounty Settings
+                  </h4>
+                  <div className="space-y-2 text-sm">
+                    {((quickStartConfig?.selectedUrls && quickStartConfig.selectedUrls.length > 0) || 
+                      ((quickStartConfig.config as BugBountyIngestRequest).urls && (quickStartConfig.config as BugBountyIngestRequest).urls.length > 0)) && (
+                      <div className="mb-3">
+                        <span className="text-zinc-400 block mb-2">
+                          URLs to Process (
+                          {(quickStartConfig?.selectedUrls?.length || 0) + ((quickStartConfig.config as BugBountyIngestRequest).urls?.length || 0)}
+                          ):
+                        </span>
+                        <div className="space-y-1">
+                          {quickStartConfig?.selectedUrls?.map((url) => (
+                            <div key={url.id} className="px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded text-xs">
+                              <div className="font-medium text-purple-300">{url.name}</div>
+                              <div className="text-purple-400/70 truncate">{url.url}</div>
+                            </div>
+                          ))}
+                          {(quickStartConfig.config as BugBountyIngestRequest).urls?.map((url, idx) => (
+                            <div key={idx} className="px-2 py-1 bg-purple-500/20 border border-purple-500/30 rounded text-xs">
+                              <div className="font-medium text-purple-300">Manual URL</div>
+                              <div className="text-purple-400/70 truncate">{url}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Days Past:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).days_past} days
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Methodology Type:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).methodology_type}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Analysis Depth:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).analysis_depth}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Concurrent Extractions:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).max_concurrent_extraction}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Auto-integrate:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).auto_integrate ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Use RSS Feeds:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).use_rss_feeds ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    {(quickStartConfig.config as BugBountyIngestRequest).use_rss_feeds && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-400">Max Articles per RSS Feed:</span>
+                        <span className="text-zinc-100 font-medium">
+                          {(quickStartConfig.config as BugBountyIngestRequest).max_articles_per_rss_feed}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex justify-between">
+                      <span className="text-zinc-400">Cache TTL:</span>
+                      <span className="text-zinc-100 font-medium">
+                        {(quickStartConfig.config as BugBountyIngestRequest).cache_ttl_hours}h
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-purple-500/30 bg-purple-500/10 p-3">
+                  <p className="text-xs text-purple-300">
+                    <strong>Note:</strong> {
+                      quickStartConfig?.selectedUrls && quickStartConfig.selectedUrls.length > 0
+                        ? `This will process ${quickStartConfig.selectedUrls.length} predefined URL(s) using default settings optimized for quick ingestion.`
+                        : (quickStartConfig.config as BugBountyIngestRequest).urls && (quickStartConfig.config as BugBountyIngestRequest).urls.length > 0
+                        ? `This will process ${(quickStartConfig.config as BugBountyIngestRequest).urls.length} manual URL(s) using default settings optimized for quick ingestion.`
+                        : 'This will use default settings. If no URLs are selected, the first predefined URL will be used automatically.'
+                    }
+                  </p>
+                </div>
+              </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex-shrink-0 flex justify-end gap-2 pt-4 border-t border-zinc-700 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowQuickStartConfirm(false)
+                setQuickStartConfig(null)
+              }}
+              className="border-zinc-600 text-zinc-100 hover:bg-zinc-700 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmQuickStart}
+              disabled={isSubmitting || !quickStartConfig}
+              className={cn(
+                quickStartConfig?.type === 'threat_intel'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : 'bg-purple-600 hover:bg-purple-700',
+                'text-white border-0'
+              )}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <Zap className="h-4 w-4 mr-1" />
+                  Start Job
+                </>
+              )}
             </Button>
           </div>
         </DialogContent>
@@ -1877,33 +2166,33 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                     <div className="grid grid-cols-3 gap-3">
                       <div className="rounded-md bg-zinc-900/50 p-3 text-center">
                         <div className="text-2xl font-bold text-red-400">
-                          {orphanedNodes.summary.orphaned_threats}
+                          {orphanedNodes!.summary.orphaned_threats}
                         </div>
                         <div className="text-xs text-zinc-500">Orphan Threats</div>
                       </div>
                       <div className="rounded-md bg-zinc-900/50 p-3 text-center">
                         <div className="text-2xl font-bold text-amber-400">
-                          {orphanedNodes.summary.orphaned_attacks}
+                          {orphanedNodes!.summary.orphaned_attacks}
                         </div>
                         <div className="text-xs text-zinc-500">Orphan Attacks</div>
                       </div>
                       <div className="rounded-md bg-zinc-900/50 p-3 text-center">
                         <div className="text-2xl font-bold text-blue-400">
-                          {orphanedNodes.summary.orphaned_indicators}
+                          {orphanedNodes!.summary.orphaned_indicators}
                         </div>
                         <div className="text-xs text-zinc-500">Orphan Indicators</div>
                       </div>
                     </div>
 
-                    {orphanedNodes.summary.total_orphaned > 0 && (
+                    {orphanedNodes!.summary.total_orphaned > 0 && (
                       <div className="pt-2 border-t border-zinc-700">
                         <div className="text-sm text-zinc-400 mb-2">
-                          Total: <span className="font-semibold text-zinc-100">{orphanedNodes.summary.total_orphaned}</span> orphaned nodes without asset category relationships
+                          Total: <span className="font-semibold text-zinc-100">{orphanedNodes!.summary.total_orphaned}</span> orphaned nodes without asset category relationships
                         </div>
                       </div>
                     )}
 
-                    {orphanedNodes.summary.total_orphaned === 0 && (
+                    {orphanedNodes!.summary.total_orphaned === 0 && (
                       <div className="flex items-center gap-2 text-emerald-500 text-sm">
                         <CheckCircle2 className="h-4 w-4" />
                         No orphaned nodes found - graph is clean!
@@ -1930,7 +2219,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
               <Button
                 variant="outline"
                 onClick={() => cleanupOrphanedNodes(true)}
-                disabled={isCleaningOrphans || !orphanedNodes || orphanedNodes.summary.total_orphaned === 0}
+                disabled={isCleaningOrphans || !orphanedNodes || orphanedNodes!.summary.total_orphaned === 0}
                 className="border-zinc-600 text-zinc-100 hover:bg-amber-600/20 hover:text-amber-400"
               >
                 {isCleaningOrphans ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <AlertTriangle className="h-4 w-4 mr-1" />}
@@ -1938,7 +2227,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
               </Button>
               <Button
                 onClick={() => cleanupOrphanedNodes(false)}
-                disabled={isCleaningOrphans || !orphanedNodes || orphanedNodes.summary.total_orphaned === 0}
+                disabled={isCleaningOrphans || !orphanedNodes || orphanedNodes!.summary.total_orphaned === 0}
                 className="bg-red-600 hover:bg-red-700 text-white border-0"
               >
                 {isCleaningOrphans ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Trash2 className="h-4 w-4 mr-1" />}
