@@ -21,8 +21,7 @@ import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
 import { HygieneEssentialsSpreadsheet } from '@/components/playground/HygieneEssentialsSpreadsheet'
 import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
-import { ThreatIntelIngestionCarousel } from '@/components/playground/ThreatIntelIngestionCarousel'
-import { BugBountyIngestionCarousel } from '@/components/playground/BugBountyIngestionCarousel'
+import { IntelligenceIngestionCarousel } from '@/components/playground/IntelligenceIngestionCarousel'
 import { toast } from 'sonner'
 
 // Generate consistent gradient based on category name hash
@@ -484,14 +483,14 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({
   )
 }
 
-// Threat Intel Ingestion Card Component
-interface ThreatIntelIngestionCardProps {
+// Intelligence Ingestion Card Component (Unified)
+interface IntelligenceIngestionCardProps {
   index: number
   categoryGradient: string
-  onOpenIngestion: () => void
+  onOpenIngestion: (type: 'threat_intel' | 'bug_bounty') => void
 }
 
-const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
+const IntelligenceIngestionCard: React.FC<IntelligenceIngestionCardProps> = ({
   index,
   categoryGradient,
   onOpenIngestion,
@@ -504,7 +503,7 @@ const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
       className="h-full"
     >
       <button
-        onClick={onOpenIngestion}
+        onClick={() => onOpenIngestion('threat_intel')}
         className={cn(
           'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
           `bg-gradient-to-br ${categoryGradient}`,
@@ -526,10 +525,10 @@ const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
-                Threat Intel Ingestion
+                Intelligence Ingestion
               </h3>
               <p className="text-xs text-muted-foreground/70 mt-0.5">
-                RSS Feed Processing
+                Threat Intel & Bug Bounty
               </p>
             </div>
           </div>
@@ -538,13 +537,13 @@ const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
           <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
             <div className="text-xs leading-relaxed text-muted-foreground pr-1">
               <p className="mb-2">
-                <strong>Ingest threat intelligence</strong> from RSS feeds, analyze with LLM, and store in vector DB & asset graph.
+                <strong>Unified intelligence ingestion</strong> for threat intelligence from RSS feeds and bug bounty intelligence from websites.
               </p>
               <ul className="space-y-1 list-disc list-inside">
-                <li>Fetch from 40+ RSS feeds</li>
-                <li>LLM threat analysis</li>
-                <li>Vector store caching</li>
-                <li>Asset graph sync</li>
+                <li>Threat Intel: 40+ RSS feeds, LLM analysis</li>
+                <li>Bug Bounty: Website extraction, tips & techniques</li>
+                <li>Vector store caching & asset graph sync</li>
+                <li>Predefined URL management</li>
               </ul>
             </div>
           </div>
@@ -553,87 +552,6 @@ const ThreatIntelIngestionCard: React.FC<ThreatIntelIngestionCardProps> = ({
           <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
             <div className="flex items-center gap-1.5">
               <Shield className="h-3 w-3 text-muted-foreground/50" />
-              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
-                Click to open
-              </span>
-            </div>
-            <ArrowRight className="h-4 w-4 text-muted-foreground/30 transition-transform group-hover:translate-x-1" />
-          </div>
-        </div>
-      </button>
-    </motion.div>
-  )
-}
-
-// Bug Bounty Ingestion Card Component
-interface BugBountyIngestionCardProps {
-  index: number
-  categoryGradient: string
-  onOpenBugBountyIngestion: () => void
-}
-
-const BugBountyIngestionCard: React.FC<BugBountyIngestionCardProps> = ({
-  index,
-  categoryGradient,
-  onOpenBugBountyIngestion,
-}) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: index * 0.1 }}
-      className="h-full"
-    >
-      <button
-        onClick={onOpenBugBountyIngestion}
-        className={cn(
-          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
-          `bg-gradient-to-br ${categoryGradient}`,
-          'border-border/50 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5'
-        )}
-      >
-        {/* Background pattern */}
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
-          <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
-        </div>
-
-        {/* Content */}
-        <div className="relative z-10 flex h-full flex-col">
-          {/* Header with icon and name */}
-          <div className="mb-3 flex items-start gap-3">
-            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-background/80 transition-colors">
-              <Bug className="h-5 w-5 text-muted-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
-                Bug Bounty Intelligence
-              </h3>
-              <p className="text-xs text-muted-foreground/70 mt-0.5">
-                Website Intelligence Extraction
-              </p>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
-            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
-              <p className="mb-2">
-                <strong>Extract bug bounty intelligence</strong> from websites, extract tips, techniques, and methodologies with time-based filtering.
-              </p>
-              <ul className="space-y-1 list-disc list-inside">
-                <li>Extract from any website URL</li>
-                <li>Tips, techniques & attack vectors</li>
-                <li>Time-based filtering (week, days)</li>
-                <li>Auto-integrate into playbook</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Footer with action hint */}
-          <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
-            <div className="flex items-center gap-1.5">
-              <Bug className="h-3 w-3 text-muted-foreground/50" />
               <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
                 Click to open
               </span>
@@ -742,7 +660,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   const [isHygieneOpen, setIsHygieneOpen] = useState(false)
   const [isWorkflowOpen, setIsWorkflowOpen] = useState(false)
   const [isIngestionOpen, setIsIngestionOpen] = useState(false)
-  const [isBugBountyIngestionOpen, setIsBugBountyIngestionOpen] = useState(false)
+  const [ingestionType, setIngestionType] = useState<'threat_intel' | 'bug_bounty'>('threat_intel')
   
   // Use category from URL for browser navigation support
   const selectedCategory = categoryParam
@@ -912,17 +830,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                   />
                 </div>
                 <div className="h-[280px]">
-                  <ThreatIntelIngestionCard
+                  <IntelligenceIngestionCard
                     index={categoryAgents.length + 1}
                     categoryGradient={categoryGradient}
-                    onOpenIngestion={() => setIsIngestionOpen(true)}
-                  />
-                </div>
-                <div className="h-[280px]">
-                  <BugBountyIngestionCard
-                    index={categoryAgents.length + 2}
-                    categoryGradient={categoryGradient}
-                    onOpenBugBountyIngestion={() => setIsBugBountyIngestionOpen(true)}
+                    onOpenIngestion={(type) => {
+                      setIngestionType(type)
+                      setIsIngestionOpen(true)
+                    }}
                   />
                 </div>
               </>
@@ -981,17 +895,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                   />
                 </div>
                 <div className="h-[280px]">
-                  <ThreatIntelIngestionCard
+                  <IntelligenceIngestionCard
                     index={categoryAgents.length + 1}
                     categoryGradient={categoryGradient}
-                    onOpenIngestion={() => setIsIngestionOpen(true)}
-                  />
-                </div>
-                <div className="h-[280px]">
-                  <BugBountyIngestionCard
-                    index={categoryAgents.length + 2}
-                    categoryGradient={categoryGradient}
-                    onOpenBugBountyIngestion={() => setIsBugBountyIngestionOpen(true)}
+                    onOpenIngestion={(type) => {
+                      setIngestionType(type)
+                      setIsIngestionOpen(true)
+                    }}
                   />
                 </div>
               </>
@@ -1070,19 +980,13 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 </CarouselItem>
                 <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
                   <div className="h-[280px]">
-                    <ThreatIntelIngestionCard
+                    <IntelligenceIngestionCard
                       index={categoryAgents.length + 1}
                       categoryGradient={categoryGradient}
-                      onOpenIngestion={() => setIsIngestionOpen(true)}
-                    />
-                  </div>
-                </CarouselItem>
-                <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
-                  <div className="h-[280px]">
-                    <BugBountyIngestionCard
-                      index={categoryAgents.length + 2}
-                      categoryGradient={categoryGradient}
-                      onOpenBugBountyIngestion={() => setIsBugBountyIngestionOpen(true)}
+                      onOpenIngestion={(type) => {
+                        setIngestionType(type)
+                        setIsIngestionOpen(true)
+                      }}
                     />
                   </div>
                 </CarouselItem>
@@ -1123,18 +1027,12 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
         endpoint={selectedEndpoint}
       />
 
-      {/* Threat Intel Ingestion Modal */}
-      <ThreatIntelIngestionCarousel
+      {/* Intelligence Ingestion Modal (Unified) */}
+      <IntelligenceIngestionCarousel
         isOpen={isIngestionOpen}
         onClose={() => setIsIngestionOpen(false)}
         endpoint={selectedEndpoint}
-      />
-
-      {/* Bug Bounty Ingestion Modal */}
-      <BugBountyIngestionCarousel
-        isOpen={isBugBountyIngestionOpen}
-        onClose={() => setIsBugBountyIngestionOpen(false)}
-        endpoint={selectedEndpoint}
+        defaultType={ingestionType}
       />
     </div>
   )
