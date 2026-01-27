@@ -19,7 +19,7 @@ export const getPlaygroundAgentsAPI = async (
     const agents: ComboboxAgent[] = data.map((item: Agent) => ({
       value: item.agent_id || '',
       label: item.name || '',
-      model: item.model || '',
+      model: item.model ? { provider: item.model.provider || '' } : { provider: '' },
       storage: item.storage || false,
       category: item.category || 'Uncategorized',  // Default category if not provided
       agent_tip: item.agent_tip || undefined  // Optional tooltip/helpful text
