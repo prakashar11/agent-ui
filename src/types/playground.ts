@@ -75,6 +75,55 @@ export interface Agent {
 /** Virtual agent id for SecOps tools harness: uses chat area and POST /v1/secops/request (not Agno agent run). */
 export const SECOPS_TOOLS_HARNESS_AGENT_ID = 'virtual-secops-tools-harness'
 
+/** Virtual agent id for Workflow Tasks carousel (Utilities category). Opens WorkflowCarousel view. */
+export const VIRTUAL_WORKFLOW_AGENT_ID = 'virtual-workflow-tasks'
+
+/** Virtual agent id for Intelligence / Threat Intel Ingestion carousel (Utilities category). Opens IntelligenceIngestionCarousel view. */
+export const VIRTUAL_INTELLIGENCE_INGESTION_AGENT_ID = 'virtual-intelligence-ingestion'
+
+/** Virtual agent id for Asset Graph carousel (Asset Management category). Opens GraphVisualization view. */
+export const VIRTUAL_ASSET_GRAPH_AGENT_ID = 'virtual-asset-graph'
+
+/** Virtual agent id for Asset Memory Spreadsheet carousel (Asset Management category). Opens AssetMemorySpreadsheet view. */
+export const VIRTUAL_ASSET_SPREADSHEET_AGENT_ID = 'virtual-asset-spreadsheet'
+
+/** Virtual agent id for Hygiene Essentials carousel (Asset Management category). Opens HygieneEssentialsSpreadsheet view. */
+export const VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID = 'virtual-hygiene-essentials'
+
+/** Config for virtual agents: label and optional agent_tip (shown in sidebar tooltip and on landing cards). */
+export interface VirtualAgentConfig {
+  label: string
+  agent_tip?: string
+}
+
+/** Virtual agent id → config (label, optional agent_tip). Configure agent_tip here to show in tooltips and landing page. */
+export const VIRTUAL_AGENT_CONFIG: Record<string, VirtualAgentConfig> = {
+  [SECOPS_TOOLS_HARNESS_AGENT_ID]: {
+    label: 'SecOps tools harness',
+    agent_tip: 'Run SecOps requests in natural language: threat intel, Sigma rules, log search, skills, asset graph.',
+  },
+  [VIRTUAL_WORKFLOW_AGENT_ID]: {
+    label: 'Workflow Tasks',
+    agent_tip: 'Manage security workflows for asset hygiene, access reviews, patching, and threat management.',
+  },
+  [VIRTUAL_INTELLIGENCE_INGESTION_AGENT_ID]: {
+    label: 'Intelligence Ingestion',
+    agent_tip: 'Ingest threat intel feeds and bug bounty sources; run quick-start or custom ingestion jobs.',
+  },
+  [VIRTUAL_ASSET_GRAPH_AGENT_ID]: {
+    label: 'Asset Graph',
+    agent_tip: 'Visualize and explore asset relationships, attack paths, and remediation recommendations.',
+  },
+  [VIRTUAL_ASSET_SPREADSHEET_AGENT_ID]: {
+    label: 'Asset Memory Spreadsheet',
+    agent_tip: 'View and manage assets in a spreadsheet; filter, sort, and bulk edit asset data.',
+  },
+  [VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID]: {
+    label: 'Hygiene Essentials',
+    agent_tip: 'Track hygiene essentials and controls; manage maturity and compliance data.',
+  },
+}
+
 interface MessageContext {
   query: string
   docs?: Array<Record<string, object>>

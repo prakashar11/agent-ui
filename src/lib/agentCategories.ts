@@ -52,4 +52,28 @@ export function getCategoryColor(category: string): string {
   
   const colorIndex = Math.abs(hash) % colors.length
   return category === 'Uncategorized' ? 'text-gray-500' : colors[colorIndex]
+}
+
+// Border color for category list items (matches getCategoryColor hash)
+export function getCategoryBorderColor(category: string): string {
+  const borderColors = [
+    'border-red-500/50',
+    'border-blue-500/50',
+    'border-green-500/50',
+    'border-purple-500/50',
+    'border-orange-500/50',
+    'border-indigo-500/50',
+    'border-teal-500/50',
+    'border-pink-500/50',
+    'border-yellow-500/50',
+    'border-cyan-500/50',
+  ]
+  let hash = 0
+  for (let i = 0; i < category.length; i++) {
+    const char = category.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  const colorIndex = Math.abs(hash) % borderColors.length
+  return category === 'Uncategorized' ? 'border-gray-500/50' : borderColors[colorIndex]
 } 

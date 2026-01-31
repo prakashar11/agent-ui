@@ -25,7 +25,7 @@ import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
 import { IntelligenceIngestionCarousel } from '@/components/playground/IntelligenceIngestionCarousel'
 import { toast } from 'sonner'
 
-// Generate consistent gradient based on category name hash
+// Generate consistent gradient based on category name hash (cards are source of truth)
 const GRADIENT_PALETTES = [
   'from-blue-500/20 via-indigo-500/10 to-purple-500/20',
   'from-amber-500/20 via-orange-500/10 to-red-500/20',
@@ -39,13 +39,12 @@ const GRADIENT_PALETTES = [
   'from-pink-500/20 via-rose-500/10 to-red-500/20',
 ]
 
-const getGradientForCategory = (category: string): string => {
-  // Generate consistent hash from category name
+export function getGradientForCategory(category: string): string {
   let hash = 0
   for (let i = 0; i < category.length; i++) {
     const char = category.charCodeAt(i)
     hash = ((hash << 5) - hash) + char
-    hash = hash & hash // Convert to 32-bit integer
+    hash = hash & hash
   }
   const index = Math.abs(hash) % GRADIENT_PALETTES.length
   return GRADIENT_PALETTES[index]

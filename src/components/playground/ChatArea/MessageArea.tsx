@@ -5,9 +5,79 @@ import Messages from './Messages'
 import ScrollToBottom from '@/components/playground/ChatArea/ScrollToBottom'
 import ScrollToTop from '@/components/playground/ChatArea/ScrollToTop'
 import { StickToBottom } from 'use-stick-to-bottom'
+import { useQueryState } from 'nuqs'
+import {
+  VIRTUAL_WORKFLOW_AGENT_ID,
+  VIRTUAL_INTELLIGENCE_INGESTION_AGENT_ID,
+  VIRTUAL_ASSET_GRAPH_AGENT_ID,
+  VIRTUAL_ASSET_SPREADSHEET_AGENT_ID,
+  VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID,
+} from '@/types/playground'
+import { GraphVisualization } from '@/components/playground/GraphVisualization'
+import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
+import { HygieneEssentialsSpreadsheet } from '@/components/playground/HygieneEssentialsSpreadsheet'
+import { WorkflowCarousel } from '@/components/playground/WorkflowCarousel'
+import { IntelligenceIngestionCarousel } from '@/components/playground/IntelligenceIngestionCarousel'
+
+const clearVirtualAgent = (
+  setAgentId: (v: string | null) => void,
+  setCurrentContext: (agentId: string | null, sessionId: string | null) => void
+) => {
+  setAgentId(null)
+  setCurrentContext(null, null)
+}
 
 const MessageArea = () => {
-  const { messages } = usePlaygroundStore()
+  const { messages, currentAgentId, setCurrentContext, selectedEndpoint } = usePlaygroundStore()
+  const [, setAgentId] = useQueryState('agent', { history: 'push' })
+
+  const onCloseVirtual = () => clearVirtualAgent(setAgentId, setCurrentContext)
+
+  if (currentAgentId === VIRTUAL_ASSET_GRAPH_AGENT_ID) {
+    return (
+      <GraphVisualization
+        isOpen
+        onClose={onCloseVirtual}
+        endpoint={selectedEndpoint}
+      />
+    )
+  }
+  if (currentAgentId === VIRTUAL_ASSET_SPREADSHEET_AGENT_ID) {
+    return (
+      <AssetMemorySpreadsheet
+        isOpen
+        onClose={onCloseVirtual}
+        endpoint={selectedEndpoint}
+      />
+    )
+  }
+  if (currentAgentId === VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID) {
+    return (
+      <HygieneEssentialsSpreadsheet
+        isOpen
+        onClose={onCloseVirtual}
+        endpoint={selectedEndpoint}
+      />
+    )
+  }
+  if (currentAgentId === VIRTUAL_WORKFLOW_AGENT_ID) {
+    return (
+      <WorkflowCarousel
+        isOpen
+        onClose={onCloseVirtual}
+        endpoint={selectedEndpoint}
+      />
+    )
+  }
+  if (currentAgentId === VIRTUAL_INTELLIGENCE_INGESTION_AGENT_ID) {
+    return (
+      <IntelligenceIngestionCarousel
+        isOpen
+        onClose={onCloseVirtual}
+        endpoint={selectedEndpoint}
+      />
+    )
+  }
 
   return (
     <StickToBottom
