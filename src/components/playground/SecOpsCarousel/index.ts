@@ -1,0 +1,1 @@
+export { SecOpsCarousel } from './SecOpsCarousel'

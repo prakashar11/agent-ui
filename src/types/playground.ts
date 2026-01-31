@@ -72,6 +72,9 @@ export interface Agent {
   agent_tip?: string  // New field for agent tooltip/helpful text
 }
 
+/** Virtual agent id for SecOps tools harness: uses chat area and POST /v1/secops/request (not Agno agent run). */
+export const SECOPS_TOOLS_HARNESS_AGENT_ID = 'virtual-secops-tools-harness'
+
 interface MessageContext {
   query: string
   docs?: Array<Record<string, object>>

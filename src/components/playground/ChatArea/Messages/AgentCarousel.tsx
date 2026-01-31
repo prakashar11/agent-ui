@@ -12,11 +12,12 @@ import {
 } from '@/components/ui/carousel'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
-import { Bot, Sparkles, ArrowRight, Network, Table2, ClipboardCheck, Shield, Bug } from 'lucide-react'
+import { Bot, Sparkles, ArrowRight, Network, Table2, ClipboardCheck, Shield, ShieldCheck, Bug } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 import useChatActions from '@/hooks/useChatActions'
 import type { ComboboxAgent } from '@/types/playground'
+import { SECOPS_TOOLS_HARNESS_AGENT_ID } from '@/types/playground'
 import { GraphVisualization } from '@/components/playground/GraphVisualization'
 import { AssetMemorySpreadsheet } from '@/components/playground/AssetMemorySpreadsheet'
 import { HygieneEssentialsSpreadsheet } from '@/components/playground/HygieneEssentialsSpreadsheet'
@@ -564,6 +565,86 @@ const IntelligenceIngestionCard: React.FC<IntelligenceIngestionCardProps> = ({
   )
 }
 
+// SecOps tools harness Card Component (Security Operations category)
+interface SecOpsRequestCardProps {
+  index: number
+  categoryGradient: string
+  onOpenSecOps: () => void
+}
+
+const SecOpsRequestCard: React.FC<SecOpsRequestCardProps> = ({
+  index,
+  categoryGradient,
+  onOpenSecOps,
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4, delay: index * 0.1 }}
+      className="h-full"
+    >
+      <button
+        onClick={onOpenSecOps}
+        className={cn(
+          'relative h-full w-full overflow-hidden rounded-2xl border p-5 text-left backdrop-blur-sm transition-all duration-300',
+          `bg-gradient-to-br ${categoryGradient}`,
+          'border-border/50 hover:border-primary/30 hover:shadow-md hover:shadow-primary/5'
+        )}
+      >
+        {/* Background pattern */}
+        <div className="absolute inset-0 opacity-5">
+          <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-current" />
+          <div className="absolute -bottom-3 -left-3 h-16 w-16 rounded-full bg-current" />
+        </div>
+
+        {/* Content */}
+        <div className="relative z-10 flex h-full flex-col">
+          {/* Header with icon and name */}
+          <div className="mb-3 flex items-start gap-3">
+            <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-background/80 transition-colors">
+              <ShieldCheck className="h-5 w-5 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-sm font-semibold tracking-tight leading-tight text-foreground">
+                SecOps tools harness
+              </h3>
+              <p className="text-xs text-muted-foreground/70 mt-0.5">
+                Invoke SecOps APIs with your input
+              </p>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent hover:scrollbar-thumb-primary/40">
+            <div className="text-xs leading-relaxed text-muted-foreground pr-1">
+              <p className="mb-2">
+                <strong>Run SecOps requests</strong> in natural language: threat intel, Sigma rules, log search, skills, asset graph.
+              </p>
+              <ul className="space-y-1 list-disc list-inside">
+                <li>Threat intel, detection rules</li>
+                <li>Log and code search</li>
+                <li>Skills &amp; asset graph</li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Footer with action hint */}
+          <div className="mt-3 flex items-center justify-between pt-3 border-t border-border/30">
+            <div className="flex items-center gap-1.5">
+              <ShieldCheck className="h-3 w-3 text-muted-foreground/50" />
+              <span className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">
+                Click to open
+              </span>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground/30 transition-transform group-hover:translate-x-1" />
+          </div>
+        </div>
+      </button>
+    </motion.div>
+  )
+}
+
 // Hygiene Essentials Card Component
 interface HygieneCardProps {
   index: number
@@ -691,6 +772,14 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
     }
   }
 
+  // SecOps tools harness: use chat area (no modal); set context so input sends to POST /v1/secops/request
+  const handleOpenSecOps = useCallback(() => {
+    setAgentId(SECOPS_TOOLS_HARNESS_AGENT_ID)
+    setCurrentContext(SECOPS_TOOLS_HARNESS_AGENT_ID, null)
+    setSessionId(null)
+    focusChatInput()
+  }, [setAgentId, setCurrentContext, setSessionId, focusChatInput])
+
   const handleBackToCategories = () => {
     setCategoryParam(null)
   }
@@ -701,9 +790,12 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   // Check if this is Utilities category to show Workflow Tasks
   const isUtilities = selectedCategory?.toLowerCase().includes('utilities') ?? false
 
-  // For Asset Management and Utilities, we always have at least some tools even without agents
+  // Check if this is Security Operations category to show SecOps Harness carousel
+  const isSecurityOperations = selectedCategory === 'Security Operations'
+
+  // For Asset Management, Utilities, and Security Operations, we always have at least some tools even without agents
   // For other categories, we need at least one agent
-  if (!selectedCategory || (categoryAgents.length === 0 && !isAssetManagement && !isUtilities)) {
+  if (!selectedCategory || (categoryAgents.length === 0 && !isAssetManagement && !isUtilities && !isSecurityOperations)) {
     return null
   }
 
@@ -711,8 +803,9 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
   
   // Calculate total items including special category tools
   // Asset Management gets +3 extra items: Asset Graph, Asset Memory Spreadsheet, and Hygiene Essentials
-  // Utilities gets +3 extra items: Workflow Tasks + Threat Intel Ingestion + Bug Bounty Ingestion
-  const extraItems = (isAssetManagement ? 3 : 0) + (isUtilities ? 3 : 0)
+  // Utilities gets +2 extra items: Workflow Tasks + Intelligence Ingestion
+  // Security Operations gets +1 extra item: SecOps tools harness
+  const extraItems = (isAssetManagement ? 3 : 0) + (isUtilities ? 2 : 0) + (isSecurityOperations ? 1 : 0)
   const totalItems = categoryAgents.length + extraItems
   const isSingleItem = totalItems === 1
   const isTwoItems = totalItems === 2
@@ -743,6 +836,8 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
             ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 3 tools`
             : isUtilities
             ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + 2 tools`
+            : isSecurityOperations
+            ? `Select an agent or tool • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} + SecOps tools harness`
             : `Select an agent to start chatting • ${categoryAgents.length} agent${categoryAgents.length !== 1 ? 's' : ''} available`
           }
         </p>
@@ -765,6 +860,12 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 index={0}
                 categoryGradient={categoryGradient}
                 onOpenWorkflow={() => setIsWorkflowOpen(true)}
+              />
+            ) : isSecurityOperations && categoryAgents.length === 0 ? (
+              <SecOpsRequestCard
+                index={0}
+                categoryGradient={categoryGradient}
+                onOpenSecOps={handleOpenSecOps}
               />
             ) : (
               <AgentCard
@@ -841,6 +942,15 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 </div>
               </>
             )}
+            {isSecurityOperations && (
+              <div className="h-[280px]">
+                <SecOpsRequestCard
+                  index={categoryAgents.length}
+                  categoryGradient={categoryGradient}
+                  onOpenSecOps={handleOpenSecOps}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -905,6 +1015,15 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                   />
                 </div>
               </>
+            )}
+            {isSecurityOperations && (
+              <div className="h-[280px]">
+                <SecOpsRequestCard
+                  index={categoryAgents.length}
+                  categoryGradient={categoryGradient}
+                  onOpenSecOps={handleOpenSecOps}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -992,6 +1111,17 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
                 </CarouselItem>
               </>
             )}
+            {isSecurityOperations && (
+              <CarouselItem className="pl-4 md:basis-1/2 lg:basis-1/2">
+                <div className="h-[280px]">
+                  <SecOpsRequestCard
+                    index={categoryAgents.length}
+                    categoryGradient={categoryGradient}
+                    onOpenSecOps={handleOpenSecOps}
+                  />
+                </div>
+              </CarouselItem>
+            )}
           </CarouselContent>
           <CarouselPrevious className="-left-2 border-border/50 bg-background/80 hover:bg-accent" />
           <CarouselNext className="-right-2 border-border/50 bg-background/80 hover:bg-accent" />
@@ -1034,6 +1164,7 @@ const AgentCarousel: React.FC<AgentCarouselProps> = ({ className }) => {
         endpoint={selectedEndpoint}
         defaultType={ingestionType}
       />
+
     </div>
   )
 }

@@ -7,7 +7,8 @@ import { usePlaygroundStore, type ActiveJob, createStorageKey } from '../store'
 import {
   RunEvent,
   RunResponseContent,
-  type RunResponse
+  type RunResponse,
+  SECOPS_TOOLS_HARNESS_AGENT_ID
 } from '@/types/playground'
 import { constructEndpointUrl } from '@/lib/constructEndpointUrl'
 import useAIResponseStream from './useAIResponseStream'
@@ -209,6 +210,59 @@ const useAIChatStreamHandler = () => {
         created_at: Math.floor(Date.now() / 1000) + 1
         }
       ])
+
+      // SecOps tools harness: invoke API with user message and render result in chat (no agent run)
+      if (jobAgentId === SECOPS_TOOLS_HARNESS_AGENT_ID) {
+        const endpointUrl = constructEndpointUrl(selectedEndpoint)
+        const secOpsUrl = APIRoutes.SecOpsRequest(endpointUrl)
+        try {
+          const response = await fetch(secOpsUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ request: userMessage }),
+          })
+          const data = await response.json().catch(() => ({}))
+          const resultContent = response.ok && data.success && data.result != null
+            ? data.result
+            : (data.error || data.detail || (typeof data.detail === 'string' ? data.detail : 'Request failed'))
+          const isError = !response.ok || !data.success
+          updateMessagesForSession(jobStorageKey, (prevMessages) => {
+            const next = [...prevMessages]
+            const last = next[next.length - 1]
+            if (last && last.role === 'agent') {
+              next[next.length - 1] = {
+                ...last,
+                content: resultContent,
+                streamingError: isError,
+                created_at: Math.floor(Date.now() / 1000),
+              }
+            }
+            return next
+          })
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err)
+          updateMessagesForSession(jobStorageKey, (prevMessages) => {
+            const next = [...prevMessages]
+            const last = next[next.length - 1]
+            if (last && last.role === 'agent') {
+              next[next.length - 1] = {
+                ...last,
+                content: `**Error**\n\n${errMsg}`,
+                streamingError: true,
+                created_at: Math.floor(Date.now() / 1000),
+              }
+            }
+            return next
+          })
+        } finally {
+          setActiveJob(jobStorageKey, null)
+          setIsStreaming(false)
+          focusChatInput()
+          jobAgentIdRef.current = null
+          jobStorageKeyRef.current = null
+        }
+        return
+      }
 
       let lastContent = ''
       let newSessionId = sessionId

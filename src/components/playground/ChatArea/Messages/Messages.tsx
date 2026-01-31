@@ -158,7 +158,9 @@ const ToolComponent = memo(({ tools }: ToolCallProps) => (
 ))
 ToolComponent.displayName = 'ToolComponent'
 const Messages = ({ messages }: MessageListProps) => {
-  if (messages.length === 0) {
+  const currentAgentId = usePlaygroundStore((state) => state.currentAgentId)
+  // Show chat area (empty thread + input) when an agent is selected; show category/carousel only when none selected
+  if (messages.length === 0 && !currentAgentId) {
     return <ChatBlankState />
   }
 

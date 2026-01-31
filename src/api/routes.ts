@@ -217,6 +217,10 @@ export const APIRoutes = {
   WorkflowAssetWorkflows: (PlaygroundApiUrl: string, assetId: string) =>
     `${PlaygroundApiUrl}/v1/workflow/assets/${assetId}/workflows`,
 
+  // SecOps Harness API Routes
+  SecOpsRequest: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/secops/request`,
+
   // Threat Intel Ingestion API Routes
   ThreatIntelIngestion: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/intel/ingest`,
