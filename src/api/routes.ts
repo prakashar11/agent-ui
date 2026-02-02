@@ -220,6 +220,8 @@ export const APIRoutes = {
   // SecOps Harness API Routes
   SecOpsRequest: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/secops/request`,
+  SecOpsRequestStream: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/secops/request/stream`,
 
   // Threat Intel Ingestion API Routes
   ThreatIntelIngestion: (PlaygroundApiUrl: string) =>

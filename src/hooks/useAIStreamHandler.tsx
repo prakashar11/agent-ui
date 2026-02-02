@@ -211,34 +211,102 @@ const useAIChatStreamHandler = () => {
         }
       ])
 
-      // SecOps tools harness: invoke API with user message and render result in chat (no agent run)
+      // SecOps tools harness: stream response (SSE) so content renders incrementally (e.g. intelligent_security_news)
       if (jobAgentId === SECOPS_TOOLS_HARNESS_AGENT_ID) {
         const endpointUrl = constructEndpointUrl(selectedEndpoint)
-        const secOpsUrl = APIRoutes.SecOpsRequest(endpointUrl)
+        const secOpsStreamUrl = APIRoutes.SecOpsRequestStream(endpointUrl)
         try {
-          const response = await fetch(secOpsUrl, {
+          const response = await fetch(secOpsStreamUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ request: userMessage }),
           })
-          const data = await response.json().catch(() => ({}))
-          const resultContent = response.ok && data.success && data.result != null
-            ? data.result
-            : (data.error || data.detail || (typeof data.detail === 'string' ? data.detail : 'Request failed'))
-          const isError = !response.ok || !data.success
-          updateMessagesForSession(jobStorageKey, (prevMessages) => {
-            const next = [...prevMessages]
-            const last = next[next.length - 1]
-            if (last && last.role === 'agent') {
-              next[next.length - 1] = {
-                ...last,
-                content: resultContent,
-                streamingError: isError,
-                created_at: Math.floor(Date.now() / 1000),
+          if (!response.ok || !response.body) {
+            const text = await response.text()
+            let errMsg: string
+            try {
+              const data = JSON.parse(text)
+              errMsg = data.error || data.detail || text
+            } catch {
+              errMsg = text || `Request failed (${response.status})`
+            }
+            updateMessagesForSession(jobStorageKey, (prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.role === 'agent') {
+                next[next.length - 1] = { ...last, content: `**Error**\n\n${errMsg}`, streamingError: true, created_at: Math.floor(Date.now() / 1000) }
+              }
+              return next
+            })
+            return
+          }
+          const reader = response.body.getReader()
+          const decoder = new TextDecoder()
+          let buffer = ''
+          let accumulated = ''
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            const lines = buffer.split('\n\n')
+            buffer = lines.pop() ?? ''
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue
+              try {
+                const data = JSON.parse(line.slice(6)) as { content?: string; done?: boolean; result?: string; error?: string }
+                if (data.content != null) {
+                  accumulated += data.content
+                  updateMessagesForSession(jobStorageKey, (prev) => {
+                    const next = [...prev]
+                    const last = next[next.length - 1]
+                    if (last && last.role === 'agent') {
+                      next[next.length - 1] = { ...last, content: accumulated, streamingError: false, created_at: last.created_at ?? Math.floor(Date.now() / 1000) }
+                    }
+                    return next
+                  })
+                }
+                if (data.done === true && data.result != null) {
+                  // Prefer longer of streamed accumulated vs final result so we don't overwrite
+                  // good streamed content with empty/truncated result when loop didn't complete properly
+                  const finalContent =
+                    accumulated.length >= data.result.length
+                      ? accumulated
+                      : data.result
+                  updateMessagesForSession(jobStorageKey, (prev) => {
+                    const next = [...prev]
+                    const last = next[next.length - 1]
+                    if (last && last.role === 'agent') {
+                      next[next.length - 1] = { ...last, content: finalContent, streamingError: false, created_at: Math.floor(Date.now() / 1000) }
+                    }
+                    return next
+                  })
+                }
+                if (data.error != null) {
+                  updateMessagesForSession(jobStorageKey, (prev) => {
+                    const next = [...prev]
+                    const last = next[next.length - 1]
+                    if (last && last.role === 'agent') {
+                      next[next.length - 1] = { ...last, content: accumulated ? `${accumulated}\n\n**Error**\n\n${data.error}` : `**Error**\n\n${data.error}`, streamingError: true, created_at: Math.floor(Date.now() / 1000) }
+                    }
+                    return next
+                  })
+                }
+              } catch {
+                // skip malformed SSE line
               }
             }
-            return next
-          })
+          }
+          // If no "done" event was received, keep accumulated content
+          if (accumulated && !buffer.includes('"done"')) {
+            updateMessagesForSession(jobStorageKey, (prev) => {
+              const next = [...prev]
+              const last = next[next.length - 1]
+              if (last && last.role === 'agent' && (last.content ?? '').length < accumulated.length) {
+                next[next.length - 1] = { ...last, content: accumulated, created_at: Math.floor(Date.now() / 1000) }
+              }
+              return next
+            })
+          }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
           updateMessagesForSession(jobStorageKey, (prevMessages) => {

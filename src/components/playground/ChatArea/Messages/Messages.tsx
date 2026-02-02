@@ -11,7 +11,7 @@ import {
   Reference
 } from '@/types/playground'
 import React, { type FC } from 'react'
-import ChatBlankState from './ChatBlankState'
+import ChatBlankState, { AgentLanding } from './ChatBlankState'
 import Icon from '@/components/ui/icon'
 import { usePlaygroundStore } from '@/store'
 
@@ -162,6 +162,10 @@ const Messages = ({ messages }: MessageListProps) => {
   // Show chat area (empty thread + input) when an agent is selected; show category/carousel only when none selected
   if (messages.length === 0 && !currentAgentId) {
     return <ChatBlankState />
+  }
+  // When a carousel/agent is selected and no messages: show landing with title, carousel name, and agent_tip
+  if (messages.length === 0 && currentAgentId) {
+    return <AgentLanding agentId={currentAgentId} />
   }
 
   return (

@@ -6,6 +6,8 @@ import { usePlaygroundStore } from '@/store'
 import { Folder, ArrowLeft } from 'lucide-react'
 import { useQueryState } from 'nuqs'
 import AgentCarousel from './AgentCarousel'
+import { VIRTUAL_AGENT_CONFIG } from '@/types/playground'
+import MarkdownRenderer from '@/components/ui/typography/MarkdownRenderer'
 
 // Shown when no category is selected – prompts user to pick a category in the sidebar
 const CategorySelectionPrompt = () => (
@@ -31,6 +33,37 @@ const CategorySelectionPrompt = () => (
     </div>
   </motion.div>
 )
+
+/** Landing when a carousel/agent is selected and there are no messages: title + carousel name + agent_tip */
+export const AgentLanding = ({ agentId }: { agentId: string }) => {
+  const agents = usePlaygroundStore((state) => state.agents)
+  const virtual = VIRTUAL_AGENT_CONFIG[agentId]
+  const fromStore = agents.find((a) => a.value === agentId)
+  const carouselName = virtual?.label ?? fromStore?.label ?? agentId
+  const agentTip = virtual?.agent_tip ?? fromStore?.agent_tip
+
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.4 }}
+      className="flex flex-col items-center text-center font-geist py-8"
+      aria-label="Agent landing"
+    >
+      <div className="flex w-full max-w-2xl flex-col gap-4">
+        <h1 className="text-2xl font-[600] tracking-tight text-foreground">
+          Cybersecurity Workbench
+        </h1>
+        <p className="text-lg font-medium text-foreground/90">{carouselName}</p>
+        {agentTip ? (
+          <div className="mt-2 text-sm leading-relaxed text-muted-foreground text-left rounded-lg bg-muted/30 p-4">
+            <MarkdownRenderer>{agentTip}</MarkdownRenderer>
+          </div>
+        ) : null}
+      </div>
+    </motion.section>
+  )
+}
 
 const ChatBlankState = () => {
   const { setSelectedCategory } = usePlaygroundStore()
