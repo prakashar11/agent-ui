@@ -244,16 +244,35 @@ const useAIChatStreamHandler = () => {
           const decoder = new TextDecoder()
           let buffer = ''
           let accumulated = ''
+          let readCount = 0
+          console.log('[Stream] SecOps SSE stream started, reading chunks...')
           while (true) {
             const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
+            if (done) {
+              console.log('[Stream] SecOps SSE stream done, total reads:', readCount)
+              break
+            }
+            readCount += 1
+            const decoded = decoder.decode(value, { stream: true })
+            if (readCount <= 10 || readCount % 50 === 0) {
+              console.log('[Stream] SecOps raw read', { readCount, bytes: value?.length, decodedLen: decoded.length })
+            }
+            buffer += decoded
             const lines = buffer.split('\n\n')
             buffer = lines.pop() ?? ''
             for (const line of lines) {
               if (!line.startsWith('data: ')) continue
+              const raw = line.slice(6).trim()
+              if (!raw) continue
               try {
-                const data = JSON.parse(line.slice(6)) as { content?: string; done?: boolean; result?: string; error?: string }
+                const data = JSON.parse(raw) as { content?: string; done?: boolean; result?: string; error?: string; stream_started?: boolean }
+                console.log('[Stream] SecOps SSE parsed event', {
+                  hasContent: data.content != null,
+                  contentLen: data.content?.length,
+                  done: data.done,
+                  hasError: data.error != null,
+                  stream_started: data.stream_started
+                })
                 if (data.content != null) {
                   accumulated += data.content
                   updateMessagesForSession(jobStorageKey, (prev) => {
@@ -349,6 +368,16 @@ const useAIChatStreamHandler = () => {
           apiUrl: playgroundRunUrl,
           requestBody: formData,
           onChunk: (chunk: RunResponse) => {
+            // Log stream chunks reaching frontend (event + optional content preview)
+            const contentPreview =
+              typeof chunk?.content === 'string'
+                ? `contentLen=${chunk.content.length} preview=${JSON.stringify(chunk.content.slice(0, 80))}${chunk.content.length > 80 ? '...' : ''}`
+                : 'no-string-content'
+            console.log('[Stream] Chunk received', {
+              event: chunk?.event,
+              session_id: chunk?.session_id,
+              contentPreview
+            })
             if (
               chunk.event === RunEvent.RunStarted ||
               chunk.event === RunEvent.ReasoningStarted
