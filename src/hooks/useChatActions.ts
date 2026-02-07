@@ -6,7 +6,8 @@ import { usePlaygroundStore } from '../store'
 import { ComboboxAgent, type PlaygroundChatMessage } from '@/types/playground'
 import {
   getPlaygroundAgentsAPI,
-  getPlaygroundStatusAPI
+  getPlaygroundStatusAPI,
+  getPlaygroundVirtualAgentsAPI
 } from '@/api/playground'
 import { useQueryState } from 'nuqs'
 import { waitForBackend, isBackendReady } from '@/utils/waitForBackend'
@@ -118,7 +119,11 @@ const useChatActions = () => {
       let agents: ComboboxAgent[] = []
       if (status === 200) {
         setIsEndpointActive(true)
-        agents = await getAgents()
+        const [apiAgents, virtualAgents] = await Promise.all([
+          getAgents(),
+          getPlaygroundVirtualAgentsAPI(selectedEndpoint)
+        ])
+        agents = [...apiAgents, ...virtualAgents]
         if (agents.length > 0) {
           if (!agentId) {
             // No agent selected in URL
@@ -163,6 +168,7 @@ const useChatActions = () => {
   }, [
     getStatus,
     getAgents,
+    selectedEndpoint,
     setIsEndpointActive,
     setIsEndpointLoading,
     setAgents,

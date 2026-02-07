@@ -3,7 +3,7 @@ import {
   getPlaygroundSessionAPI,
   getAllPlaygroundSessionsAPI
 } from '@/api/playground'
-import { usePlaygroundStore } from '../store'
+import { usePlaygroundStore, createStorageKey } from '../store'
 import { toast } from 'sonner'
 import {
   PlaygroundChatMessage,
@@ -27,6 +27,7 @@ interface SessionResponse {
 
 const useSessionLoader = () => {
   const setMessages = usePlaygroundStore((state) => state.setMessages)
+  const setSessionMessages = usePlaygroundStore((state) => state.setSessionMessages)
   const setCurrentContext = usePlaygroundStore((state) => state.setCurrentContext)
   const selectedEndpoint = usePlaygroundStore((state) => state.selectedEndpoint)
   const setIsSessionsLoading = usePlaygroundStore(
@@ -77,10 +78,8 @@ const useSessionLoader = () => {
           return null
         }
 
-        if (response && response.memory) {
-          const sessionHistory = response.runs
-            ? response.runs
-            : response.memory.runs
+        if (response && (response.runs || response.memory)) {
+          const sessionHistory = response.runs ?? response.memory?.runs
 
           if (sessionHistory && Array.isArray(sessionHistory)) {
             const messagesForPlayground = sessionHistory.flatMap((run) => {
@@ -156,6 +155,9 @@ const useSessionLoader = () => {
               }
             )
 
+            const storageKey = createStorageKey(agentId, sessionId)
+            setSessionMessages(storageKey, processedMessages)
+            setCurrentContext(agentId, sessionId)
             setMessages(processedMessages)
             return processedMessages
           }

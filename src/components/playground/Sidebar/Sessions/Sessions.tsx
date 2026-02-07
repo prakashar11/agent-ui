@@ -9,6 +9,7 @@ import { useQueryState } from 'nuqs'
 import SessionItem from './SessionItem'
 import SessionBlankState from './SessionBlankState'
 import useSessionLoader from '@/hooks/useSessionLoader'
+import { isVirtualAgentWithSessions } from '@/types/playground'
 
 import { cn } from '@/lib/utils'
 import { FC } from 'react'
@@ -92,34 +93,38 @@ const Sessions = () => {
     }
   }, [])
 
-  // Load a session on render if a session id exists in url
-  useEffect(() => {
-    if (sessionId && agentId && selectedEndpoint && hydrated) {
-      getSession(sessionId, agentId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated])
+  // Virtual agents with backend sessions: fetch for them even when hasStorage is false (e.g. direct URL load).
+  const shouldFetchSessions = hasStorage || isVirtualAgentWithSessions(agentId)
 
+  // Fetch sessions list and, when URL has sessionId, load that session first so GET .../sessions/{id} runs before GET .../sessions (avoids list-before-get order when hydrated is delayed).
   useEffect(() => {
-    if (!selectedEndpoint || !agentId || !hasStorage) {
+    if (!selectedEndpoint || !agentId || !shouldFetchSessions) {
       setSessionsData(() => null)
       return
     }
     if (!isEndpointLoading) {
-      // Only clear sessions data when agent changes, not on refresh
-      if (sessionsRefreshTrigger === 0) {
-        setSessionsData(() => null)
+      const run = async () => {
+        if (sessionId && hydrated) {
+          await getSession(sessionId, agentId)
+        }
+        if (sessionsRefreshTrigger === 0) {
+          setSessionsData(() => null)
+        }
+        getSessions(agentId)
       }
-      getSessions(agentId)
+      run()
     }
   }, [
     selectedEndpoint,
     agentId,
     getSessions,
+    getSession,
     isEndpointLoading,
-    hasStorage,
+    shouldFetchSessions,
     setSessionsData,
-    sessionsRefreshTrigger // Re-fetch when a job completes
+    sessionsRefreshTrigger,
+    sessionId,
+    hydrated
   ])
 
   useEffect(() => {
@@ -162,7 +167,7 @@ const Sessions = () => {
         onMouseLeave={handleScroll}
       >
         {!isEndpointActive ||
-        !hasStorage ||
+        !shouldFetchSessions ||
         (!isSessionsLoading && (!sessionsData || sessionsData.length === 0)) ? (
           <SessionBlankState />
         ) : (

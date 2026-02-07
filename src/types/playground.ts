@@ -90,17 +90,36 @@ export const VIRTUAL_ASSET_SPREADSHEET_AGENT_ID = 'virtual-asset-spreadsheet'
 /** Virtual agent id for Hygiene Essentials carousel (Asset Management category). Opens HygieneEssentialsSpreadsheet view. */
 export const VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID = 'virtual-hygiene-essentials'
 
-/** Config for virtual agents: label and optional agent_tip (shown in sidebar tooltip and on landing cards). */
+/**
+ * Virtual agent IDs that have backend sessions (playground session API).
+ * Used to fetch/show sessions and enable sessions panel for these agents.
+ * Add new virtual agents here when they support GET /v1/playground/agents/{agentId}/sessions.
+ */
+export const VIRTUAL_AGENT_IDS_WITH_SESSIONS: readonly string[] = [
+  SECOPS_TOOLS_HARNESS_AGENT_ID,
+]
+
+/** Returns true if the given agent is a virtual agent with backend sessions. */
+export function isVirtualAgentWithSessions(
+  agentId: string | null | undefined
+): boolean {
+  return Boolean(agentId && VIRTUAL_AGENT_IDS_WITH_SESSIONS.includes(agentId))
+}
+
+/** Config for virtual agents: label, optional agent_tip, and optional request stream path (fallback when API does not return it). */
 export interface VirtualAgentConfig {
   label: string
   agent_tip?: string
+  /** Relative path for POST stream (e.g. /v1/secops/request/stream). Used when GET /v1/playground/virtual-agents did not return this agent. */
+  requestStreamPath?: string
 }
 
-/** Virtual agent id → config (label, optional agent_tip). Configure agent_tip here to show in tooltips and landing page. */
+/** Virtual agent id → config (label, optional agent_tip, optional requestStreamPath). Add requestStreamPath for agents that use a custom stream endpoint. */
 export const VIRTUAL_AGENT_CONFIG: Record<string, VirtualAgentConfig> = {
   [SECOPS_TOOLS_HARNESS_AGENT_ID]: {
     label: 'SecOps tools harness',
     agent_tip: 'Run SecOps requests in natural language: threat intel, Sigma rules, log search, skills, asset graph.',
+    requestStreamPath: '/v1/secops/request/stream',
   },
   [VIRTUAL_WORKFLOW_AGENT_ID]: {
     label: 'Workflow Tasks',
@@ -251,6 +270,8 @@ export interface ComboboxAgent {
   storage?: boolean
   category?: string  // New field for agent categorization
   agent_tip?: string  // New field for agent tooltip/helpful text
+  /** When set, agent-ui uses this path (e.g. /v1/secops/request/stream) for stream requests instead of agno run. From GET /v1/playground/virtual-agents. */
+  requestStreamPath?: string
 }
 export interface ImageData {
   revised_prompt: string

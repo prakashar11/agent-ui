@@ -2,6 +2,7 @@ import React from 'react'
 import { usePlaygroundStore } from '@/store'
 import { useQueryState } from 'nuqs'
 import Link from 'next/link'
+import { isVirtualAgentWithSessions } from '@/types/playground'
 
 const HistoryBlankStateIcon = () => (
   <svg
@@ -90,6 +91,8 @@ const SessionBlankState = () => {
   const { selectedEndpoint, isEndpointActive, hasStorage } =
     usePlaygroundStore()
   const [agentId] = useQueryState('agent')
+  // Virtual agents with backend sessions: show "no records yet" not "connect storage"
+  const hasSessionsSupport = hasStorage || isVirtualAgentWithSessions(agentId)
 
   const errorMessage = (() => {
     switch (true) {
@@ -99,7 +102,7 @@ const SessionBlankState = () => {
         return 'Select an endpoint to see the history.'
       case !agentId:
         return 'Select an agent to see the history.'
-      case !hasStorage:
+      case !hasSessionsSupport:
         return (
           <>
             Connect{' '}

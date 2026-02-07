@@ -31,6 +31,8 @@ export const APIRoutes = {
     `${PlaygroundApiUrl}/v1/playground/status`,
   GetPlaygroundSessions: (PlaygroundApiUrl: string, agentId: string) =>
     `${PlaygroundApiUrl}/v1/playground/agents/${agentId}/sessions`,
+  GetPlaygroundVirtualAgents: (PlaygroundApiUrl: string) =>
+    `${PlaygroundApiUrl}/v1/playground/virtual-agents`,
   GetPlaygroundSession: (
     PlaygroundApiUrl: string,
     agentId: string,

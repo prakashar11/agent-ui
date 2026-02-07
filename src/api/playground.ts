@@ -31,6 +31,36 @@ export const getPlaygroundAgentsAPI = async (
   }
 }
 
+export interface VirtualAgentAPIItem {
+  agent_id: string
+  name: string
+  category?: string
+  request_stream_path: string
+  storage?: boolean
+}
+
+export const getPlaygroundVirtualAgentsAPI = async (
+  base: string
+): Promise<ComboboxAgent[]> => {
+  try {
+    const response = await fetch(APIRoutes.GetPlaygroundVirtualAgents(base), {
+      method: 'GET'
+    })
+    if (!response.ok) return []
+    const data = (await response.json()) as VirtualAgentAPIItem[]
+    return (data || []).map((item) => ({
+      value: item.agent_id || '',
+      label: item.name || '',
+      model: { provider: '' },
+      storage: item.storage ?? true,
+      category: item.category || 'Uncategorized',
+      requestStreamPath: item.request_stream_path || undefined
+    }))
+  } catch {
+    return []
+  }
+}
+
 export const getPlaygroundStatusAPI = async (base: string): Promise<number> => {
   const response = await fetch(APIRoutes.PlaygroundStatus(base), {
     method: 'GET'

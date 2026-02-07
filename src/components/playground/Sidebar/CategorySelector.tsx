@@ -29,6 +29,7 @@ import {
   VIRTUAL_ASSET_SPREADSHEET_AGENT_ID,
   VIRTUAL_HYGIENE_ESSENTIALS_AGENT_ID,
   VIRTUAL_AGENT_CONFIG,
+  isVirtualAgentWithSessions,
 } from '@/types/playground'
 import type { ComboboxAgent } from '@/types/playground'
 import useChatActions from '@/hooks/useChatActions'
@@ -78,8 +79,9 @@ export function CategorySelector() {
     }))
     const pushVirtual = (id: string) => {
       const config = VIRTUAL_AGENT_CONFIG[id]
-      if (config) items.push({ type: 'virtual', id, label: config.label, agent_tip: config.agent_tip })
+      if (config && !group.agents.some((a) => a.value === id)) items.push({ type: 'virtual', id, label: config.label, agent_tip: config.agent_tip })
     }
+    // Only add virtual SecOps if not already in agents (e.g. from GET /v1/playground/virtual-agents)
     if (group.category === 'Security Operations') pushVirtual(SECOPS_TOOLS_HARNESS_AGENT_ID)
     if (group.category?.toLowerCase().includes('utilities')) {
       pushVirtual(VIRTUAL_WORKFLOW_AGENT_ID)
@@ -105,7 +107,11 @@ export function CategorySelector() {
       setAgentId(item.id)
       setCurrentContext(item.id, null)
       setSessionId(null)
-      if (item.id === SECOPS_TOOLS_HARNESS_AGENT_ID) focusChatInput()
+      // Virtual agents with backend sessions: enable sessions panel and list
+      if (isVirtualAgentWithSessions(item.id)) {
+        setHasStorage(true)
+        focusChatInput()
+      }
     }
     setCategoryParam(category)
   }

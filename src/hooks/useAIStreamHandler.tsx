@@ -8,13 +8,13 @@ import {
   RunEvent,
   RunResponseContent,
   type RunResponse,
-  SECOPS_TOOLS_HARNESS_AGENT_ID
 } from '@/types/playground'
 import { constructEndpointUrl } from '@/lib/constructEndpointUrl'
 import useAIResponseStream from './useAIResponseStream'
 import { ToolCall } from '@/types/playground'
 import { useQueryState } from 'nuqs'
 import { getJsonMarkdown } from '@/lib/utils'
+import { VIRTUAL_AGENT_CONFIG } from '@/types/playground'
 
 /**
  * useAIChatStreamHandler is responsible for making API calls and handling the stream response.
@@ -53,6 +53,50 @@ const useAIChatStreamHandler = () => {
       setMessages(updater)
     }
   }, [setMessages, setSessionMessages])
+
+  /**
+   * Applies session from a virtual agent stream (first event with session_id).
+   * Reusable by any virtual agent stream that sends stream_started + session_id.
+   */
+  const applyVirtualAgentSessionFromStream = useCallback(
+    (
+      newSessionId: string,
+      jobAgentId: string,
+      currentStorageKey: string,
+      userMessage?: string
+    ) => {
+      setSessionId(newSessionId)
+      const newKey = createStorageKey(jobAgentId, newSessionId)
+      const currentMessages = usePlaygroundStore.getState().sessionMessages[currentStorageKey] || []
+      if (currentMessages.length > 0) {
+        setSessionMessages(newKey, currentMessages)
+        usePlaygroundStore.getState().clearSessionMessages(currentStorageKey)
+      }
+      jobStorageKeyRef.current = newKey
+      const oldJob = usePlaygroundStore.getState().activeJobs[currentStorageKey]
+      if (oldJob) {
+        setActiveJob(currentStorageKey, null)
+        setActiveJob(newKey, { ...oldJob, sessionId: newSessionId, storageKey: newKey })
+      }
+      setSessionsData((prev) => {
+        const exists = prev?.some((s) => s.session_id === newSessionId)
+        if (exists) return prev ?? []
+        return [
+          {
+            session_id: newSessionId,
+            title: userMessage?.slice(0, 50) ?? 'New session',
+            created_at: Math.floor(Date.now() / 1000),
+          },
+          ...(prev ?? []),
+        ]
+      })
+      const state = usePlaygroundStore.getState()
+      if (state.currentAgentId === jobAgentId && state.currentStorageKey === currentStorageKey) {
+        state.setCurrentContext(jobAgentId, newSessionId)
+      }
+    },
+    [setSessionId, setSessionMessages, setActiveJob, setSessionsData]
+  )
 
   const updateMessagesWithErrorState = useCallback((storageKey?: string | null) => {
     const keyToUpdate = storageKey ?? jobStorageKeyRef.current
@@ -211,15 +255,28 @@ const useAIChatStreamHandler = () => {
         }
       ])
 
-      // SecOps tools harness: stream response (SSE) so content renders incrementally (e.g. intelligent_security_news)
-      if (jobAgentId === SECOPS_TOOLS_HARNESS_AGENT_ID) {
-        const endpointUrl = constructEndpointUrl(selectedEndpoint)
-        const secOpsStreamUrl = APIRoutes.SecOpsRequestStream(endpointUrl)
+      // Virtual agents with custom stream: use request_stream_path from API (GET /v1/playground/virtual-agents),
+      // or fallback from VIRTUAL_AGENT_CONFIG so generator output renders when API did not return the agent.
+      const virtualAgent = agents.find((a) => a.value === jobAgentId && a.requestStreamPath)
+      const fallbackStreamPath = jobAgentId ? VIRTUAL_AGENT_CONFIG[jobAgentId]?.requestStreamPath : undefined
+      const streamPath = virtualAgent?.requestStreamPath ?? fallbackStreamPath
+      console.log('[Stream] Virtual agent path check', {
+        jobAgentId,
+        streamPath: streamPath ?? null,
+        fromApi: virtualAgent?.requestStreamPath != null,
+        fromFallback: fallbackStreamPath != null,
+      })
+      if (streamPath != null) {
+        const baseUrl = constructEndpointUrl(selectedEndpoint).replace(/\/$/, '')
+        const streamUrl = `${baseUrl}${streamPath}`
         try {
-          const response = await fetch(secOpsStreamUrl, {
+          const response = await fetch(streamUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ request: userMessage }),
+            body: JSON.stringify({
+              request: userMessage,
+              session_id: jobSessionId ?? undefined,
+            }),
           })
           if (!response.ok || !response.body) {
             const text = await response.text()
@@ -245,17 +302,17 @@ const useAIChatStreamHandler = () => {
           let buffer = ''
           let accumulated = ''
           let readCount = 0
-          console.log('[Stream] SecOps SSE stream started, reading chunks...')
+          console.log('[Stream] Virtual agent SSE stream started', { streamPath, jobAgentId })
           while (true) {
             const { done, value } = await reader.read()
             if (done) {
-              console.log('[Stream] SecOps SSE stream done, total reads:', readCount)
+              console.log('[Stream] Virtual agent SSE stream done', { readCount, jobAgentId })
               break
             }
             readCount += 1
             const decoded = decoder.decode(value, { stream: true })
             if (readCount <= 10 || readCount % 50 === 0) {
-              console.log('[Stream] SecOps raw read', { readCount, bytes: value?.length, decodedLen: decoded.length })
+              console.log('[Stream] Virtual agent raw read', { readCount, bytes: value?.length, decodedLen: decoded.length })
             }
             buffer += decoded
             const lines = buffer.split('\n\n')
@@ -265,17 +322,34 @@ const useAIChatStreamHandler = () => {
               const raw = line.slice(6).trim()
               if (!raw) continue
               try {
-                const data = JSON.parse(raw) as { content?: string; done?: boolean; result?: string; error?: string; stream_started?: boolean }
-                console.log('[Stream] SecOps SSE parsed event', {
+                const currentStorageKey = jobStorageKeyRef.current ?? jobStorageKey
+                const data = JSON.parse(raw) as { content?: string; done?: boolean; result?: string; error?: string; stream_started?: boolean; session_id?: string }
+                console.log('[Stream] Virtual agent SSE parsed event', {
                   hasContent: data.content != null,
                   contentLen: data.content?.length,
                   done: data.done,
                   hasError: data.error != null,
-                  stream_started: data.stream_started
+                  stream_started: data.stream_started,
+                  session_id: data.session_id
                 })
+                // Virtual agent stream: session created on first request; apply generic session update
+                if (data.stream_started === true && data.session_id && !jobSessionId) {
+                  applyVirtualAgentSessionFromStream(
+                    data.session_id,
+                    jobAgentId,
+                    currentStorageKey,
+                    userMessage
+                  )
+                }
                 if (data.content != null) {
                   accumulated += data.content
-                  updateMessagesForSession(jobStorageKey, (prev) => {
+                  if (accumulated.length <= 500 || accumulated.length % 2000 < (data.content?.length ?? 0)) {
+                    console.log('[Stream] Virtual agent received content chunk', {
+                      contentLen: data.content?.length,
+                      accumulatedLen: accumulated.length,
+                    })
+                  }
+                  updateMessagesForSession(currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
@@ -291,7 +365,7 @@ const useAIChatStreamHandler = () => {
                     accumulated.length >= data.result.length
                       ? accumulated
                       : data.result
-                  updateMessagesForSession(jobStorageKey, (prev) => {
+                  updateMessagesForSession(currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
@@ -301,7 +375,7 @@ const useAIChatStreamHandler = () => {
                   })
                 }
                 if (data.error != null) {
-                  updateMessagesForSession(jobStorageKey, (prev) => {
+                  updateMessagesForSession(currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
@@ -317,7 +391,7 @@ const useAIChatStreamHandler = () => {
           }
           // If no "done" event was received, keep accumulated content
           if (accumulated && !buffer.includes('"done"')) {
-            updateMessagesForSession(jobStorageKey, (prev) => {
+            updateMessagesForSession(jobStorageKeyRef.current ?? jobStorageKey, (prev) => {
               const next = [...prev]
               const last = next[next.length - 1]
               if (last && last.role === 'agent' && (last.content ?? '').length < accumulated.length) {
@@ -328,7 +402,8 @@ const useAIChatStreamHandler = () => {
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err)
-          updateMessagesForSession(jobStorageKey, (prevMessages) => {
+          const secOpsStorageKey = jobStorageKeyRef.current ?? jobStorageKey
+          updateMessagesForSession(secOpsStorageKey, (prevMessages) => {
             const next = [...prevMessages]
             const last = next[next.length - 1]
             if (last && last.role === 'agent') {
@@ -342,14 +417,18 @@ const useAIChatStreamHandler = () => {
             return next
           })
         } finally {
-          setActiveJob(jobStorageKey, null)
+          setActiveJob(jobStorageKeyRef.current ?? jobStorageKey, null)
           setIsStreaming(false)
           focusChatInput()
           jobAgentIdRef.current = null
           jobStorageKeyRef.current = null
+          usePlaygroundStore.getState().triggerSessionsRefresh()
         }
         return
       }
+
+      // Not a virtual agent with stream path: use Agno run (generator chunks will NOT stream to UI)
+      console.log('[Stream] Not using virtual agent stream', { jobAgentId, streamPath: streamPath ?? null })
 
       let lastContent = ''
       let newSessionId = sessionId
@@ -697,6 +776,7 @@ const useAIChatStreamHandler = () => {
     [
       updateMessagesForSession,
       updateMessagesWithErrorState,
+      applyVirtualAgentSessionFromStream,
       selectedEndpoint,
       streamResponse,
       agentId,
