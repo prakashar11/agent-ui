@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Search, Filter, Info, Edit3, Save, XCircle, Plus, Trash2, RotateCcw, Calendar, Loader2, Table, Network, ExternalLink, Undo, Redo, Shield, AlertTriangle, Minimize2, Maximize2, Zap, Copy } from 'lucide-react';
 import { toast } from 'sonner';
@@ -502,6 +502,14 @@ const DEMO_STATS: GraphStats = {
 // INTERNAL FLOW COMPONENT
 // =============================================================================
 
+/** Ref handle for zoom controls in header (setViewport/getViewport/persistZoom from useReactFlow). */
+export type FlowControlRef = {
+  setViewport: (v: { x: number; y: number; zoom: number }) => void;
+  getViewport: () => { x: number; y: number; zoom: number };
+  /** Persist current zoom to layout storage (e.g. when changed from header). */
+  persistZoom: (zoom: number) => void;
+};
+
 interface InternalFlowProps {
   graphData: GraphData | null;
   stats: GraphStats | null;
@@ -513,6 +521,10 @@ interface InternalFlowProps {
   onLoadDemoData?: () => void;
   loadingProgress?: { current: number; total: number } | null;
   isBackgroundFetching?: boolean;
+  /** Ref to expose setViewport/getViewport for header zoom control. */
+  flowRef?: React.RefObject<FlowControlRef | null>;
+  /** Called when zoom level changes (for header display). */
+  onZoomChange?: (zoom: number) => void;
 }
 
 // Minimum zoom level to ensure nodes are readable
@@ -536,13 +548,31 @@ const getOptimalZoom = (nodeCount: number): { minZoom: number; maxZoom: number; 
     return { minZoom: 0.1, maxZoom: 0.3, targetZoom: 0.15 };
   }
 };
-const IDEAL_ZOOM = 0.8;
-
-function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData, loadingProgress, isBackgroundFetching }: InternalFlowProps) {
+function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, isShowingDemoData, onLoadDemoData, loadingProgress, isBackgroundFetching, flowRef, onZoomChange }: InternalFlowProps) {
   const { fitView, setCenter, getNode, setViewport, getViewport } = useReactFlow();
   
-  // Track current zoom level for display
-  const [currentZoom, setCurrentZoom] = useState(1);
+  // Track current zoom level for display; restore from stored layout when available
+  const [currentZoom, setCurrentZoom] = useState(() => getStoredLayout()?.preferences?.lastZoom ?? 1);
+  // Persist zoom to layout storage (merge with existing preferences)
+  const persistZoom = useCallback((zoom: number) => {
+    const existing = getStoredLayout();
+    saveLayout({
+      preferences: {
+        showMinimap: existing?.preferences?.showMinimap ?? true,
+        showLegend: existing?.preferences?.showLegend ?? false,
+        lastZoom: zoom,
+      },
+    });
+  }, []);
+  // Expose setViewport/getViewport/persistZoom to parent for header zoom control
+  useImperativeHandle(flowRef, () => ({ setViewport, getViewport, persistZoom }), [setViewport, getViewport, persistZoom]);
+
+  // Sync initial zoom to parent when mounted
+  useEffect(() => {
+    if (onZoomChange == null) return;
+    const t = setTimeout(() => onZoomChange(getViewport().zoom), 150);
+    return () => clearTimeout(t);
+  }, [onZoomChange, getViewport]);
   
   // Load stored layout preferences on mount
   const storedLayout = useMemo(() => getStoredLayout(), []);
@@ -1324,11 +1354,12 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       console.log(`[AssetGraph] Applied fresh hierarchical layout${hasActiveFilters ? ' (filters active)' : ''} with overlap prevention and optimized edge handles (container: ${containerSize.width}x${containerSize.height}, clustersPerRow: ${layoutSettings.clustersPerRow || 'auto'}, worker: ${layoutSettings.useWebWorker})`);
     }
 
-    // Fit view after layout with adaptive zoom based on node count
+    // Fit view after layout with adaptive zoom based on node count; restore stored zoom when available
     const nodeCount = flowNodes.length;
     const { minZoom, maxZoom, targetZoom } = getOptimalZoom(nodeCount);
+    const savedZoom = getStoredLayout()?.preferences?.lastZoom;
     
-    console.log(`[AssetGraph] Adaptive zoom for ${nodeCount} nodes: min=${minZoom}, max=${maxZoom}, target=${targetZoom}`);
+    console.log(`[AssetGraph] Adaptive zoom for ${nodeCount} nodes: min=${minZoom}, max=${maxZoom}, target=${targetZoom}${savedZoom != null ? `, restoring saved zoom ${savedZoom}` : ''}`);
     
     setTimeout(() => {
       fitView({ 
@@ -1338,20 +1369,49 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         duration: 300,
       });
       
-      // For large graphs, set a specific zoom level for better readability
+      // Apply zoom: prefer saved zoom from storage, else use adaptive target
+      const clampZoom = (z: number) => Math.max(minZoom, Math.min(maxZoom, z));
       if (nodeCount > 100) {
         setTimeout(() => {
           const viewport = getViewport();
-          setViewport({ ...viewport, zoom: targetZoom }, { duration: 200 });
-          setCurrentZoom(targetZoom);
+          const initialZoom = savedZoom != null ? clampZoom(savedZoom) : targetZoom;
+          setViewport({ ...viewport, zoom: initialZoom }, { duration: 200 });
+          setCurrentZoom(initialZoom);
+          onZoomChange?.(initialZoom);
         }, 350);
       } else {
         setTimeout(() => {
-          setCurrentZoom(getViewport().zoom);
+          const viewport = getViewport();
+          const zoom = savedZoom != null ? clampZoom(savedZoom) : viewport.zoom;
+          setViewport({ ...viewport, zoom }, { duration: 200 });
+          setCurrentZoom(zoom);
+          onZoomChange?.(zoom);
         }, 350);
       }
     }, 100);
-  }, [graphData, activeFilters, primaryAnchorType, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport]);
+  }, [graphData, activeFilters, primaryAnchorType, searchFilteredNodeIds, nodeMatchesDateFilter, dateFilter, containerSize, layoutSettings, filterMaxHops, getNodesWithinHops, setNodes, setEdges, fitView, getViewport, onZoomChange]);
+
+  // Keep a ref of the last zoom so we can restore it when switching from table back to graph
+  const lastZoomRef = useRef(currentZoom);
+  useEffect(() => {
+    lastZoomRef.current = currentZoom;
+  }, [currentZoom]);
+
+  const prevViewModeRef = useRef(viewMode);
+  // When switching from table view to graph view, restore zoom (ReactFlow remounts and fitView resets it)
+  useEffect(() => {
+    const prev = prevViewModeRef.current;
+    prevViewModeRef.current = viewMode;
+    if (prev !== 'table' || viewMode !== 'graph') return;
+    const id = setTimeout(() => {
+      const zoom = lastZoomRef.current;
+      const v = getViewport();
+      setViewport({ ...v, zoom }, { duration: 0 });
+      setCurrentZoom(zoom);
+      onZoomChange?.(zoom);
+    }, 150);
+    return () => clearTimeout(id);
+  }, [viewMode, getViewport, setViewport, onZoomChange]);
 
   // ==========================================================================
   // HIGHLIGHT RELATED NODES WHEN A NODE IS SELECTED
@@ -1996,10 +2056,12 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
     }
   }, [nodes, onNodesChange, updateEdgeHandlesForPositions]);
 
-  // Save UI preferences when they change
+  // Save UI preferences when they change (merge with existing so lastZoom is preserved)
   useEffect(() => {
+    const stored = getStoredLayout();
     saveLayout({
       preferences: {
+        ...(stored?.preferences || {}),
         showMinimap,
         showLegend,
       },
@@ -3417,7 +3479,7 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
           )}
         </div>
 
-        {/* Right Side - Stats */}
+        {/* Right Side - Stats and number-based zoom */}
         <div className="flex items-center gap-2">
           {hasUnsavedChanges && (
             <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-600/20 border border-amber-500/30 rounded text-xs text-amber-400">
@@ -3430,6 +3492,53 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
             <span className="text-white font-medium">{nodes.length}</span> nodes •{' '}
             <span className="text-white font-medium">{edges.length}</span> edges
           </div>
+          {/* Number-based zoom - right of node/edges details; disabled in table view */}
+          {viewMode === 'graph' && (
+            <div className="flex items-center gap-1 pl-2 ml-2 border-l border-neutral-700">
+              <button
+                type="button"
+                onClick={() => {
+                  const newZoom = Math.max(0.1, currentZoom - 0.2);
+                  setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
+                  setCurrentZoom(newZoom);
+                  onZoomChange?.(newZoom);
+                  persistZoom(newZoom);
+                }}
+                className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
+                title="Zoom Out"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const ideal = 0.8;
+                  setViewport({ ...getViewport(), zoom: ideal }, { duration: 200 });
+                  setCurrentZoom(ideal);
+                  onZoomChange?.(ideal);
+                  persistZoom(ideal);
+                }}
+                className="text-xs font-mono text-neutral-300 min-w-[44px] text-center hover:text-white transition-colors"
+                title="Click to reset zoom to 80%"
+              >
+                {Math.round(currentZoom * 100)}%
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const newZoom = Math.min(3, currentZoom + 0.2);
+                  setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
+                  setCurrentZoom(newZoom);
+                  onZoomChange?.(newZoom);
+                  persistZoom(newZoom);
+                }}
+                className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
+                title="Zoom In"
+              >
+                +
+              </button>
+            </div>
+          )}
         </div>
       </div>
       
@@ -3558,7 +3667,18 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
         onEdgeClick={onEdgeClick}
         onPaneClick={onPaneClick}
         onConnect={onConnect}
-        onMoveEnd={(_, viewport) => setCurrentZoom(viewport.zoom)}
+        onMoveEnd={(_, viewport) => {
+          setCurrentZoom(viewport.zoom);
+          onZoomChange?.(viewport.zoom);
+          const existing = getStoredLayout();
+          saveLayout({
+            preferences: {
+              showMinimap: existing?.preferences?.showMinimap ?? true,
+              showLegend: existing?.preferences?.showLegend ?? false,
+              lastZoom: viewport.zoom,
+            },
+          });
+        }}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         connectionLineType={ConnectionLineType.SmoothStep}
@@ -3589,52 +3709,14 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
       >
         <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#374151" />
         
+        {/* Button-based zoom controls: bottom-right, above minimap when minimap is shown */}
         <Controls
           showZoom={true}
           showFitView={true}
           showInteractive={false}
-          position="bottom-left"
-          className="!bg-neutral-800 !border-neutral-700 !rounded-lg !shadow-xl [&>button]:!bg-neutral-800 [&>button]:!border-neutral-700 [&>button]:!text-neutral-300 [&>button:hover]:!bg-neutral-700"
+          position="bottom-right"
+          className={`!bg-neutral-800 !border-neutral-700 !rounded-lg !shadow-xl [&>button]:!bg-neutral-800 [&>button]:!border-neutral-700 [&>button]:!text-neutral-300 [&>button:hover]:!bg-neutral-700 ${showMinimap ? '!bottom-52' : ''}`}
         />
-        
-        {/* Zoom Percentage Indicator */}
-        <Panel position="bottom-left" className="!bottom-28 !left-3">
-          <div className="bg-neutral-800/95 backdrop-blur-sm rounded-lg border border-neutral-700 shadow-xl px-3 py-2 flex items-center gap-2">
-            <button
-              onClick={() => {
-                const newZoom = Math.max(0.1, currentZoom - 0.2);
-                setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
-                setCurrentZoom(newZoom);
-              }}
-              className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors"
-              title="Zoom Out"
-            >
-              −
-            </button>
-            <div 
-              className="text-sm font-mono text-neutral-300 min-w-[50px] text-center cursor-pointer hover:text-white"
-              onClick={() => {
-                // Reset to ideal zoom
-                setViewport({ ...getViewport(), zoom: IDEAL_ZOOM }, { duration: 200 });
-                setCurrentZoom(IDEAL_ZOOM);
-              }}
-              title="Click to reset zoom to 80%"
-            >
-              {Math.round(currentZoom * 100)}%
-            </div>
-            <button
-              onClick={() => {
-                const newZoom = Math.min(3, currentZoom + 0.2);
-                setViewport({ ...getViewport(), zoom: newZoom }, { duration: 200 });
-                setCurrentZoom(newZoom);
-              }}
-              className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors"
-              title="Zoom In"
-            >
-              +
-            </button>
-          </div>
-        </Panel>
 
         {showMinimap && (
           <MiniMap
@@ -4278,12 +4360,16 @@ interface PaginationInfo {
   };
 }
 
+const HEADER_IDEAL_ZOOM = 0.8;
+
 export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualizationProps) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isShowingDemoData, setIsShowingDemoData] = useState(false);
+  const [headerZoom, setHeaderZoom] = useState(1);
+  const flowRef = useRef<FlowControlRef | null>(null);
   
   // Cached complete graph data - fetched once, filtered client-side
   // Also persisted to localStorage for faster initial loads
@@ -4637,7 +4723,7 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
           exit={{ scale: 0.95, opacity: 0 }}
           className="absolute inset-4 bg-neutral-950 rounded-xl overflow-hidden border border-neutral-800 flex flex-col"
         >
-          {/* Compact Header - title and actions only */}
+          {/* Compact Header - title, status, zoom control, and actions */}
           <div className="flex items-center justify-between px-3 py-1.5 border-b border-neutral-800 bg-neutral-900/50">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-white">Asset Graph</h2>
@@ -4653,7 +4739,57 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
               )}
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
+              {/* Number-based zoom control - right side of nodes & edges count */}
+              <div className="flex items-center gap-1 pr-2 border-r border-neutral-700">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const vp = flowRef.current?.getViewport();
+                    if (vp) {
+                      const newZoom = Math.max(0.1, vp.zoom - 0.2);
+                      flowRef.current?.setViewport({ ...vp, zoom: newZoom });
+                      setHeaderZoom(newZoom);
+                      flowRef.current?.persistZoom(newZoom);
+                    }
+                  }}
+                  className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
+                  title="Zoom Out"
+                >
+                  −
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const vp = flowRef.current?.getViewport();
+                    if (vp) {
+                      flowRef.current?.setViewport({ ...vp, zoom: HEADER_IDEAL_ZOOM });
+                      setHeaderZoom(HEADER_IDEAL_ZOOM);
+                      flowRef.current?.persistZoom(HEADER_IDEAL_ZOOM);
+                    }
+                  }}
+                  className="text-xs font-mono text-neutral-300 min-w-[44px] text-center hover:text-white transition-colors"
+                  title="Click to reset zoom to 80%"
+                >
+                  {Math.round(headerZoom * 100)}%
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const vp = flowRef.current?.getViewport();
+                    if (vp) {
+                      const newZoom = Math.min(3, vp.zoom + 0.2);
+                      flowRef.current?.setViewport({ ...vp, zoom: newZoom });
+                      setHeaderZoom(newZoom);
+                      flowRef.current?.persistZoom(newZoom);
+                    }
+                  }}
+                  className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
+                  title="Zoom In"
+                >
+                  +
+                </button>
+              </div>
               <button
                 onClick={() => fetchGraphData()}
                 className="p-1.5 bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
@@ -4685,6 +4821,8 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
               onLoadDemoData={loadDemoData}
               loadingProgress={loadingProgress}
               isBackgroundFetching={isBackgroundFetching}
+              flowRef={flowRef}
+              onZoomChange={setHeaderZoom}
             />
           </ReactFlowProvider>
         </motion.div>
