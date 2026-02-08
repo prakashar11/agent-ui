@@ -1079,31 +1079,7 @@ const SwipeableCardStack: FC<SwipeableCardStackProps> = ({
           maxHeight: '1200px'
         }}
       >
-        {/* Resize zones - transparent areas on edges for resize detection */}
-        {/* Top edge */}
-        <div 
-          className="absolute -top-2 left-4 right-4 h-4 cursor-ns-resize z-50 touch-none"
-          onMouseDown={handleResizeZoneMouseDown('top')}
-          onTouchStart={handleResizeZoneTouchStart('top')}
-        />
-        {/* Bottom edge */}
-        <div 
-          className="absolute -bottom-2 left-4 right-4 h-4 cursor-ns-resize z-50 touch-none"
-          onMouseDown={handleResizeZoneMouseDown('bottom')}
-          onTouchStart={handleResizeZoneTouchStart('bottom')}
-        />
-        {/* Left edge */}
-        <div 
-          className="absolute -left-2 top-4 bottom-4 w-4 cursor-ew-resize z-50 touch-none"
-          onMouseDown={handleResizeZoneMouseDown('left')}
-          onTouchStart={handleResizeZoneTouchStart('left')}
-        />
-        {/* Right edge */}
-        <div 
-          className="absolute -right-2 top-4 bottom-4 w-4 cursor-ew-resize z-50 touch-none"
-          onMouseDown={handleResizeZoneMouseDown('right')}
-          onTouchStart={handleResizeZoneTouchStart('right')}
-        />
+        {/* Resize zones - corners only so scrollbar (right edge) is not captured */}
         {/* Top-left corner */}
         <div 
           className="absolute -top-2 -left-2 w-5 h-5 cursor-nwse-resize z-50 touch-none"
