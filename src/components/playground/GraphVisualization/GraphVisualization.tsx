@@ -4360,15 +4360,12 @@ interface PaginationInfo {
   };
 }
 
-const HEADER_IDEAL_ZOOM = 0.8;
-
 export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualizationProps) {
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   const [stats, setStats] = useState<GraphStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isShowingDemoData, setIsShowingDemoData] = useState(false);
-  const [headerZoom, setHeaderZoom] = useState(1);
   const flowRef = useRef<FlowControlRef | null>(null);
   
   // Cached complete graph data - fetched once, filtered client-side
@@ -4740,56 +4737,6 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Number-based zoom control - right side of nodes & edges count */}
-              <div className="flex items-center gap-1 pr-2 border-r border-neutral-700">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const vp = flowRef.current?.getViewport();
-                    if (vp) {
-                      const newZoom = Math.max(0.1, vp.zoom - 0.2);
-                      flowRef.current?.setViewport({ ...vp, zoom: newZoom });
-                      setHeaderZoom(newZoom);
-                      flowRef.current?.persistZoom(newZoom);
-                    }
-                  }}
-                  className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
-                  title="Zoom Out"
-                >
-                  −
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const vp = flowRef.current?.getViewport();
-                    if (vp) {
-                      flowRef.current?.setViewport({ ...vp, zoom: HEADER_IDEAL_ZOOM });
-                      setHeaderZoom(HEADER_IDEAL_ZOOM);
-                      flowRef.current?.persistZoom(HEADER_IDEAL_ZOOM);
-                    }
-                  }}
-                  className="text-xs font-mono text-neutral-300 min-w-[44px] text-center hover:text-white transition-colors"
-                  title="Click to reset zoom to 80%"
-                >
-                  {Math.round(headerZoom * 100)}%
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const vp = flowRef.current?.getViewport();
-                    if (vp) {
-                      const newZoom = Math.min(3, vp.zoom + 0.2);
-                      flowRef.current?.setViewport({ ...vp, zoom: newZoom });
-                      setHeaderZoom(newZoom);
-                      flowRef.current?.persistZoom(newZoom);
-                    }
-                  }}
-                  className="w-6 h-6 flex items-center justify-center text-neutral-400 hover:text-white hover:bg-neutral-700 rounded transition-colors text-sm"
-                  title="Zoom In"
-                >
-                  +
-                </button>
-              </div>
               <button
                 onClick={() => fetchGraphData()}
                 className="p-1.5 bg-neutral-800 rounded text-neutral-400 hover:text-white transition-colors"
@@ -4822,7 +4769,6 @@ export function GraphVisualization({ isOpen, onClose, endpoint }: GraphVisualiza
               loadingProgress={loadingProgress}
               isBackgroundFetching={isBackgroundFetching}
               flowRef={flowRef}
-              onZoomChange={setHeaderZoom}
             />
           </ReactFlowProvider>
         </motion.div>
