@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
-import { usePlaygroundStore } from '@/store'
+import { usePlaygroundStore, createStorageKey } from '@/store'
 import { useQueryState } from 'nuqs'
 import SessionItem from './SessionItem'
 import SessionBlankState from './SessionBlankState'
@@ -62,7 +62,8 @@ const Sessions = () => {
     hydrated,
     hasStorage,
     setSessionsData,
-    sessionsRefreshTrigger
+    sessionsRefreshTrigger,
+    getActiveJob
   } = usePlaygroundStore()
   const [isScrolling, setIsScrolling] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -97,6 +98,7 @@ const Sessions = () => {
   const shouldFetchSessions = hasStorage || isVirtualAgentWithSessions(agentId)
 
   // Fetch sessions list and, when URL has sessionId, load that session first so GET .../sessions/{id} runs before GET .../sessions (avoids list-before-get order when hydrated is delayed).
+  // Skip loading a session by ID when there is an active run for that session: the backend may not have persisted it yet (avoids 404 and "two session ids" race).
   useEffect(() => {
     if (!selectedEndpoint || !agentId || !shouldFetchSessions) {
       setSessionsData(() => null)
@@ -105,7 +107,11 @@ const Sessions = () => {
     if (!isEndpointLoading) {
       const run = async () => {
         if (sessionId && hydrated) {
-          await getSession(sessionId, agentId)
+          const storageKey = createStorageKey(agentId, sessionId)
+          const activeJob = getActiveJob(storageKey)
+          if (!activeJob) {
+            await getSession(sessionId, agentId)
+          }
         }
         if (sessionsRefreshTrigger === 0) {
           setSessionsData(() => null)
@@ -119,6 +125,7 @@ const Sessions = () => {
     agentId,
     getSessions,
     getSession,
+    getActiveJob,
     isEndpointLoading,
     shouldFetchSessions,
     setSessionsData,
