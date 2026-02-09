@@ -18,6 +18,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { APIRoutes } from '@/api/routes'
 import { toast } from 'sonner'
@@ -38,6 +44,7 @@ import {
   Settings2,
   Zap,
   Trash2,
+  StopCircle,
   Plus,
   X,
   Edit2,
@@ -108,7 +115,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
   const [bugBountyFormData, setBugBountyFormData] = useState<BugBountyIngestRequest>(
     DEFAULT_BUG_BOUNTY_INGEST_REQUEST
   )
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submittingMode, setSubmittingMode] = useState<'sync' | 'async' | null>(null)
   
   // Bug bounty specific state
   const [urlInput, setUrlInput] = useState('')
@@ -252,6 +259,44 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
       setJobs(prev => prev.filter(j => j.job_id !== jobId))
     } catch (error) {
       console.warn('Error deleting job:', error)
+      toast.error('Unable to connect to server', { duration: 3000 })
+    }
+  }, [endpoint])
+
+  // Stop/cancel a running or pending job (marks as failed "Stopped by user" in backend)
+  const stopJob = useCallback(async (jobId: string) => {
+    if (!endpoint) return
+
+    try {
+      const isBugBounty = jobId?.startsWith('bug_bounty_ingest_')
+      const cancelUrl = isBugBounty
+        ? APIRoutes.BugBountyIngestionCancelJob(endpoint, jobId)
+        : APIRoutes.ThreatIntelIngestionCancelJob(endpoint, jobId)
+
+      const response = await fetch(cancelUrl, { method: 'POST' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}))
+        const message = data.detail || 'Failed to stop job'
+        toast.error(message, { duration: 3000 })
+        return
+      }
+
+      const data = await response.json()
+      toast.success('Job stopped', { duration: 2000 })
+      setJobs(prev =>
+        prev.map(j =>
+          j.job_id === jobId
+            ? {
+                ...j,
+                status: data.status ?? 'failed',
+                completed_at: data.completed_at,
+                error: data.error,
+              }
+            : j
+        )
+      )
+    } catch (error) {
+      console.warn('Error stopping job:', error)
       toast.error('Unable to connect to server', { duration: 3000 })
     }
   }, [endpoint])
@@ -521,7 +566,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
 
   // Trigger ingestion
   const handleStartIngestion = async (sync: boolean = false) => {
-    setIsSubmitting(true)
+    setSubmittingMode(sync ? 'sync' : 'async')
     try {
       let url: string
       let requestData: ThreatIntelIngestRequest | BugBountyIngestRequest
@@ -542,7 +587,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
         const hasUrls = bugBountyFormData.urls.length > 0 || selectedPredefinedUrlIds.length > 0
         if (!hasUrls && !bugBountyFormData.use_rss_feeds) {
           toast.error('Please add at least one URL, select a predefined URL, or enable RSS feeds', { duration: 3000 })
-          setIsSubmitting(false)
+          setSubmittingMode(null)
           return
         }
 
@@ -596,7 +641,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
       console.warn('Error starting ingestion:', error)
       toast.error('Unable to connect to server', { duration: 3000 })
     } finally {
-      setIsSubmitting(false)
+      setSubmittingMode(null)
     }
   }
 
@@ -862,7 +907,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                     <Button
                       size="sm"
                       onClick={handleQuickStart}
-                      disabled={isSubmitting}
+                      disabled={submittingMode !== null}
                       className={cn(
                         mainTab === 'threat_intel' 
                           ? 'bg-emerald-600 hover:bg-emerald-700'
@@ -870,7 +915,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                         'text-white border-0'
                       )}
                     >
-                      {isSubmitting ? (
+                      {submittingMode !== null ? (
                         <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                       ) : (
                         <Zap className="h-4 w-4 mr-1" />
@@ -1254,6 +1299,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                       formatDate={formatDate}
                       formatDuration={formatDuration}
                       onDelete={deleteJob}
+                      onStop={stopJob}
                       ingestionType={job.ingestion_type || ingestionType}
                       themeColors={themeColors}
                     />
@@ -1277,9 +1323,10 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                         index={index}
                         formatDate={formatDate}
                         formatDuration={formatDuration}
-                      onDelete={deleteJob}
-                      ingestionType={job.ingestion_type || ingestionType}
-                      themeColors={themeColors}
+                        onDelete={deleteJob}
+                        onStop={stopJob}
+                        ingestionType={job.ingestion_type || ingestionType}
+                        themeColors={themeColors}
                       />
                     </CarouselItem>
                   ))}
@@ -1374,39 +1421,84 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                 {/* RSS Categories */}
                 <div>
                   <label className="text-sm font-medium mb-2 block text-zinc-100">RSS Feed Categories</label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {RSS_CATEGORY_OPTIONS.map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => {
-                          if (option.value === 'all') {
-                            setThreatIntelFormData({ ...threatIntelFormData, rss_categories: ['all'] })
-                          } else {
-                            const current = threatIntelFormData.rss_categories.filter(c => c !== 'all')
-                            const isSelected = current.includes(option.value)
-                            const newCategories = isSelected
-                              ? current.filter(c => c !== option.value)
-                              : [...current, option.value]
-                            setThreatIntelFormData({ 
-                              ...threatIntelFormData, 
-                              rss_categories: newCategories.length > 0 ? newCategories : ['all']
-                            })
-                          }
-                        }}
-                        className={cn(
-                          'px-3 py-2 text-sm rounded-md transition-colors flex items-center gap-2',
-                          threatIntelFormData.rss_categories.includes(option.value) ||
-                          (threatIntelFormData.rss_categories.includes('all') && option.value === 'all')
-                            ? 'bg-emerald-600 text-white'
-                            : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-                        )}
-                      >
-                        <span>{option.icon}</span>
-                        <span>{option.label}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <TooltipProvider delayDuration={300}>
+                    <div className="grid grid-cols-2 gap-2">
+                      {RSS_CATEGORY_OPTIONS.map((option) => {
+                        const categoryUrls: string[] =
+                          feeds && option.value !== 'all'
+                            ? (feeds.feeds[option.value as 'news' | 'threat_intel' | 'cyber_crime' | 'ai_security']?.urls ?? [])
+                            : feeds
+                              ? [...new Set([
+                                  ...(feeds.feeds.news?.urls ?? []),
+                                  ...(feeds.feeds.threat_intel?.urls ?? []),
+                                  ...(feeds.feeds.cyber_crime?.urls ?? []),
+                                  ...(feeds.feeds.ai_security?.urls ?? []),
+                                  ...(feeds.feeds.bug_bounty?.urls ?? []),
+                                ])]
+                              : []
+                        return (
+                          <Tooltip key={option.value}>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (option.value === 'all') {
+                                    setThreatIntelFormData({ ...threatIntelFormData, rss_categories: ['all'] })
+                                  } else {
+                                    const current = threatIntelFormData.rss_categories.filter(c => c !== 'all')
+                                    const isSelected = current.includes(option.value)
+                                    const newCategories = isSelected
+                                      ? current.filter(c => c !== option.value)
+                                      : [...current, option.value]
+                                    setThreatIntelFormData({
+                                      ...threatIntelFormData,
+                                      rss_categories: newCategories.length > 0 ? newCategories : ['all'],
+                                    })
+                                  }
+                                }}
+                                className={cn(
+                                  'px-3 py-2 text-sm rounded-md transition-colors flex items-center gap-2',
+                                  threatIntelFormData.rss_categories.includes(option.value) ||
+                                    (threatIntelFormData.rss_categories.includes('all') && option.value === 'all')
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+                                )}
+                              >
+                                <span>{option.icon}</span>
+                                <span>{option.label}</span>
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="bottom"
+                              className="max-w-md max-h-64 overflow-auto text-left whitespace-pre-wrap break-all font-sans text-sm font-normal leading-relaxed"
+                            >
+                              {categoryUrls.length === 0 ? (
+                                'Loading feed URLs…'
+                              ) : (
+                                <>
+                                  <span className="font-medium block mb-1.5 text-sm">{option.label} ({categoryUrls.length} feed{categoryUrls.length !== 1 ? 's' : ''})</span>
+                                  <div className="space-y-1 font-sans text-sm text-zinc-300 leading-relaxed">
+                                    {categoryUrls.map((url) => (
+                                      <a
+                                        key={url}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block hover:text-white hover:underline break-all"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {url}
+                                      </a>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
+                        )
+                      })}
+                    </div>
+                  </TooltipProvider>
                 </div>
 
                 {/* Days Past & Max Articles */}
@@ -1888,18 +1980,18 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
             <Button
               variant="outline"
               onClick={() => handleStartIngestion(true)}
-              disabled={isSubmitting}
+              disabled={submittingMode !== null}
               className="border-zinc-600 text-zinc-100 hover:bg-zinc-700 hover:text-white"
             >
-              {isSubmitting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Clock className="h-4 w-4 mr-1" />}
+              {submittingMode === 'sync' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Clock className="h-4 w-4 mr-1" />}
               Run Sync
             </Button>
             <Button
               onClick={() => handleStartIngestion(false)}
-              disabled={isSubmitting}
+              disabled={submittingMode !== null}
               className={cn(themeColors.primaryClasses.bg, themeColors.primaryClasses.bgHover, 'text-white border-0')}
             >
-              {isSubmitting ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />}
+              {submittingMode === 'async' ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />}
               Start Async
             </Button>
           </div>
@@ -2098,7 +2190,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
             </Button>
             <Button
               onClick={confirmQuickStart}
-              disabled={isSubmitting || !quickStartConfig}
+              disabled={submittingMode !== null || !quickStartConfig}
               className={cn(
                 quickStartConfig?.type === 'threat_intel'
                   ? 'bg-emerald-600 hover:bg-emerald-700'
@@ -2106,7 +2198,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                 'text-white border-0'
               )}
             >
-              {isSubmitting ? (
+              {submittingMode === 'async' ? (
                 <>
                   <Loader2 className="h-4 w-4 mr-1 animate-spin" />
                   Starting...
@@ -2248,6 +2340,7 @@ interface JobCardProps {
   formatDate: (dateStr?: string) => string | null
   formatDuration: (startedAt?: string, completedAt?: string) => string | null
   onDelete: (jobId: string) => void
+  onStop: (jobId: string) => void
   ingestionType: IngestionType
   themeColors: { 
     primaryColor: string
@@ -2268,6 +2361,7 @@ const JobCard: React.FC<JobCardProps> = ({
   formatDate,
   formatDuration,
   onDelete,
+  onStop,
   ingestionType,
   themeColors,
 }) => {
@@ -2275,6 +2369,7 @@ const JobCard: React.FC<JobCardProps> = ({
   const statusConfig = JOB_STATUS_CONFIG[job.status]
   const stats = job.stats
   const canDelete = job.status !== 'running' && job.status !== 'pending'
+  const canStop = job.status === 'running' || job.status === 'pending'
 
   return (
     <motion.div
@@ -2301,6 +2396,15 @@ const JobCard: React.FC<JobCardProps> = ({
           <div className="flex items-center gap-1">
             {job.status === 'running' && (
               <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+            )}
+            {canStop && (
+              <button
+                onClick={() => onStop(job.job_id)}
+                className="p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-amber-500/20 text-zinc-500 hover:text-amber-400"
+                title="Stop job"
+              >
+                <StopCircle className="h-3.5 w-3.5" />
+              </button>
             )}
             {canDelete && (
               <button
@@ -2437,6 +2541,33 @@ const JobCard: React.FC<JobCardProps> = ({
                   <span className="text-muted-foreground">Graph Synced:</span>
                   <span>{(stats as IngestionStats).articles_stored_graph}</span>
                 </div>
+                {(() => {
+                  const feeds = (stats as IngestionStats).rss_feeds_with_articles
+                  if (!feeds?.length) return null
+                  return (
+                    <TooltipProvider delayDuration={300}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Feeds processed:</span>
+                            <span>{(stats as IngestionStats).rss_feeds_with_articles?.length}</span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          className="max-w-md max-h-64 overflow-auto text-left font-sans text-sm font-normal leading-relaxed"
+                        >
+                          <span className="font-medium block mb-1.5">RSS feeds processed ({feeds.length})</span>
+                          <div className="space-y-1 text-zinc-300 break-all">
+                            {feeds.map((url) => (
+                              <div key={url} className="text-xs">{url}</div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )
+                })()}
               </>
             ) : (
               <>

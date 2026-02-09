@@ -62,6 +62,8 @@ export interface IngestionJobStatus {
 export interface IngestionStats {
   feeds_processed: number
   feeds_failed: number
+  /** Feed URLs from which articles were fetched (all, not just threat-relevant) */
+  rss_feeds_with_articles?: string[]
   articles_fetched: number
   articles_enriched: number
   articles_sanitized: number

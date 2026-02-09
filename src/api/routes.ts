@@ -240,6 +240,8 @@ export const APIRoutes = {
   },
   ThreatIntelIngestionDeleteJob: (PlaygroundApiUrl: string, jobId: string) =>
     `${PlaygroundApiUrl}/v1/intel/ingest/jobs/${encodeURIComponent(jobId)}`,
+  ThreatIntelIngestionCancelJob: (PlaygroundApiUrl: string, jobId: string) =>
+    `${PlaygroundApiUrl}/v1/intel/ingest/jobs/${encodeURIComponent(jobId)}/cancel`,
   ThreatIntelIngestionClearJobs: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/intel/ingest/jobs`,
   ThreatIntelFeeds: (PlaygroundApiUrl: string) =>
@@ -262,6 +264,8 @@ export const APIRoutes = {
   },
   BugBountyIngestionDeleteJob: (PlaygroundApiUrl: string, jobId: string) =>
     `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs/${encodeURIComponent(jobId)}`,
+  BugBountyIngestionCancelJob: (PlaygroundApiUrl: string, jobId: string) =>
+    `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs/${encodeURIComponent(jobId)}/cancel`,
   BugBountyIngestionClearJobs: (PlaygroundApiUrl: string) =>
     `${PlaygroundApiUrl}/v1/bug-bounty/ingest/jobs`,
 
