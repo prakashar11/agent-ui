@@ -9,7 +9,7 @@ export interface ThreatIntelIngestRequest {
   max_articles_per_feed: number
   max_concurrent_sanitization: number
   max_concurrent_analysis: number
-  analyze_threats: boolean
+  categorize_with_summary: boolean
   store_in_graph: boolean
   rss_categories: string[]
   force_refresh: boolean
@@ -69,6 +69,12 @@ export interface IngestionStats {
   articles_sanitized: number
   articles_analyzed: number
   articles_threat_relevant: number
+  /** Articles categorized as threat (intel_type=threat) */
+  articles_threat?: number
+  /** Articles categorized as cybercrime (intel_type=cybercrime) */
+  articles_cybercrime?: number
+  /** Articles categorized as news (intel_type=news) */
+  articles_news?: number
   articles_stored_vector: number
   articles_stored_graph: number
   errors: string[]
@@ -161,12 +167,12 @@ export const JOB_STATUS_CONFIG: Record<
 
 // Default ingestion request values
 export const DEFAULT_THREAT_INTEL_INGEST_REQUEST: ThreatIntelIngestRequest = {
-  days_past: 2,
-  max_articles_per_feed: 20,
+  days_past: 3,
+  max_articles_per_feed: 30,
   max_concurrent_sanitization: 5,
   max_concurrent_analysis: 3,
-  analyze_threats: true,
-  store_in_graph: true,
+  categorize_with_summary: false, // Category-only by default; agent does full extraction during intelligent_*
+  store_in_graph: false,
   rss_categories: ['all'],
   force_refresh: false,
   cache_ttl_hours: 24,

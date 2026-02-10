@@ -1368,11 +1368,11 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle>
-              Configure {mainTab === 'threat_intel' ? 'Threat Intel' : 'Bug Bounty'} Ingestion
+              Configure {mainTab === 'threat_intel' ? 'Article' : 'Bug Bounty'} Ingestion
             </DialogTitle>
             <DialogDescription>
               {mainTab === 'threat_intel'
-                ? 'Customize the threat intelligence ingestion parameters'
+                ? 'Customize article ingestion parameters'
                 : 'Manage URLs and customize extraction parameters'}
             </DialogDescription>
           </DialogHeader>
@@ -1560,13 +1560,13 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={threatIntelFormData.analyze_threats}
-                      onChange={(e) => setThreatIntelFormData({ ...threatIntelFormData, analyze_threats: e.target.checked })}
+                      checked={threatIntelFormData.categorize_with_summary}
+                      onChange={(e) => setThreatIntelFormData({ ...threatIntelFormData, categorize_with_summary: e.target.checked })}
                       className="w-4 h-4 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500"
                     />
-                    <span className="text-sm text-zinc-100">Analyze articles with LLM for threat relevance</span>
+                    <span className="text-sm text-zinc-100">Categorize articles with LLM (threat / cybercrime / news)</span>
                   </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
+                  <label className="flex items-center gap-3 cursor-pointer" title="When enabled, syncs to asset graph when threat_details are available. Graph is also updated by the agent during intelligent extraction.">
                     <input
                       type="checkbox"
                       checked={threatIntelFormData.store_in_graph}
@@ -1594,7 +1594,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                     min={0}
                     max={168}
                     value={threatIntelFormData.cache_ttl_hours}
-                    onChange={(e) => setThreatIntelFormData({ ...threatIntelFormData, cache_ttl_hours: parseFloat(e.target.value) || 24 })}
+                    onChange={(e) => setThreatIntelFormData({ ...threatIntelFormData, cache_ttl_hours: parseFloat(e.target.value) || 0 })}
                     className="w-full px-3 py-2 rounded-md border border-zinc-600 bg-zinc-800 text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                   />
                   <span className="text-xs text-zinc-400">0 = no caching, max 168 hours (1 week)</span>
@@ -2018,7 +2018,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                 <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
                   <h4 className="text-sm font-semibold text-zinc-100 mb-3 flex items-center gap-2">
                     <Shield className="h-4 w-4 text-emerald-400" />
-                    Threat Intel Settings
+                    Article Ingestion Settings
                   </h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
@@ -2054,7 +2054,7 @@ export const IntelligenceIngestionCarousel: React.FC<IntelligenceIngestionCarous
                     <div className="flex justify-between">
                       <span className="text-zinc-400">Analyze Threats:</span>
                       <span className="text-zinc-100 font-medium">
-                        {(quickStartConfig.config as ThreatIntelIngestRequest).analyze_threats ? 'Yes' : 'No'}
+                        {(quickStartConfig.config as ThreatIntelIngestRequest).categorize_with_summary ? 'Yes' : 'No'}
                       </span>
                     </div>
                     <div className="flex justify-between">
@@ -2466,6 +2466,18 @@ const JobCard: React.FC<JobCardProps> = ({
                     <span className="font-medium text-amber-400">{(stats as IngestionStats).articles_threat_relevant}</span>
                   </div>
                 )}
+                {((stats as IngestionStats).articles_threat !== undefined || (stats as IngestionStats).articles_cybercrime !== undefined || (stats as IngestionStats).articles_news !== undefined) && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground flex items-center gap-1 shrink-0">
+                      Categories:
+                    </span>
+                    <span className="text-right text-xs font-medium flex gap-2 flex-wrap justify-end">
+                      <span className="text-amber-400">threat: {(stats as IngestionStats).articles_threat ?? 0}</span>
+                      <span className="text-orange-400">cybercrime: {(stats as IngestionStats).articles_cybercrime ?? 0}</span>
+                      <span className="text-sky-400">news: {(stats as IngestionStats).articles_news ?? 0}</span>
+                    </span>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -2541,6 +2553,22 @@ const JobCard: React.FC<JobCardProps> = ({
                   <span className="text-muted-foreground">Graph Synced:</span>
                   <span>{(stats as IngestionStats).articles_stored_graph}</span>
                 </div>
+                {((stats as IngestionStats).articles_threat !== undefined || (stats as IngestionStats).articles_cybercrime !== undefined || (stats as IngestionStats).articles_news !== undefined) && (
+                  <>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Threat:</span>
+                      <span className="text-amber-400">{(stats as IngestionStats).articles_threat ?? 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Cybercrime:</span>
+                      <span className="text-orange-400">{(stats as IngestionStats).articles_cybercrime ?? 0}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">News:</span>
+                      <span className="text-sky-400">{(stats as IngestionStats).articles_news ?? 0}</span>
+                    </div>
+                  </>
+                )}
                 {(() => {
                   const feeds = (stats as IngestionStats).rss_feeds_with_articles
                   if (!feeds?.length) return null
