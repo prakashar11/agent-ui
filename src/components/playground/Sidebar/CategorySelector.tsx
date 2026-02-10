@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { usePathname } from 'next/navigation'
 import { usePlaygroundStore } from '@/store'
 import { groupAgentsByCategory, getCategoryColor, getCategoryBorderColor } from '@/lib/agentCategories'
 import { getGradientForCategory } from '@/components/playground/ChatArea/Messages/AgentCarousel'
@@ -39,6 +40,7 @@ type CarouselItem =
   | { type: 'virtual'; id: string; label: string; agent_tip?: string }
 
 export function CategorySelector() {
+  const pathname = usePathname()
   const { agents, setSelectedCategory, setCurrentContext, setSelectedModel, setHasStorage } = usePlaygroundStore()
   const { focusChatInput } = useChatActions()
   const [agentId, setAgentId] = useQueryState('agent', { history: 'push' })
@@ -57,6 +59,23 @@ export function CategorySelector() {
 
   const groupedAgents = React.useMemo(() => groupAgentsByCategory(agents), [agents])
 
+  // When loading from URL (?category=...&agent=...), apply store state so the selected agent/category is restored
+  React.useEffect(() => {
+    if (!categoryParam || !agentId || groupedAgents.length === 0) return
+    const group = groupedAgents.find((g) => g.category === categoryParam)
+    if (!group) return
+    const carouselItems = carouselItemsForGroup(group)
+    const item = carouselItems.find((i) => i.id === agentId)
+    if (!item) return
+    setCurrentContext(agentId, null)
+    if (item.type === 'agent') {
+      setSelectedModel(item.agent.model?.provider || '')
+      setHasStorage(!!item.agent.storage)
+    } else if (isVirtualAgentWithSessions(item.id)) {
+      setHasStorage(true)
+    }
+  }, [categoryParam, agentId, groupedAgents, setCurrentContext, setSelectedModel, setHasStorage])
+
   const handleCategoryClick = (category: string) => {
     if (expandedCategory !== category) {
       setExpandedCategory(category)
@@ -67,6 +86,25 @@ export function CategorySelector() {
     } else {
       setExpandedCategory(null)
       setCategoryParam(null)
+    }
+  }
+
+  const onCategoryLinkClick = (e: React.MouseEvent, category: string) => {
+    const isModifier = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+    const isLeftButton = e.button === 0
+    if (!isModifier && isLeftButton) {
+      e.preventDefault()
+      handleCategoryClick(category)
+    }
+  }
+
+  const onCarouselLinkClick = (e: React.MouseEvent, item: CarouselItem, category: string) => {
+    const isModifier = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+    const isLeftButton = e.button === 0
+    if (!isModifier && isLeftButton) {
+      e.preventDefault()
+      e.stopPropagation()
+      handleCarouselSelect(item, category)
     }
   }
 
@@ -149,16 +187,23 @@ export function CategorySelector() {
         const categoryGradient = getGradientForCategory(group.category)
         const IconComponent = isExpanded ? FolderOpen : Folder
 
+        const categoryParams: Record<string, string> = { category: group.category }
+        if (agentId && carouselItems.some((i) => i.id === agentId)) {
+          categoryParams.agent = agentId
+        }
+        const categoryHref = `${pathname}?${new URLSearchParams(categoryParams).toString()}`
         return (
           <div key={group.category} className="flex flex-col gap-0.5">
-            <motion.button
-              onClick={() => handleCategoryClick(group.category)}
+            <motion.a
+              href={categoryHref}
+              onClick={(e) => onCategoryLinkClick(e, group.category)}
               className={cn(
-                'group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200',
+                'group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 no-underline',
                 isExpanded
                   ? 'border-primary/30 bg-primary/10'
                   : 'border-primary/15 bg-accent hover:border-primary/25 hover:bg-accent/80'
               )}
+              style={{ color: 'inherit' }}
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
             >
@@ -189,7 +234,7 @@ export function CategorySelector() {
               ) : (
                 <ChevronRight className="w-4 h-4 flex-shrink-0 text-muted-foreground/50 group-hover:text-muted-foreground" />
               )}
-            </motion.button>
+            </motion.a>
 
             <AnimatePresence>
               {isExpanded && carouselItems.length > 0 && (
@@ -210,25 +255,19 @@ export function CategorySelector() {
                             : item.type === 'virtual'
                               ? item.agent_tip
                               : undefined
-                        const buttonProps = {
-                          type: 'button' as const,
-                          onClick: (e: React.MouseEvent) => {
-                            e.stopPropagation()
-                            handleCarouselSelect(item, group.category)
-                          },
-                          className: cn(
-                            'flex w-full items-center gap-2 rounded-lg border-l-2 px-2.5 py-1.5 text-left text-xs transition-colors',
-                            isSelected
-                              ? 'bg-primary/20 dark:bg-primary/30 text-primary font-medium border-primary dark:border-primary'
-                              : cn(
-                                  'bg-gradient-to-br',
-                                  categoryGradient,
-                                  borderColorClass,
-                                  'text-foreground hover:opacity-90'
-                                )
-                          ),
-                        }
-                        const buttonContent = (
+                        const agentHref = `${pathname}?${new URLSearchParams({ category: group.category, agent: item.id }).toString()}`
+                        const linkClassName = cn(
+                          'flex w-full items-center gap-2 rounded-lg border-l-2 px-2.5 py-1.5 text-left text-xs transition-colors no-underline',
+                          isSelected
+                            ? 'bg-primary/20 dark:bg-primary/30 text-primary font-medium border-primary dark:border-primary'
+                            : cn(
+                                'bg-gradient-to-br',
+                                categoryGradient,
+                                borderColorClass,
+                                'text-foreground hover:opacity-90'
+                              )
+                        )
+                        const linkContent = (
                           <>
                             {item.type === 'virtual' ? (
                               <Wrench className="h-3.5 w-3.5 flex-shrink-0" />
@@ -238,11 +277,21 @@ export function CategorySelector() {
                             <span className="truncate">{item.label}</span>
                           </>
                         )
+                        const linkEl = (
+                          <a
+                            href={agentHref}
+                            onClick={(e) => onCarouselLinkClick(e, item, group.category)}
+                            className={linkClassName}
+                            style={{ color: 'inherit' }}
+                          >
+                            {linkContent}
+                          </a>
+                        )
                         if (tip) {
                           return (
                             <Tooltip key={item.id}>
                               <TooltipTrigger asChild>
-                                <button {...buttonProps}>{buttonContent}</button>
+                                {linkEl}
                               </TooltipTrigger>
                               <TooltipContent
                                 side="right"
@@ -255,11 +304,7 @@ export function CategorySelector() {
                             </Tooltip>
                           )
                         }
-                        return (
-                          <button key={item.id} {...buttonProps}>
-                            {buttonContent}
-                          </button>
-                        )
+                        return <React.Fragment key={item.id}>{linkEl}</React.Fragment>
                       })}
                     </TooltipProvider>
                   </div>

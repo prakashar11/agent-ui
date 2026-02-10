@@ -1,3 +1,4 @@
+import { usePathname } from 'next/navigation'
 import { useQueryState } from 'nuqs'
 import { SessionEntry } from '@/types/playground'
 import { Button } from '../../../ui/button'
@@ -21,6 +22,7 @@ const SessionItem = ({
   isSelected,
   onSessionClick
 }: SessionItemProps) => {
+  const pathname = usePathname()
   const [agentId] = useQueryState('agent')
   const { getSession } = useSessionLoader()
   const [, setSessionId] = useQueryState('session')
@@ -54,6 +56,25 @@ const SessionItem = ({
     }
   }
 
+  // Session URL for real links so right-click shows "Open in new tab/window", etc.
+  const sessionHref =
+    pathname +
+    '?' +
+    new URLSearchParams({
+      ...(agentId && { agent: agentId }),
+      session: session_id
+    }).toString()
+
+  const handleSessionClick = (e: React.MouseEvent) => {
+    const isModifier = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey
+    const isLeftButton = e.button === 0
+    if (!isModifier && isLeftButton) {
+      e.preventDefault()
+      handleGetSession()
+    }
+    // else: let the browser handle it (open in new tab, new window, copy link)
+  }
+
   const handleDeleteSession = async () => {
     if (agentId) {
       try {
@@ -80,6 +101,7 @@ const SessionItem = ({
   }
 
   const handleStartEdit = (e: React.MouseEvent) => {
+    e.preventDefault()
     e.stopPropagation()
     setEditedTitle(title)
     setIsEditing(true)
@@ -139,19 +161,18 @@ const SessionItem = ({
       handleCancelEdit()
     }
   }
+  const wrapperClassName = cn(
+    'group flex h-auto min-h-11 w-full cursor-pointer items-start justify-between rounded-lg px-3 py-2 transition-colors duration-200',
+    isSelected
+      ? 'cursor-default bg-primary/10'
+      : 'bg-background-secondary hover:bg-background-secondary/80'
+  )
+
   return (
     <>
-      <div
-        className={cn(
-          'group flex h-auto min-h-11 w-full cursor-pointer items-start justify-between rounded-lg px-3 py-2 transition-colors duration-200',
-          isSelected
-            ? 'cursor-default bg-primary/10'
-            : 'bg-background-secondary hover:bg-background-secondary/80'
-        )}
-        onClick={isEditing ? undefined : handleGetSession}
-      >
-        <div className="flex flex-col gap-1 flex-1 min-w-0">
-          {isEditing ? (
+      {isEditing ? (
+        <div className={wrapperClassName} onClick={undefined}>
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
             <input
               ref={inputRef}
               type="text"
@@ -166,65 +187,70 @@ const SessionItem = ({
               )}
               placeholder="Session name"
             />
-          ) : (
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={handleSaveEdit}
+              disabled={isRenaming}
+              title="Save"
+            >
+              <Icon type="check" size="xs" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={handleCancelEdit}
+              disabled={isRenaming}
+              title="Cancel"
+            >
+              <Icon type="x" size="xs" />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <a
+          href={sessionHref}
+          onClick={handleSessionClick}
+          className={wrapperClassName}
+          style={{ textDecoration: 'none', color: 'inherit' }}
+        >
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
             <h4
               className={cn('text-sm font-medium break-words leading-relaxed', isSelected && 'text-primary')}
             >
               {title}
             </h4>
-          )}
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
-          {isEditing ? (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleSaveEdit}
-                disabled={isRenaming}
-                title="Save"
-              >
-                <Icon type="check" size="xs" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={handleCancelEdit}
-                disabled={isRenaming}
-                title="Cancel"
-              >
-                <Icon type="x" size="xs" />
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
-                onClick={handleStartEdit}
-                title="Rename session"
-              >
-                <Icon type="edit" size="xs" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setIsDeleteModalOpen(true)
-                }}
-                title="Delete session"
-              >
-                <Icon type="trash" size="xs" />
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+              onClick={handleStartEdit}
+              title="Rename session"
+            >
+              <Icon type="edit" size="xs" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6 transform opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                setIsDeleteModalOpen(true)
+              }}
+              title="Delete session"
+            >
+              <Icon type="trash" size="xs" />
+            </Button>
+          </div>
+        </a>
+      )}
       <DeleteSessionModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}

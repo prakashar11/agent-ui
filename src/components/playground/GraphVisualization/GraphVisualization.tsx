@@ -2075,7 +2075,12 @@ function InternalFlow({ graphData, stats, loading, error, onRefresh, endpoint, i
   
   const handleNodeInteraction = useCallback((event: React.MouseEvent, node: CustomNode, isContextMenu: boolean) => {
     if (isContextMenu) {
-      // Right-click: Show context menu
+      // If right-click is on a link, allow browser's native context menu (Open in new tab, Copy link, etc.)
+      const target = event.target as HTMLElement;
+      if (target.closest?.('a[href]')) {
+        return; // Do not preventDefault; browser will show standard link context menu
+      }
+      // Right-click on node: Show custom context menu
       event.preventDefault();
       event.stopPropagation();
       
