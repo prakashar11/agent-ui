@@ -2441,31 +2441,40 @@ const JobCard: React.FC<JobCardProps> = ({
           <div className="space-y-1.5 text-xs mb-3">
             {ingestionType === 'threat_intel' ? (
               <>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Rss className="h-3 w-3" /> Feeds:
-                  </span>
-                  <span className="font-medium">
-                    {(stats as IngestionStats).feeds_processed}
-                    {(stats as IngestionStats).feeds_failed > 0 && (
-                      <span className="text-red-400 ml-1">({(stats as IngestionStats).feeds_failed} failed)</span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground flex items-center gap-1">
-                    <Database className="h-3 w-3" /> Stored:
-                  </span>
-                  <span className={cn('font-medium', themeColors.primaryClasses.text400)}>{(stats as IngestionStats).articles_stored_vector}</span>
-                </div>
-                {(stats as IngestionStats).articles_threat_relevant !== undefined && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-muted-foreground flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3" /> Threat Relevant:
-                    </span>
-                    <span className="font-medium text-amber-400">{(stats as IngestionStats).articles_threat_relevant}</span>
-                  </div>
-                )}
+                <TooltipProvider delayDuration={300}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center justify-between cursor-default">
+                        <span className="text-muted-foreground flex items-center gap-1">
+                          <Rss className="h-3 w-3" /> Feeds:
+                        </span>
+                        <span className="font-medium">
+                          {(stats as IngestionStats).feeds_processed}
+                          {(stats as IngestionStats).feeds_failed > 0 && (
+                            <span className="text-red-400 ml-1">({(stats as IngestionStats).feeds_failed} failed)</span>
+                          )}
+                        </span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      className="max-w-md max-h-64 overflow-auto text-left font-sans text-sm font-normal leading-relaxed"
+                    >
+                      {(stats as IngestionStats).rss_feeds_with_articles?.length ? (
+                        <>
+                          <span className="font-medium block mb-1.5">RSS feeds processed ({(stats as IngestionStats).rss_feeds_with_articles?.length})</span>
+                          <div className="space-y-1 text-zinc-300 break-all">
+                            {(stats as IngestionStats).rss_feeds_with_articles?.map((url) => (
+                              <div key={url} className="text-xs">{url}</div>
+                            ))}
+                          </div>
+                        </>
+                      ) : (
+                        <span>No feed URLs available</span>
+                      )}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 {((stats as IngestionStats).articles_threat !== undefined || (stats as IngestionStats).articles_cybercrime !== undefined || (stats as IngestionStats).articles_news !== undefined) && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground flex items-center gap-1 shrink-0">
@@ -2553,7 +2562,7 @@ const JobCard: React.FC<JobCardProps> = ({
                   <span className="text-muted-foreground">Graph Synced:</span>
                   <span>{(stats as IngestionStats).articles_stored_graph}</span>
                 </div>
-                {((stats as IngestionStats).articles_threat !== undefined || (stats as IngestionStats).articles_cybercrime !== undefined || (stats as IngestionStats).articles_news !== undefined) && (
+                {/* {((stats as IngestionStats).articles_threat !== undefined || (stats as IngestionStats).articles_cybercrime !== undefined || (stats as IngestionStats).articles_news !== undefined) && (
                   <>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Threat:</span>
@@ -2568,34 +2577,11 @@ const JobCard: React.FC<JobCardProps> = ({
                       <span className="text-sky-400">{(stats as IngestionStats).articles_news ?? 0}</span>
                     </div>
                   </>
-                )}
-                {(() => {
-                  const feeds = (stats as IngestionStats).rss_feeds_with_articles
-                  if (!feeds?.length) return null
-                  return (
-                    <TooltipProvider delayDuration={300}>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Feeds processed:</span>
-                            <span>{(stats as IngestionStats).rss_feeds_with_articles?.length}</span>
-                          </div>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="top"
-                          className="max-w-md max-h-64 overflow-auto text-left font-sans text-sm font-normal leading-relaxed"
-                        >
-                          <span className="font-medium block mb-1.5">RSS feeds processed ({feeds.length})</span>
-                          <div className="space-y-1 text-zinc-300 break-all">
-                            {feeds.map((url) => (
-                              <div key={url} className="text-xs">{url}</div>
-                            ))}
-                          </div>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )
-                })()}
+                )} */}
+                {/* <div className="flex justify-between">
+                  <span className="text-muted-foreground">Feeds processed:</span>
+                  <span>{(stats as IngestionStats).rss_feeds_with_articles?.length ?? 0}</span>
+                </div> */}
               </>
             ) : (
               <>
