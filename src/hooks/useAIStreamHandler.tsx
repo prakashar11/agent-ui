@@ -90,10 +90,7 @@ const useAIChatStreamHandler = () => {
           ...(prev ?? []),
         ]
       })
-      const state = usePlaygroundStore.getState()
-      if (state.currentAgentId === jobAgentId && state.currentStorageKey === currentStorageKey) {
-        state.setCurrentContext(jobAgentId, newSessionId)
-      }
+      usePlaygroundStore.getState().setCurrentContext(jobAgentId, newSessionId)
     },
     [setSessionId, setSessionMessages, setActiveJob, setSessionsData]
   )
@@ -491,10 +488,8 @@ const useAIChatStreamHandler = () => {
                 }
                 
                 // Update current context if we're still viewing this agent
-                const state = usePlaygroundStore.getState()
-                if (state.currentAgentId === jobAgentId && state.currentStorageKey === oldKey) {
-                  usePlaygroundStore.getState().setCurrentContext(jobAgentId, chunk.session_id as string)
-                }
+                // Always sync store context to new session so main area shows running job instead of landing
+                usePlaygroundStore.getState().setCurrentContext(jobAgentId, chunk.session_id as string)
                 
                 // Clear old "new" key messages
                 usePlaygroundStore.getState().clearSessionMessages(oldKey)

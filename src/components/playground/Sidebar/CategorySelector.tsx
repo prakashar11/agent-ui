@@ -44,7 +44,7 @@ export function CategorySelector() {
   const { agents, setSelectedCategory, setCurrentContext, setSelectedModel, setHasStorage } = usePlaygroundStore()
   const { focusChatInput } = useChatActions()
   const [agentId, setAgentId] = useQueryState('agent', { history: 'push' })
-  const [, setSessionId] = useQueryState('session', { history: 'push' })
+  const [sessionId, setSessionId] = useQueryState('session', { history: 'push' })
   const [categoryParam, setCategoryParam] = useQueryState('category', { history: 'push' })
   const [expandedCategory, setExpandedCategory] = React.useState<string | null>(null)
 
@@ -67,14 +67,14 @@ export function CategorySelector() {
     const carouselItems = carouselItemsForGroup(group)
     const item = carouselItems.find((i) => i.id === agentId)
     if (!item) return
-    setCurrentContext(agentId, null)
+    setCurrentContext(agentId, sessionId ?? null)
     if (item.type === 'agent') {
       setSelectedModel(item.agent.model?.provider || '')
       setHasStorage(!!item.agent.storage)
     } else if (isVirtualAgentWithSessions(item.id)) {
       setHasStorage(true)
     }
-  }, [categoryParam, agentId, groupedAgents, setCurrentContext, setSelectedModel, setHasStorage])
+  }, [categoryParam, agentId, sessionId, groupedAgents, setCurrentContext, setSelectedModel, setHasStorage])
 
   const handleCategoryClick = (category: string) => {
     if (expandedCategory !== category) {

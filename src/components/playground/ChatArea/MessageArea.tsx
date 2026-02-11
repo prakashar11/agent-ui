@@ -1,6 +1,7 @@
 'use client'
 
-import { usePlaygroundStore } from '@/store'
+import { usePlaygroundStore, createStorageKey } from '@/store'
+import { useEffect } from 'react'
 import Messages from './Messages'
 import ScrollToBottom from '@/components/playground/ChatArea/ScrollToBottom'
 import ScrollToTop from '@/components/playground/ChatArea/ScrollToTop'
@@ -28,8 +29,17 @@ const clearVirtualAgent = (
 }
 
 const MessageArea = () => {
-  const { messages, currentAgentId, setCurrentContext, selectedEndpoint } = usePlaygroundStore()
+  const { messages, currentAgentId, setCurrentContext, selectedEndpoint, getActiveJob } = usePlaygroundStore()
+  const [agentId] = useQueryState('agent')
+  const [sessionId] = useQueryState('session')
   const [, setAgentId] = useQueryState('agent', { history: 'push' })
+
+  // When URL has agent+session and there's an active job for that session, sync store context so main area shows running job (fixes race where stream set session in URL but context wasn't updated yet)
+  useEffect(() => {
+    if (agentId && sessionId && getActiveJob(createStorageKey(agentId, sessionId))) {
+      setCurrentContext(agentId, sessionId)
+    }
+  }, [agentId, sessionId, getActiveJob, setCurrentContext])
 
   const onCloseVirtual = () => clearVirtualAgent(setAgentId, setCurrentContext)
 

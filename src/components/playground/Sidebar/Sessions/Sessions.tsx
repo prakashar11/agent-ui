@@ -63,7 +63,8 @@ const Sessions = () => {
     hasStorage,
     setSessionsData,
     sessionsRefreshTrigger,
-    getActiveJob
+    getActiveJob,
+    setCurrentContext
   } = usePlaygroundStore()
   const [isScrolling, setIsScrolling] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
@@ -109,7 +110,10 @@ const Sessions = () => {
         if (sessionId && hydrated) {
           const storageKey = createStorageKey(agentId, sessionId)
           const activeJob = getActiveJob(storageKey)
-          if (!activeJob) {
+          if (activeJob) {
+            // URL has new session from stream; sync store context so main area shows running job output instead of landing
+            setCurrentContext(agentId, sessionId)
+          } else {
             await getSession(sessionId, agentId)
           }
         }
@@ -126,6 +130,7 @@ const Sessions = () => {
     getSessions,
     getSession,
     getActiveJob,
+    setCurrentContext,
     isEndpointLoading,
     shouldFetchSessions,
     setSessionsData,

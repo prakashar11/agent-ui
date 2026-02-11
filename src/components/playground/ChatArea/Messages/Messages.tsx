@@ -13,7 +13,7 @@ import {
 import React, { type FC } from 'react'
 import ChatBlankState, { AgentLanding } from './ChatBlankState'
 import Icon from '@/components/ui/icon'
-import { usePlaygroundStore } from '@/store'
+import { usePlaygroundStore, createStorageKey } from '@/store'
 
 interface MessageListProps {
   messages: PlaygroundChatMessage[]
@@ -159,13 +159,19 @@ const ToolComponent = memo(({ tools }: ToolCallProps) => (
 ToolComponent.displayName = 'ToolComponent'
 const Messages = ({ messages }: MessageListProps) => {
   const currentAgentId = usePlaygroundStore((state) => state.currentAgentId)
+  const currentSessionId = usePlaygroundStore((state) => state.currentSessionId)
+  const getActiveJob = usePlaygroundStore((state) => state.getActiveJob)
   // Show chat area (empty thread + input) when an agent is selected; show category/carousel only when none selected
   if (messages.length === 0 && !currentAgentId) {
     return <ChatBlankState />
   }
-  // When a carousel/agent is selected and no messages: show landing with title, carousel name, and agent_tip
+  // When a carousel/agent is selected and no messages: show landing unless there's an active job for this session (show session view so stream output appears)
   if (messages.length === 0 && currentAgentId) {
-    return <AgentLanding agentId={currentAgentId} />
+    const storageKey = createStorageKey(currentAgentId, currentSessionId)
+    const activeJob = getActiveJob(storageKey)
+    if (!activeJob) {
+      return <AgentLanding agentId={currentAgentId} />
+    }
   }
 
   return (
