@@ -346,7 +346,8 @@ const useAIChatStreamHandler = () => {
                       accumulatedLen: accumulated.length,
                     })
                   }
-                  updateMessagesForSession(currentStorageKey, (prev) => {
+                  // Use ref so first chunk after stream_started goes to new session key
+                  updateMessagesForSession(jobStorageKeyRef.current ?? currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
@@ -362,7 +363,8 @@ const useAIChatStreamHandler = () => {
                     accumulated.length >= data.result.length
                       ? accumulated
                       : data.result
-                  updateMessagesForSession(currentStorageKey, (prev) => {
+                  // Use ref so done/result after stream_started goes to new session key
+                  updateMessagesForSession(jobStorageKeyRef.current ?? currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
@@ -372,7 +374,8 @@ const useAIChatStreamHandler = () => {
                   })
                 }
                 if (data.error != null) {
-                  updateMessagesForSession(currentStorageKey, (prev) => {
+                  // Use ref so error after stream_started goes to new session key
+                  updateMessagesForSession(jobStorageKeyRef.current ?? currentStorageKey, (prev) => {
                     const next = [...prev]
                     const last = next[next.length - 1]
                     if (last && last.role === 'agent') {
