@@ -39,14 +39,26 @@ cd agent-ui
 
 2. Install dependencies:
 
+Using pnpm:
 ```bash
 pnpm install
 ```
 
+Using bun:
+```bash
+bun install
+```
+
 3. Start the development server:
 
+Using pnpm:
 ```bash
 pnpm dev
+```
+
+Using bun:
+```bash
+bun run dev
 ```
 
 To restart
@@ -54,9 +66,14 @@ To restart
 pkill -f "next dev" 2>/dev/null
 ```
 
-To clean cache
+To clean cache (pnpm)
 ```bash
 pnpm store prune && rm -rf .next && pnpm run dev
+```
+
+To clean cache (bun)
+```bash
+rm -rf .next && bun run dev
 ```
 
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
